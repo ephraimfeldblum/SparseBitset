@@ -1,0 +1,48 @@
+# Build artifacts
+*.o
+*.so
+*.a
+*.dylib
+*.dll
+
+# Executables
+debug_test
+test_edge_case
+static_veb
+veb_c_test
+
+# Build directories
+build/
+cmake-build-*/
+
+# Redis files
+dump.rdb
+*.rdb
+
+# Log files
+*.log
+vg.log
+
+# Backup files
+*.backup
+*.backup.old
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# CMake files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Valgrind output
+*.valgrind

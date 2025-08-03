@@ -1,0 +1,193 @@
+# Redis Bitset Module
+
+A Redis module that provides efficient sparse bitset operations using van Emde Boas (VEB) trees. This module allows you to store and manipulate large sparse bitsets with excellent performance characteristics.
+
+## Features
+
+- **Sparse bitset operations**: Efficiently handle bitsets with large gaps between set bits
+- **VEB tree backend**: O(log log U) time complexity for most operations, where U is the universe size
+- **Multiple hash table implementations**: Support for std, Abseil, and Boost hash tables
+- **Set operations**: Union, intersection, symmetric difference (XOR)
+- **Range queries**: Find all set bits in a given range
+- **Memory efficient**: Only stores set bits, not the entire bit array, with O(n) space complexity, where n is the number of set bits
+
+## Building
+
+### Prerequisites
+
+- GCC with C++23 support
+- CMake 3.16 or later
+- Redis server (for testing)
+- Optional: Abseil or Boost libraries for alternative hash table implementations
+
+### Build Steps
+
+1. **Build the VEB library** (if not already built):
+   ```bash
+   cd VEB
+   make release
+   cd ..
+   ```
+
+2. **Build the Redis module**:
+   ```bash
+   make
+   ```
+
+This will create `bitset.so` - the Redis module shared library.
+
+## Installation
+
+1. **Copy the module** to your Redis modules directory or keep it in the current directory
+2. **Load the module** in Redis:
+   ```bash
+   redis-cli MODULE LOAD /path/to/bitset.so
+   ```
+
+## Commands
+
+All commands use the `BITS.` prefix to avoid conflicts with Redis built-in commands.
+
+### Basic Operations
+
+- **`BITS.INSERT key element [element ...]`** - Add one or more elements to the bitset
+  - Returns: Number of elements that were newly added
+
+- **`BITS.REMOVE key element [element ...]`** - Remove one or more elements from the bitset
+  - Returns: Number of elements that were removed
+
+- **`BITS.CONTAINS key element`** - Check if an element exists in the bitset
+  - Returns: 1 if the element exists, 0 otherwise
+
+- **`BITS.SIZE key`** - Get the number of elements in the bitset
+  - Returns: Count of elements
+
+- **`BITS.CLEAR key`** - Remove all elements from the bitset
+  - Returns: "OK"
+
+### Query Operations
+
+- **`BITS.MIN key`** - Get the smallest element in the bitset
+  - Returns: The minimum element, or null if empty
+- **`BITS.MAX key`** - Get the largest element in the bitset
+  - Returns: The maximum element, or null if empty
+- **`BITS.SUCCESSOR key element`** - Find the smallest element greater than the given element
+  - Returns: The successor element, or null if none exists
+- **`BITS.PREDECESSOR key element`** - Find the largest element smaller than the given element
+  - Returns: The predecessor element, or null if none exists
+- **`BITS.TOARRAY key`** - Get all elements as an array, sorted in ascending order
+  - Returns: Array of all elements
+
+### Set Operations
+
+- **`BITS.UNION dest src1 [src2 ...]`** - Store union (src1 | src2 | ...) of bitsets in dest
+  - Returns: Size of the resulting set
+- **`BITS.INTERSECT dest src1 [src2 ...]`** - Store intersection (src1 & src2 & ...) of bitsets in dest
+  - Returns: Size of the resulting set
+- **`BITS.DIFF dest src1 [src2 ...]`** - Store difference (src1 ^ src2 ^ ...) in dest
+  - Returns: Size of the resulting set
+
+### Utility Operations
+
+- **`BITS.INFO key`** - Get detailed information about the bitset
+  - Returns: Array with size, universe_size, allocated_memory, total_clusters, max_depth, hash_table
+
+## Usage Examples
+
+```bash
+# Add elements to a bitset (bitset is created automatically)
+redis-cli BITS.INSERT myset 1 5 10 100 1000
+# Returns: (integer) 5
+
+# Check if elements exist
+redis-cli BITS.CONTAINS myset 5
+# Returns: (integer) 1
+
+redis-cli BITS.CONTAINS myset 7
+# Returns: (integer) 0
+
+# Count elements
+redis-cli BITS.SIZE myset
+# Returns: (integer) 5
+
+# Get min and max
+redis-cli BITS.MIN myset
+# Returns: (integer) 1
+
+redis-cli BITS.MAX myset
+# Returns: (integer) 1000
+
+# Find successor and predecessor
+redis-cli BITS.SUCCESSOR myset 3
+# Returns: (integer) 5
+
+redis-cli BITS.PREDECESSOR myset 100
+# Returns: (integer) 10
+
+# List all elements
+redis-cli BITS.TOARRAY myset
+# Returns: 1) (integer) 1
+#          2) (integer) 5
+#          3) (integer) 10
+#          4) (integer) 100
+#          5) (integer) 1000
+
+# Set operations
+redis-cli BITS.INSERT set1 1 2 3 4
+redis-cli BITS.INSERT set2 3 4 5 6
+
+redis-cli BITS.UNION result set1 set2
+# Returns: (integer) 6  (elements: 1,2,3,4,5,6)
+
+redis-cli BITS.INTERSECT result set1 set2
+# Returns: (integer) 2  (elements: 3,4)
+
+redis-cli BITS.DIFF result set1 set2
+# Returns: (integer) 2  (elements: 1,2)
+
+# Remove elements
+redis-cli BITS.REMOVE myset 5 10
+# Returns: (integer) 2
+
+# Get information
+redis-cli BITS.INFO myset
+# Returns detailed information about the bitset
+
+# Clear all elements
+redis-cli BITS.CLEAR myset
+# Returns: OK
+```
+
+## Testing
+
+Run the test suite to verify the module works correctly:
+
+```bash
+# Make sure Redis is running
+redis-server &
+
+# Run tests
+./test_bitset.sh
+```
+
+## Performance Characteristics
+
+- **Insert**: O(log log U) amortized, where U is the universe size
+- **Delete/Contains**: O(log log U)
+- **Min/Max**: O(1)
+- **Successor/Predecessor**: O(log log U)
+- **Memory usage**: O(n), where n is the number of set bits
+- **Set operations**: O(n + m), where n and m are the sizes of the input sets
+
+## Implementation Details
+
+The module uses van Emde Boas trees as the underlying data structure, which provides excellent performance for sparse bitsets. The VEB tree recursively divides the universe into clusters, allowing for very fast operations even with large universe sizes.
+
+The module supports multiple hash table implementations:
+- **std**: Uses `std::unordered_map` (always available)
+- **absl**: Uses `absl::flat_hash_map` (if Abseil is available)
+- **boost**: Uses `boost::unordered_flat_map` (if Boost is available)
+
+## License
+
+This module is part of the VEB Tree implementation project.
