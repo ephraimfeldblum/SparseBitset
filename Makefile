@@ -5,6 +5,9 @@
 MODULE_NAME = bitset
 MODULE_VERSION = 1
 
+# Build configuration
+BUILD_TYPE ?= Release
+
 # Directories
 VEB_DIR = VEB
 VEB_BUILD_DIR = $(VEB_DIR)/build
@@ -44,10 +47,16 @@ all: $(MODULE_SO)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
+# Ensure VEB build directory exists and is configured
+$(VEB_BUILD_DIR):
+	@echo "Setting up VEB build directory..."
+	mkdir -p $(VEB_BUILD_DIR)
+	cd $(VEB_BUILD_DIR) && cmake -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) ..
+
 # Build VEB library if needed
-$(VEB_BUILD_DIR)/libvebtree.so:
-	@echo "Building VEB library..."
-	cd $(VEB_DIR) && $(MAKE) -C build
+$(VEB_BUILD_DIR)/libvebtree.so: $(VEB_BUILD_DIR)
+	@echo "Building VEB library with $(BUILD_TYPE) configuration..."
+	cd $(VEB_BUILD_DIR) && $(MAKE) vebtree
 
 # Compile module source files
 %.o: %.c
@@ -61,10 +70,15 @@ $(MODULE_SO): $(MODULE_OBJECTS) $(VEB_BUILD_DIR)/libvebtree.so
 clean:
 	rm -f $(MODULE_OBJECTS) $(MODULE_SO)
 	rm -rf $(BUILD_DIR)
+	@if [ -d "$(VEB_DIR)" ] && [ -f "$(VEB_DIR)/Makefile" ]; then \
+		cd $(VEB_DIR) && $(MAKE) clean; \
+	fi
 
 # Clean everything including VEB library
 distclean: clean
-	cd $(VEB_DIR) && $(MAKE) -C build clean
+	@if [ -d "$(VEB_DIR)" ]; then \
+		cd $(VEB_DIR) && $(MAKE) clean; \
+	fi
 
 # Install the module (copy to a standard location)
 install: $(MODULE_SO)
@@ -91,10 +105,19 @@ test-info: $(MODULE_SO)
 	@echo "redis-cli BITS.SET testkey 1 5 10"
 	@echo "redis-cli BITS.LIST testkey"
 
+# Build targets for different configurations
+debug:
+	@$(MAKE) all BUILD_TYPE=Debug
+
+release:
+	@$(MAKE) all BUILD_TYPE=Release
+
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  all       - Build the Redis module (default)"
+	@echo "  all       - Build the Redis module (default: Release)"
+	@echo "  debug     - Build with Debug configuration"
+	@echo "  release   - Build with Release configuration"
 	@echo "  clean     - Clean module build artifacts"
 	@echo "  distclean - Clean everything including VEB library"
 	@echo "  install   - Show installation instructions"
@@ -102,5 +125,8 @@ help:
 	@echo "  example   - Run example demonstration"
 	@echo "  test-info - Show manual testing instructions"
 	@echo "  help      - Show this help"
+	@echo ""
+	@echo "Build configuration:"
+	@echo "  BUILD_TYPE=$(BUILD_TYPE) (can be Debug or Release)"
 
-.PHONY: all clean distclean install test help
+.PHONY: all debug release clean distclean install test help

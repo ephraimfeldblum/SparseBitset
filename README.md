@@ -22,19 +22,25 @@ A Redis module that provides efficient sparse bitset operations using van Emde B
 
 ### Build Steps
 
-1. **Build the VEB library** (if not already built):
-   ```bash
-   cd VEB
-   make release
-   cd ..
-   ```
+Simply run from the root directory:
 
-2. **Build the Redis module**:
-   ```bash
-   make
-   ```
+```bash
+make
+```
 
-This will create `bitset.so` - the Redis module shared library.
+This will:
+- Automatically create the VEB build directory if it doesn't exist
+- Configure and build the VEB library with Release optimization
+- Build the Redis module (`bitset.so`)
+
+### Build Options
+
+- **`make`** or **`make release`** - Build with Release configuration (default, optimized)
+- **`make debug`** - Build with Debug configuration (includes debug symbols)
+- **`make clean`** - Clean all build artifacts including VEB library
+- **`make help`** - Show available build targets and options
+
+The build process automatically handles dependencies and only builds the necessary shared libraries.
 
 ## Installation
 
