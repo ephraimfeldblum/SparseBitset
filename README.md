@@ -68,36 +68,16 @@ All commands use the `BITS.` prefix to avoid conflicts with Redis built-in comma
 
 - **`BITS.INSERT key element [element ...]`** - Add one or more elements to the bitset
   - Returns: Number of elements that were newly added
-
 - **`BITS.REMOVE key element [element ...]`** - Remove one or more elements from the bitset
   - Returns: Number of elements that were removed
-
-- **`BITS.GET key offset`** - Returns the bit value at offset in the bitset
-  - Returns: 1 if the bit is set, 0 otherwise
-  - Behaves similarly to Redis GETBIT command
-
-- **`BITS.COUNT key [start end [BYTE | BIT]]`** - Count elements in the bitset or within a range
-  - `key` - The bitset key
-  - `start` - Optional start index (default: 0)
-  - `end` - Optional end index, can be negative to count from end (default: -1)
-  - `BYTE | BIT` - Optional unit specification (default: BYTE)
-  - Returns: Count of elements in the specified range
-  - Behaves similarly to Redis BITCOUNT command
-
-- **`BITS.POS key bit [start [end [BYTE | BIT]]]`** - Find the position of the first bit set to 1 or 0
-  - `key` - The bitset key
-  - `bit` - Must be 0 or 1 (the bit value to search for)
-  - `start` - Optional starting position (default: 0)
-  - `end` - Optional ending position (default: end of bitset)
-  - `BYTE | BIT` - Optional unit specification (default: BYTE)
-  - Returns: Position of the first bit with the specified value, or -1 if not found
-  - Behaves similarly to Redis BITPOS command
-
 - **`BITS.CLEAR key`** - Remove all elements from the bitset
   - Returns: "OK"
 
 ### Query Operations
 
+- **`BITS.GET key offset`** - Returns the bit value at offset in the bitset
+  - Returns: 1 if the bit is set, 0 otherwise
+  - Behaves similarly to Redis GETBIT command
 - **`BITS.MIN key`** - Get the smallest element in the bitset
   - Returns: The minimum element, or null if empty
 - **`BITS.MAX key`** - Get the largest element in the bitset
@@ -106,8 +86,21 @@ All commands use the `BITS.` prefix to avoid conflicts with Redis built-in comma
   - Returns: The successor element, or null if none exists
 - **`BITS.PREDECESSOR key element`** - Find the largest element smaller than the given element
   - Returns: The predecessor element, or null if none exists
-- **`BITS.TOARRAY key`** - Get all elements as an array, sorted in ascending order
-  - Returns: Array of all elements
+- **`BITS.COUNT key [start end [BYTE | BIT]]`** - Count elements in the bitset or within a range
+  - `key` - The bitset key
+  - `start` - Optional start index (default: 0)
+  - `end` - Optional end index, can be negative to count from end (default: -1)
+  - `BYTE | BIT` - Optional unit specification (default: BYTE)
+  - Returns: Count of elements in the specified range
+  - Behaves similarly to Redis BITCOUNT command
+- **`BITS.POS key bit [start [end [BYTE | BIT]]]`** - Find the position of the first bit set to 1 or 0
+  - `key` - The bitset key
+  - `bit` - Must be 0 or 1 (the bit value to search for)
+  - `start` - Optional starting position (default: 0)
+  - `end` - Optional ending position (default: end of bitset)
+  - `BYTE | BIT` - Optional unit specification (default: BYTE)
+  - Returns: Position of the first bit with the specified value, or -1 if not found
+  - Behaves similarly to Redis BITPOS command
 
 ### Set Operations
 
@@ -120,6 +113,8 @@ All commands use the `BITS.` prefix to avoid conflicts with Redis built-in comma
 
 ### Utility Operations
 
+- **`BITS.TOARRAY key`** - Get all elements as an array, sorted in ascending order
+  - Returns: Array of all elements
 - **`BITS.INFO key`** - Get detailed information about the bitset
   - Returns: Array with size, universe_size, allocated_memory, total_clusters, max_depth, hash_table
 
