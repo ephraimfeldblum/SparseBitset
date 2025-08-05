@@ -192,24 +192,26 @@ static int bits_rem_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RedisModule_ReplyWithLongLong(ctx, removed);
 }
 
-// bits.CONTAINS key element
-static int bits_exists_command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+// bits.GET key offset
+static int bits_get_command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 3) {
         return RedisModule_WrongArity(ctx);
     }
-    
+
+    long long offset;
+    if (RedisModule_StringToLongLong(argv[2], &offset) != REDISMODULE_OK || offset < 0) {
+        return RedisModule_ReplyWithError(ctx, "ERR bit offset is not an integer or out of range");
+    }
+
     Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
     if (!bitset) {
+        // When key does not exist, it is assumed to be an empty string, so offset is always out of range and the value is 0
         return RedisModule_ReplyWithLongLong(ctx, 0);
     }
-    
-    long long element;
-    if (RedisModule_StringToLongLong(argv[2], &element) != REDISMODULE_OK || element < 0) {
-        return RedisModule_ReplyWithError(ctx, "ERR invalid element value");
-    }
-    
-    bool exists = bitset->api->contains(bitset->handle, (size_t)element);
-    return RedisModule_ReplyWithLongLong(ctx, exists ? 1 : 0);
+
+    // Check if the bit at offset is set
+    bool bit_set = bitset->api->contains(bitset->handle, (size_t)offset);
+    return RedisModule_ReplyWithLongLong(ctx, bit_set ? 1 : 0);
 }
 
 // Helper function to count elements in a range
@@ -745,7 +747,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
     
-    if (RedisModule_CreateCommand(ctx, "bits.contains", bits_exists_command, "readonly fast", 1, 1, 1) == REDISMODULE_ERR) {
+    if (RedisModule_CreateCommand(ctx, "bits.get", bits_get_command, "readonly fast", 1, 1, 1) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
     
