@@ -72,8 +72,9 @@ All commands use the `BITS.` prefix to avoid conflicts with Redis built-in comma
 - **`BITS.REMOVE key element [element ...]`** - Remove one or more elements from the bitset
   - Returns: Number of elements that were removed
 
-- **`BITS.CONTAINS key element`** - Check if an element exists in the bitset
-  - Returns: 1 if the element exists, 0 otherwise
+- **`BITS.GET key offset`** - Returns the bit value at offset in the bitset
+  - Returns: 1 if the bit is set, 0 otherwise
+  - Behaves similarly to Redis GETBIT command
 
 - **`BITS.COUNT key [start end [BYTE | BIT]]`** - Count elements in the bitset or within a range
   - `key` - The bitset key
@@ -81,6 +82,7 @@ All commands use the `BITS.` prefix to avoid conflicts with Redis built-in comma
   - `end` - Optional end index, can be negative to count from end (default: -1)
   - `BYTE | BIT` - Optional unit specification (default: BYTE)
   - Returns: Count of elements in the specified range
+  - Behaves similarly to Redis BITCOUNT command
 
 - **`BITS.POS key bit [start [end [BYTE | BIT]]]`** - Find the position of the first bit set to 1 or 0
   - `key` - The bitset key
@@ -128,11 +130,11 @@ All commands use the `BITS.` prefix to avoid conflicts with Redis built-in comma
 redis-cli BITS.INSERT myset 1 5 10 100 1000
 # Returns: (integer) 5
 
-# Check if elements exist
-redis-cli BITS.CONTAINS myset 5
+# Check if bits are set
+redis-cli BITS.GET myset 5
 # Returns: (integer) 1
 
-redis-cli BITS.CONTAINS myset 7
+redis-cli BITS.GET myset 7
 # Returns: (integer) 0
 
 # Count all elements
@@ -221,7 +223,7 @@ redis-cli BITS.POS postest 0 2 8 BIT
 ## Performance Characteristics
 
 - **Insert**: O(log log U) amortized, where U is the universe size
-- **Delete/Contains**: O(log log U)
+- **Delete/Get**: O(log log U)
 - **Min/Max**: O(1)
 - **Successor/Predecessor**: O(log log U)
 - **Memory usage**: O(n), where n is the number of set bits
