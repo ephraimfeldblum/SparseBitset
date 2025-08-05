@@ -143,7 +143,7 @@ static int bits_add_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     
     Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
     if (!bitset) {
-        return RedisModule_ReplyWithError(ctx, "ERR failed to create or access bitset");
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
     }
     
     long long added = 0;
