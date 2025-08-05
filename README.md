@@ -59,8 +59,12 @@ All commands use the `BITS.` prefix to avoid conflicts with Redis built-in comma
 - **`BITS.CONTAINS key element`** - Check if an element exists in the bitset
   - Returns: 1 if the element exists, 0 otherwise
 
-- **`BITS.SIZE key`** - Get the number of elements in the bitset
-  - Returns: Count of elements
+- **`BITS.COUNT key [start end [BYTE | BIT]]`** - Count elements in the bitset or within a range
+  - `key` - The bitset key
+  - `start` - Optional start index (default: 0)
+  - `end` - Optional end index, can be negative to count from end (default: -1)
+  - `BYTE | BIT` - Optional unit specification (default: BYTE)
+  - Returns: Count of elements in the specified range
 
 - **`BITS.CLEAR key`** - Remove all elements from the bitset
   - Returns: "OK"
@@ -106,9 +110,21 @@ redis-cli BITS.CONTAINS myset 5
 redis-cli BITS.CONTAINS myset 7
 # Returns: (integer) 0
 
-# Count elements
-redis-cli BITS.SIZE myset
+# Count all elements
+redis-cli BITS.COUNT myset
 # Returns: (integer) 5
+
+# Count elements in byte range 0-10
+redis-cli BITS.COUNT myset 0 10
+# Returns: (integer) 3
+
+# Count elements in bit range 0-100
+redis-cli BITS.COUNT myset 0 100 BIT
+# Returns: (integer) 4
+
+# Count elements from byte 5 to end
+redis-cli BITS.COUNT myset 5 -1
+# Returns: (integer) 2
 
 # Get min and max
 redis-cli BITS.MIN myset
