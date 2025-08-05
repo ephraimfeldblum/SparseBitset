@@ -70,6 +70,11 @@ All commands use the `BITS.` prefix to avoid conflicts with Redis built-in comma
   - Returns: Number of elements that were newly added
 - **`BITS.REMOVE key element [element ...]`** - Remove one or more elements from the bitset
   - Returns: Number of elements that were removed
+- **`BITS.SET key offset value`** - Sets or clears the bit at offset in the bitset
+  - `offset` - The bit position (must be >= 0)
+  - `value` - The bit value to set (0 or 1)
+  - Returns: The previous value of the bit at offset
+  - Behaves similarly to Redis SETBIT command
 - **`BITS.CLEAR key`** - Remove all elements from the bitset
   - Returns: "OK"
 
@@ -78,6 +83,11 @@ All commands use the `BITS.` prefix to avoid conflicts with Redis built-in comma
 - **`BITS.GET key offset`** - Returns the bit value at offset in the bitset
   - Returns: 1 if the bit is set, 0 otherwise
   - Behaves similarly to Redis GETBIT command
+- **`BITS.SET key offset value`** - Sets or clears the bit at offset in the bitset
+  - `offset` - The bit position (must be >= 0)
+  - `value` - The bit value to set (0 or 1)
+  - Returns: The previous value of the bit at offset
+  - Behaves similarly to Redis SETBIT command
 - **`BITS.MIN key`** - Get the smallest element in the bitset
   - Returns: The minimum element, or null if empty
 - **`BITS.MAX key`** - Get the largest element in the bitset

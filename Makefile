@@ -86,24 +86,7 @@ install: $(MODULE_SO)
 	@echo "Copy $(MODULE_SO) to your Redis modules directory"
 	@echo "Then load it in Redis with: MODULE LOAD /path/to/$(MODULE_SO)"
 
-# Test the module (requires Redis to be running)
-test: $(MODULE_SO)
-	@echo "Running automated tests..."
-	./test_module.sh
 
-# Run example demonstration
-example: $(MODULE_SO)
-	@echo "Running example demonstration..."
-	./example.sh
-
-# Quick test (just show commands)
-test-info: $(MODULE_SO)
-	@echo "Testing Redis module..."
-	@echo "Make sure Redis is running, then execute:"
-	@echo "redis-cli MODULE LOAD ./$(MODULE_SO)"
-	@echo "redis-cli BITS.CREATE testkey"
-	@echo "redis-cli BITS.SET testkey 1 5 10"
-	@echo "redis-cli BITS.LIST testkey"
 
 # Build targets for different configurations
 debug:
@@ -121,12 +104,9 @@ help:
 	@echo "  clean     - Clean module build artifacts"
 	@echo "  distclean - Clean everything including VEB library"
 	@echo "  install   - Show installation instructions"
-	@echo "  test      - Run automated test suite"
-	@echo "  example   - Run example demonstration"
-	@echo "  test-info - Show manual testing instructions"
 	@echo "  help      - Show this help"
 	@echo ""
 	@echo "Build configuration:"
 	@echo "  BUILD_TYPE=$(BUILD_TYPE) (can be Debug or Release)"
 
-.PHONY: all debug release clean distclean install test help
+.PHONY: all debug release clean distclean install help
