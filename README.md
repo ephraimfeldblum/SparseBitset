@@ -45,7 +45,17 @@ The build process automatically handles dependencies and only builds the necessa
 ## Installation
 
 1. **Copy the module** to your Redis modules directory or keep it in the current directory
-2. **Load the module** in Redis:
+2. **Load the module at Redis startup** (preferred method):
+   ```bash
+   redis-server --loadmodule /path/to/bitset.so
+   ```
+
+   Or add to your `redis.conf`:
+   ```
+   loadmodule /path/to/bitset.so
+   ```
+
+3. **Alternative: Load the module in a running Redis instance**:
    ```bash
    redis-cli MODULE LOAD /path/to/bitset.so
    ```
@@ -71,6 +81,15 @@ All commands use the `BITS.` prefix to avoid conflicts with Redis built-in comma
   - `end` - Optional end index, can be negative to count from end (default: -1)
   - `BYTE | BIT` - Optional unit specification (default: BYTE)
   - Returns: Count of elements in the specified range
+
+- **`BITS.POS key bit [start [end [BYTE | BIT]]]`** - Find the position of the first bit set to 1 or 0
+  - `key` - The bitset key
+  - `bit` - Must be 0 or 1 (the bit value to search for)
+  - `start` - Optional starting position (default: 0)
+  - `end` - Optional ending position (default: end of bitset)
+  - `BYTE | BIT` - Optional unit specification (default: BYTE)
+  - Returns: Position of the first bit with the specified value, or -1 if not found
+  - Behaves similarly to Redis BITPOS command
 
 - **`BITS.CLEAR key`** - Remove all elements from the bitset
   - Returns: "OK"
@@ -178,6 +197,23 @@ redis-cli BITS.INFO myset
 # Clear all elements
 redis-cli BITS.CLEAR myset
 # Returns: OK
+
+# Find bit positions
+redis-cli BITS.INSERT postest 1 5 10 100
+redis-cli BITS.POS postest 1
+# Returns: (integer) 1  (first set bit)
+
+redis-cli BITS.POS postest 0
+# Returns: (integer) 0  (first unset bit)
+
+redis-cli BITS.POS postest 1 0 1
+# Returns: (integer) 1  (first set bit in byte range 0-1)
+
+redis-cli BITS.POS postest 1 0 10 BIT
+# Returns: (integer) 1  (first set bit in bit range 0-10)
+
+redis-cli BITS.POS postest 0 2 8 BIT
+# Returns: (integer) 2  (first unset bit in bit range 2-8)
 ```
 
 
