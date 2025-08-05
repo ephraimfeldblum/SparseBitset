@@ -14,4 +14,4 @@ def test_module_load(env: Env):
 
     # Basic operation: insert and size
     env.assertEqual(env.cmd("BITS.INSERT", "myset", 1, 2, 3), 3)
-    env.assertEqual(env.cmd("BITS.SIZE", "myset"), 3) 
+    env.assertEqual(env.cmd("BITS.COUNT", "myset"), 3) 

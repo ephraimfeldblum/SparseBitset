@@ -2,9 +2,9 @@ from RLTest import Env
 
 
 def test_toarray_order(env: Env):
-    env.cmd("bits.insert", "arr", 100, 1, 50)
+    env.cmd("BITS.INSERT", "arr", 100, 1, 50)
     expected = [1, 50, 100]
-    env.assertEqual(env.cmd("bits.toarray", "arr"), expected)
+    env.assertEqual(env.cmd("BITS.TOARRAY", "arr"), expected)
 
-    env.cmd("bits.remove", "arr", 50)
-    env.assertEqual(env.cmd("bits.toarray", "arr"), [1, 100]) 
+    env.cmd("BITS.REMOVE", "arr", 50)
+    env.assertEqual(env.cmd("BITS.TOARRAY", "arr"), [1, 100]) 

@@ -2,8 +2,8 @@ from RLTest import Env
 
 
 def test_info_command(env: Env):
-    env.cmd("bits.insert", "info", 1, 100)
-    info = env.cmd("bits.info", "info")
+    env.cmd("BITS.INSERT", "info", 1, 100)
+    info = env.cmd("BITS.INFO", "info")
     # Expected array length 6
     env.assertEqual(len(info), 12)
     # Size index 0 matches
