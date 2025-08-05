@@ -5,7 +5,7 @@ A Redis module that provides efficient sparse bitset operations using van Emde B
 ## Features
 
 - **Sparse bitset operations**: Efficiently handle bitsets with large gaps between set bits
-- **VEB tree backend**: O(log log U) time complexity for most operations, where U is the universe size
+- **VEB tree backend**: O(log log U) time complexity, where U is the universe size
 - **Multiple hash table implementations**: Support for std, Abseil, and Boost hash tables
 - **Set operations**: Union, intersection, symmetric difference (XOR)
 - **Range queries**: Find all set bits in a given range
@@ -80,11 +80,11 @@ All commands use the `BITS.` prefix to avoid conflicts with Redis built-in comma
 
 ### Set Operations
 
-- **`BITS.UNION dest src1 [src2 ...]`** - Store union (src1 | src2 | ...) of bitsets in dest
+- **`BITS.OR dest src1 [src2 ...]`** - Store union (src1 | src2 | ...) of bitsets in dest
   - Returns: Size of the resulting set
-- **`BITS.INTERSECT dest src1 [src2 ...]`** - Store intersection (src1 & src2 & ...) of bitsets in dest
+- **`BITS.AND dest src1 [src2 ...]`** - Store intersection (src1 & src2 & ...) of bitsets in dest
   - Returns: Size of the resulting set
-- **`BITS.DIFF dest src1 [src2 ...]`** - Store difference (src1 ^ src2 ^ ...) in dest
+- **`BITS.XOR dest src1 [src2 ...]`** - Store symmetric difference (src1 ^ src2 ^ ...) in dest
   - Returns: Size of the resulting set
 
 ### Utility Operations
@@ -136,14 +136,14 @@ redis-cli BITS.TOARRAY myset
 redis-cli BITS.INSERT set1 1 2 3 4
 redis-cli BITS.INSERT set2 3 4 5 6
 
-redis-cli BITS.UNION result set1 set2
+redis-cli BITS.OR result set1 set2
 # Returns: (integer) 6  (elements: 1,2,3,4,5,6)
 
-redis-cli BITS.INTERSECT result set1 set2
+redis-cli BITS.AND result set1 set2
 # Returns: (integer) 2  (elements: 3,4)
 
-redis-cli BITS.DIFF result set1 set2
-# Returns: (integer) 2  (elements: 1,2)
+redis-cli BITS.XOR result set1 set2
+# Returns: (integer) 4  (elements: 1,2,5,6)
 
 # Remove elements
 redis-cli BITS.REMOVE myset 5 10
@@ -158,17 +158,7 @@ redis-cli BITS.CLEAR myset
 # Returns: OK
 ```
 
-## Testing
 
-Run the test suite to verify the module works correctly:
-
-```bash
-# Make sure Redis is running
-redis-server &
-
-# Run tests
-./test_bitset.sh
-```
 
 ## Performance Characteristics
 
