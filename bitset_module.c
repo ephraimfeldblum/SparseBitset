@@ -546,6 +546,154 @@ static int bits_xor_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RedisModule_ReplyWithLongLong(ctx, (long long)result_size);
 }
 
+// Helper function to find the position of the first bit set to the specified value
+static long long find_bit_position(Bitset *bitset, int bit_value, long long start, long long end, bool is_bit_range) {
+    if (!bitset) {
+        return -1;
+    }
+
+    // Convert byte indices to bit indices if needed
+    long long bit_start = is_bit_range ? start : start * 8;
+    long long bit_end = is_bit_range ? end : (end * 8) + 7;
+
+    // Ensure non-negative indices
+    if (bit_start < 0) bit_start = 0;
+    if (bit_end < 0) return -1;
+
+    if (bit_value == 1) {
+        // Looking for first set bit (1)
+        VebTree_OptionalSize_t current;
+        if (bit_start == 0) {
+            current = bitset->api->min(bitset->handle);
+        } else {
+            current = bitset->api->successor(bitset->handle, (size_t)(bit_start - 1));
+        }
+
+        if (current.has_value && (long long)current.value <= bit_end) {
+            return (long long)current.value;
+        }
+    } else {
+        // Looking for first unset bit (0)
+        // We need to scan through the range and find the first position that's not set
+        for (long long pos = bit_start; pos <= bit_end; pos++) {
+            if (!bitset->api->contains(bitset->handle, (size_t)pos)) {
+                return pos;
+            }
+        }
+    }
+
+    return -1;
+}
+
+// bits.POS key bit [start [end [BYTE | BIT]]]
+static int bits_pos_command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    // Validate argument count
+    if (argc < 3 || argc > 6) {
+        return RedisModule_WrongArity(ctx);
+    }
+
+    Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+
+    // Parse bit value (0 or 1)
+    long long bit_value;
+    if (RedisModule_StringToLongLong(argv[2], &bit_value) != REDISMODULE_OK ||
+        (bit_value != 0 && bit_value != 1)) {
+        return RedisModule_ReplyWithError(ctx, "ERR bit value must be 0 or 1");
+    }
+
+    // Default range covers entire bitset
+    long long start = 0;
+    long long end = -1;  // Will be set to max position if not specified
+    bool is_bit_range = false;
+
+    // Parse start index if provided
+    if (argc >= 4) {
+        if (RedisModule_StringToLongLong(argv[3], &start) != REDISMODULE_OK) {
+            return RedisModule_ReplyWithError(ctx, "ERR invalid start index");
+        }
+    }
+
+    // Parse end index if provided
+    if (argc >= 5) {
+        if (RedisModule_StringToLongLong(argv[4], &end) != REDISMODULE_OK) {
+            return RedisModule_ReplyWithError(ctx, "ERR invalid end index");
+        }
+    }
+
+    // Parse BYTE/BIT specification (default is BYTE)
+    if (argc == 6) {
+        const char *unit = RedisModule_StringPtrLen(argv[5], NULL);
+        if (strcasecmp(unit, "BIT") == 0) {
+            is_bit_range = true;
+        } else if (strcasecmp(unit, "BYTE") == 0) {
+            is_bit_range = false;
+        } else {
+            return RedisModule_ReplyWithError(ctx, "ERR syntax error, expected BYTE or BIT");
+        }
+    }
+
+    // Handle non-existent key (treated as empty string)
+    if (!bitset) {
+        if (bit_value == 0) {
+            // First unset bit in empty string is at position 0
+            return RedisModule_ReplyWithLongLong(ctx, start >= 0 ? start : 0);
+        } else {
+            // No set bits in empty string
+            return RedisModule_ReplyWithLongLong(ctx, -1);
+        }
+    }
+
+    // Handle negative end index (count from end)
+    if (end < 0 && argc >= 5) {
+        // For negative end, we need to find the maximum element to calculate the actual end
+        VebTree_OptionalSize_t max_elem = bitset->api->max(bitset->handle);
+        if (max_elem.has_value) {
+            long long max_index = is_bit_range ? (long long)max_elem.value : ((long long)max_elem.value / 8);
+            end = max_index + end + 1;
+            if (end < 0) {
+                return RedisModule_ReplyWithLongLong(ctx, -1);
+            }
+        } else {
+            // Empty bitset, treat as if searching in empty string
+            if (bit_value == 0) {
+                return RedisModule_ReplyWithLongLong(ctx, start >= 0 ? start : 0);
+            } else {
+                return RedisModule_ReplyWithLongLong(ctx, -1);
+            }
+        }
+    } else if (end < 0) {
+        // If end is not specified, search to the end of the bitset
+        VebTree_OptionalSize_t max_elem = bitset->api->max(bitset->handle);
+        if (max_elem.has_value) {
+            end = is_bit_range ? (long long)max_elem.value : ((long long)max_elem.value / 8);
+        } else {
+            // Empty bitset
+            if (bit_value == 0) {
+                return RedisModule_ReplyWithLongLong(ctx, start >= 0 ? start : 0);
+            } else {
+                return RedisModule_ReplyWithLongLong(ctx, -1);
+            }
+        }
+    }
+
+    // Handle negative start index
+    if (start < 0) {
+        VebTree_OptionalSize_t max_elem = bitset->api->max(bitset->handle);
+        if (max_elem.has_value) {
+            long long max_index = is_bit_range ? (long long)max_elem.value : ((long long)max_elem.value / 8);
+            start = max_index + start + 1;
+            if (start < 0) {
+                start = 0;
+            }
+        } else {
+            start = 0;
+        }
+    }
+
+    long long position = find_bit_position(bitset, (int)bit_value, start, end, is_bit_range);
+    return RedisModule_ReplyWithLongLong(ctx, position);
+}
+
 // bits.INFO key
 static int bits_info_command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) {
@@ -638,6 +786,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     if (RedisModule_CreateCommand(ctx, "bits.xor", bits_xor_command, "write deny-oom", 1, 1, 1) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "bits.pos", bits_pos_command, "readonly fast", 1, 1, 1) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 
