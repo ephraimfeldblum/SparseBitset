@@ -214,6 +214,44 @@ static int bits_get_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RedisModule_ReplyWithLongLong(ctx, bit_set ? 1 : 0);
 }
 
+// bits.SET key offset value
+static int bits_set_command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 4) {
+        return RedisModule_WrongArity(ctx);
+    }
+
+    long long offset;
+    if (RedisModule_StringToLongLong(argv[2], &offset) != REDISMODULE_OK || offset < 0) {
+        return RedisModule_ReplyWithError(ctx, "ERR bit offset is not an integer or out of range");
+    }
+
+    long long value;
+    if (RedisModule_StringToLongLong(argv[3], &value) != REDISMODULE_OK || (value != 0 && value != 1)) {
+        return RedisModule_ReplyWithError(ctx, "ERR bit value must be 0 or 1");
+    }
+
+    Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
+    if (!bitset) {
+        return RedisModule_ReplyWithError(ctx, "ERR failed to create or access bitset");
+    }
+
+    // Get the previous value of the bit
+    bool previous_bit_set = bitset->api->contains(bitset->handle, (size_t)offset);
+    long long previous_value = previous_bit_set ? 1 : 0;
+
+    // Set or clear the bit based on the value
+    if (value == 1) {
+        // Set the bit (insert the element)
+        bitset->api->insert(bitset->handle, (size_t)offset);
+    } else {
+        // Clear the bit (remove the element)
+        bitset->api->remove(bitset->handle, (size_t)offset);
+    }
+
+    RedisModule_ReplicateVerbatim(ctx);
+    return RedisModule_ReplyWithLongLong(ctx, previous_value);
+}
+
 // Helper function to count elements in a range
 static long long count_elements_in_range(Bitset *bitset, long long start, long long end, bool is_bit_range) {
     if (!bitset || start > end) {
@@ -750,7 +788,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "bits.get", bits_get_command, "readonly fast", 1, 1, 1) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    
+
+    if (RedisModule_CreateCommand(ctx, "bits.set", bits_set_command, "write deny-oom", 1, 1, 1) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
     if (RedisModule_CreateCommand(ctx, "bits.count", bits_count_command, "readonly fast", 1, 1, 1) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
