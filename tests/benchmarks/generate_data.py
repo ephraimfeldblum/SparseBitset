@@ -43,10 +43,10 @@ if __name__ == "__main__":
         universe_size = int(args.count / (i/20))
 
         # Ensure benchmarks directory exists
-        benchmarks_dir = 'tests/benchmarks'
+        benchmarks_dir = 'tests/benchmarks/files'
         if not os.path.exists(benchmarks_dir):
             os.makedirs(benchmarks_dir)
 
         # Generate data for two keys for set operations
         generate_benchmark_data(os.path.join(benchmarks_dir, f'benchmark_{i}_data_1.txt'), args.count, universe_size)
-        generate_benchmark_data(os.path.join(benchmarks_dir, f'benchmark_{i}_data_2.txt'), args.count, universe_size) 
+        generate_benchmark_data(os.path.join(benchmarks_dir, f'benchmark_{i}_data_2.txt'), args.count, universe_size)
