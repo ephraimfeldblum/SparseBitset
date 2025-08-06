@@ -85,7 +85,7 @@ def run_all_benchmarks(data1, data2, i):
 
     # Re-insert removed data for subsequent tests
     with r.pipeline() as pipe:
-        for val in sample: pipe.execute_command('BITS.INSERT', KEYS['sparse1'], val)
+        for val in sample: pipe.execute_command('BITS.INSERT', KEYS['sparse1'], val); pipe.execute_command('R.SETBIT', KEYS['compressed1'], val, 1); pipe.execute_command('SETBIT', KEYS['dense1'], val, 1)
         pipe.execute()
     
     # --- MIN/MAX/SUCCESSOR/PREDECESSOR ---
