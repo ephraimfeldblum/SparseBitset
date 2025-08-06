@@ -56,6 +56,7 @@
 #include <utility>
 #include <variant>
 #include <vector>
+#include <execution>
 
 #include "allocator/tracking_allocator.hpp"
 #include "allocator/allocate_unique.hpp"
@@ -541,17 +542,18 @@ public:
         return min_;
     }
 
-    constexpr inline std::size_t size() const {
+    inline std::size_t size() const {
         std::size_t total = (min_ == max_) ? 1uz : 2uz;
 
-        if (cluster_data_) {
-            const std::size_t cluster_count = cluster_data_->size();
-            for (std::size_t i = 0; i < cluster_count; ++i) {
-                total += cluster_data_->clusters_[i].size();
-            }
-        }
+        if (!cluster_data_) return total;
 
-        return total;
+        return std::transform_reduce(
+#ifdef __cpp_lib_execution
+            std::execution::unseq,
+#endif
+            &cluster_data_->clusters_[0], &cluster_data_->clusters_[cluster_data_->size()],
+            total, std::plus<>(), [](const auto& cluster) { return cluster.size(); }
+        );
     }
 
     constexpr inline VebTreeMemoryStats get_memory_stats() const {
@@ -777,10 +779,12 @@ public:
 
         if (!cluster_data_) return base_count;
 
-        return std::ranges::fold_left(
-            cluster_data_->values(),
-            base_count,
-            [](std::size_t acc, const auto& cluster) { return acc + cluster.size(); }
+        return std::transform_reduce(
+#ifdef __cpp_lib_execution
+            std::execution::unseq,
+#endif
+            cluster_data_->values().begin(), cluster_data_->values().end(),
+            base_count, std::plus<>(), [](const auto& cluster) { return cluster.size(); }
         );
     }
 
@@ -1005,10 +1009,12 @@ public:
 
         if (!cluster_data_) return base_count;
 
-        return std::ranges::fold_left(
-            cluster_data_->values(),
-            base_count,
-            [](std::size_t acc, const auto& cluster) { return acc + cluster.size(); }
+        return std::transform_reduce(
+#ifdef __cpp_lib_execution
+            std::execution::unseq,
+#endif
+            cluster_data_->values().begin(), cluster_data_->values().end(),
+            base_count, std::plus<>(), [](const auto& cluster) { return cluster.size(); }
         );
     }
 
