@@ -48,3 +48,7 @@ cmake-build-*/Makefile
 
 # Valgrind output
 *.valgrind
+tests/flow/logs/*
+.venv_rltest
+tests/benchmarks/benchmark_data_1.txt
+tests/benchmarks/benchmark_data_2.txt
