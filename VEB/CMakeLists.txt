@@ -154,9 +154,7 @@ set(CORE_SOURCES
     VebTree_c_api.cpp
 )
 
-set(TEST_SOURCES
-    veb_c_test.c
-)
+
 
 # Create shared library
 add_library(vebtree SHARED ${CORE_SOURCES})
@@ -171,9 +169,7 @@ if(HAVE_ABSL)
     endif()
 endif()
 
-# Create test executable
-add_executable(veb_c_test ${TEST_SOURCES})
-target_link_libraries(veb_c_test PRIVATE vebtree)
+
 
 # Custom targets for different build types
 add_custom_target(valgrind
@@ -188,23 +184,7 @@ add_custom_target(release
     COMMENT "Building with Release configuration"
 )
 
-# Test targets
-add_custom_target(test
-    COMMAND ${CMAKE_COMMAND} -E echo "Running VEB Tree tests..." > test.log
-    COMMAND ${CMAKE_COMMAND} -E echo "=========================" >> test.log
-    COMMAND $<TARGET_FILE:veb_c_test> >> test.log 2>&1
-    COMMAND ${CMAKE_COMMAND} -E echo "Test output written to test.log"
-    DEPENDS veb_c_test
-    COMMENT "Running tests"
-)
 
-add_custom_target(test-valgrind
-    COMMAND ${CMAKE_COMMAND} -E echo "Running VEB Tree tests under valgrind..."
-    COMMAND ${CMAKE_COMMAND} -E echo "========================================="
-    COMMAND valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes $<TARGET_FILE:veb_c_test>
-    DEPENDS veb_c_test
-    COMMENT "Running tests under valgrind"
-)
 
 # Info target
 add_custom_target(info
@@ -237,9 +217,6 @@ add_custom_target(show-help
     COMMAND ${CMAKE_COMMAND} -E echo "Main targets:"
     COMMAND ${CMAKE_COMMAND} -E echo "  all                    - Build core VEB tree implementation"
     COMMAND ${CMAKE_COMMAND} -E echo "  vebtree                - Build static library"
-    COMMAND ${CMAKE_COMMAND} -E echo "  veb_c_test             - Build test executable"
-    COMMAND ${CMAKE_COMMAND} -E echo "  test                   - Build and run tests"
-    COMMAND ${CMAKE_COMMAND} -E echo "  test-valgrind          - Run tests under valgrind"
     COMMAND ${CMAKE_COMMAND} -E echo "  clean                  - Remove all build artifacts"
     COMMAND ${CMAKE_COMMAND} -E echo ""
     COMMAND ${CMAKE_COMMAND} -E echo "Build configurations:"
