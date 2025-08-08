@@ -257,6 +257,18 @@ public:
     constexpr VebTreeMemoryStats get_memory_stats() const {
         return {0, 0, 1};
     }
+
+    Node8 clone([[maybe_unused]] std::size_t& alloc) const {
+        return *this;
+    }
+
+    Node8 node_or(const Node8& other, [[maybe_unused]] std::size_t& alloc) const {
+        Node8 result = *this;
+        for (std::size_t i = 0; i < 4; ++i) {
+            result.bits_[i] |= other.bits_[i];
+        }
+        return result;
+    }
 };
 
 class Node16 {
@@ -375,8 +387,21 @@ public:
         }
     }
 
-    Node16(const Node16&) = delete;
-    Node16& operator=(const Node16&) = delete;
+    Node16 clone(std::size_t& alloc) const {
+        Node16 result(min_, alloc);
+        result.min_ = min_;
+        result.max_ = max_;
+
+        if (cluster_data_) {
+            const std::size_t size = cluster_data_->size();
+            auto ptr = tracking_allocator<subnode_t>(alloc).allocate(size + 1);
+            result.cluster_data_ = reinterpret_cast<cluster_data_t*>(ptr);
+            result.capacity_ = static_cast<std::uint16_t>(size);
+            result.cluster_data_->summary_ = cluster_data_->summary_;
+            std::copy(cluster_data_->clusters_, cluster_data_->clusters_ + size, result.cluster_data_->clusters_);
+        }
+        return result;
+    }
 
     Node16(Node16&& other) noexcept
         : cluster_data_(std::exchange(other.cluster_data_, nullptr))
@@ -575,6 +600,58 @@ public:
 
         return stats;
     }
+
+    Node16 node_or(const Node16& other, std::size_t& alloc) const {
+        if (!cluster_data_) {
+            Node16 result = other.clone(alloc);
+            result.insert(min_, alloc);
+            result.insert(max_, alloc);
+            return result;
+        }
+
+        if (!other.cluster_data_) {
+            Node16 result = clone(alloc);
+            result.insert(other.min_, alloc);
+            result.insert(other.max_, alloc);
+            return result;
+        }
+
+        const auto& this_summary = cluster_data_->summary_;
+        const auto& other_summary = other.cluster_data_->summary_;
+        const auto& this_clusters = cluster_data_->clusters_;
+        const auto& other_clusters = other.cluster_data_->clusters_;
+
+        Node16 result(std::min(min_, other.min_), alloc);
+        Node8 summary_or = this_summary.node_or(other_summary, alloc);
+        const std::size_t size = summary_or.size();
+        auto ptr = tracking_allocator<subnode_t>(alloc).allocate(size + 1);
+        result.capacity_ = static_cast<std::uint16_t>(size);
+        result.cluster_data_ = reinterpret_cast<cluster_data_t*>(ptr);
+        result.cluster_data_->summary_ = summary_or;
+
+        std::size_t this_idx = 0;
+        std::size_t other_idx = 0;
+        std::size_t result_idx = 0;
+        for (auto idx = std::make_optional(summary_or.min()); idx.has_value(); idx = summary_or.successor(*idx)) {
+            auto& result_cluster = result.cluster_data_->clusters_[result_idx++];
+            const bool in_this = this_summary.contains(*idx);
+            const bool in_other = other_summary.contains(*idx);
+            if (in_this && in_other) {
+                result_cluster = this_clusters[this_idx++].node_or(other_clusters[other_idx++], alloc);
+            } else if (in_this) {
+                result_cluster = this_clusters[this_idx++];
+            } else {
+                result_cluster = other_clusters[other_idx++];
+            }
+        }
+
+        result.insert(min_, alloc);
+        result.insert(max_, alloc);
+        result.insert(other.min_, alloc);
+        result.insert(other.max_, alloc);
+
+        return result;
+    }
 };
 
 template<typename Manager>
@@ -636,6 +713,25 @@ public:
             cluster_data_->clusters.emplace(0, std::move(old_storage));
         }
     }
+
+    Node32 clone(std::size_t& alloc) const {
+        Node32 result(min_, alloc);
+        result.min_ = min_;
+        result.max_ = max_;
+
+        if (cluster_data_) {
+            auto data_alloc = tracking_allocator<cluster_data_t>(alloc);
+            result.cluster_data_ = allocate_unique<cluster_data_t>(data_alloc, 0, alloc);
+            result.cluster_data_->summary = cluster_data_->summary.clone(alloc);
+            for (const auto& [key, cluster] : cluster_data_->clusters) {
+                result.cluster_data_->clusters.emplace(key, cluster.clone(alloc));
+            }
+        }
+        return result;
+    }
+
+    Node32(Node32&& other) noexcept = default;
+    Node32& operator=(Node32&& other) noexcept = default;
 
     static constexpr std::size_t universe_size() { return UINT32_MAX; }
     constexpr index_t min() const { return min_; }
@@ -805,6 +901,53 @@ public:
                 return acc;
             }
         ) : VebTreeMemoryStats{0, 0, 1};
+    }
+
+    Node32 node_or(const Node32& other, std::size_t& alloc) const {
+        if (!cluster_data_) {
+            Node32 result = other.clone(alloc);
+            result.insert(min_, alloc);
+            result.insert(max_, alloc);
+            return result;
+        }
+
+        if (!other.cluster_data_) {
+            Node32 result = clone(alloc);
+            result.insert(other.min_, alloc);
+            result.insert(other.max_, alloc);
+            return result;
+        }
+
+        const auto& this_summary = cluster_data_->summary;
+        const auto& other_summary = other.cluster_data_->summary;
+        const auto& this_clusters = cluster_data_->clusters;
+        const auto& other_clusters = other.cluster_data_->clusters;
+
+        Node32 result(std::min(min_, other.min_), alloc);
+        auto data_alloc = tracking_allocator<cluster_data_t>(alloc);
+        result.cluster_data_ = allocate_unique<cluster_data_t>(data_alloc, 0, alloc);
+        result.cluster_data_->summary = this_summary.node_or(other_summary, alloc);
+        auto& result_clusters = result.cluster_data_->clusters;
+
+        for (auto idx = std::make_optional(result.cluster_data_->summary.min()); idx.has_value(); idx = result.cluster_data_->summary.successor(*idx)) {
+            const bool in_this = this_clusters.contains(*idx);
+            const bool in_other = other_clusters.contains(*idx);
+
+            if (in_this && in_other) {
+                result_clusters.emplace(*idx, this_clusters.at(*idx).node_or(other_clusters.at(*idx), alloc));
+            } else if (in_this) {
+                result_clusters.emplace(*idx, this_clusters.at(*idx).clone(alloc));
+            } else {
+                result_clusters.emplace(*idx, other_clusters.at(*idx).clone(alloc));
+            }
+        }
+
+        result.insert(min_, alloc);
+        result.insert(max_, alloc);
+        result.insert(other.min_, alloc);
+        result.insert(other.max_, alloc);
+
+        return result;
     }
 };
 
@@ -1036,6 +1179,70 @@ public:
             }
         ) : VebTreeMemoryStats{0, 0, 1};
     }
+
+    Node64 clone(std::size_t& alloc) const {
+        Node64 result(min_, alloc);
+        result.min_ = min_;
+        result.max_ = max_;
+
+        if (cluster_data_) {
+            auto data_alloc = tracking_allocator<cluster_data_t>(alloc);
+            result.cluster_data_ = allocate_unique<cluster_data_t>(data_alloc, 0, alloc);
+
+            result.cluster_data_->summary = cluster_data_->summary.clone(alloc);
+            for (const auto& [key, cluster] : cluster_data_->clusters) {
+                result.cluster_data_->clusters.emplace(key, cluster.clone(alloc));
+            }
+        }
+        return result;
+    }
+
+    Node64 node_or(const Node64& other, std::size_t& alloc) const {
+        if (!cluster_data_) {
+            Node64 result = other.clone(alloc);
+            result.insert(min_, alloc);
+            result.insert(max_, alloc);
+            return result;
+        }
+
+        if (!other.cluster_data_) {
+            Node64 result = clone(alloc);
+            result.insert(other.min_, alloc);
+            result.insert(other.max_, alloc);
+            return result;
+        }
+
+        const auto& this_summary = cluster_data_->summary;
+        const auto& other_summary = other.cluster_data_->summary;
+        const auto& this_clusters = cluster_data_->clusters;
+        const auto& other_clusters = other.cluster_data_->clusters;
+
+        Node64 result(std::min(min_, other.min_), alloc);
+        auto data_alloc = tracking_allocator<cluster_data_t>(alloc);
+        result.cluster_data_ = allocate_unique<cluster_data_t>(data_alloc, 0, alloc);
+        result.cluster_data_->summary = this_summary.node_or(other_summary, alloc);
+        auto& result_clusters = result.cluster_data_->clusters;
+
+        for (auto idx = std::make_optional(result.cluster_data_->summary.min()); idx.has_value(); idx = result.cluster_data_->summary.successor(*idx)) {
+            const bool in_this = this_clusters.contains(*idx);
+            const bool in_other = other_clusters.contains(*idx);
+
+            if (in_this && in_other) {
+                result_clusters.emplace(*idx, this_clusters.at(*idx).node_or(other_clusters.at(*idx), alloc));
+            } else if (in_this) {
+                result_clusters.emplace(*idx, this_clusters.at(*idx).clone(alloc));
+            } else {
+                result_clusters.emplace(*idx, other_clusters.at(*idx).clone(alloc));
+            }
+        }
+
+        result.insert(min_, alloc);
+        result.insert(max_, alloc);
+        result.insert(other.min_, alloc);
+        result.insert(other.max_, alloc);
+
+        return result;
+    }
 };
 
 
@@ -1153,6 +1360,31 @@ public:
      * @brief Constructs an empty VEB tree
      */
     inline explicit VebTree() : storage_{std::monostate{}}, allocated_{sizeof(*this)} {}
+
+    inline explicit VebTree(const VebTree& other) : storage_{std::monostate{}}, allocated_{sizeof(*this)} {
+        std::visit(
+            overload{
+                [](std::monostate) {},
+                [&](const auto& s) {
+                    storage_ = s.clone(allocated_);
+                },
+            },
+            other.storage_
+        );
+    }
+
+    inline VebTree(VebTree&& other) noexcept
+        : storage_(std::exchange(other.storage_, std::monostate{}))
+        , allocated_(std::exchange(other.allocated_, 0)) {
+    }
+
+    inline VebTree& operator=(VebTree&& other) noexcept {
+        if (this != &other) {
+            storage_ = std::exchange(other.storage_, std::monostate{});
+            allocated_ = std::exchange(other.allocated_, 0);
+        }
+        return *this;
+    }
 
     /**
      * @brief Inserts an element into the VEB tree
@@ -1415,16 +1647,101 @@ public:
      * @param other The other VEB tree to union with
      * @return A new VEB tree containing elements present in either tree
      *
-     * Time complexity: O((|this| + |other|) * log log U)
+     * Time complexity: O(log log U) per node
      */
     inline VebTree operator|(const VebTree& other) const {
+        if (empty()) {
+            return VebTree(other);
+        }
+        if (other.empty()) {
+            return VebTree(*this);
+        }
+
         VebTree result;
-        for (std::size_t element : *this) {
-            result.insert(element);
-        }
-        for (std::size_t element : other) {
-            result.insert(element);
-        }
+
+        result.storage_ = std::visit(
+            overload{
+                [&](std::monostate, std::monostate) -> StorageType {
+                    return std::monostate{};
+                },
+                [&](const auto& a, std::monostate) -> StorageType {
+                    return a.clone(result.allocated_);
+                },
+                [&](std::monostate, const auto& b) -> StorageType {
+                    return b.clone(result.allocated_);
+                },
+                [&](const Node8& a, const Node8& b) -> StorageType {
+                    return a.node_or(b, result.allocated_);
+                },
+                [&](const Node16& a, const Node16& b) -> StorageType {
+                    return a.node_or(b, result.allocated_);
+                },
+                [&](const Node32<Manager>& a, const Node32<Manager>& b) -> StorageType {
+                    return a.node_or(b, result.allocated_);
+                },
+                [&](const Node64<Manager>& a, const Node64<Manager>& b) -> StorageType {
+                    return a.node_or(b, result.allocated_);
+                },
+                [&](const Node8& a, const Node16& b) -> StorageType {
+                    auto a16 = Node16{a.clone(result.allocated_), result.allocated_};
+                    return b.node_or(a16, result.allocated_);
+                },
+                [&](const Node8& a, const Node32<Manager>& b) -> StorageType {
+                    auto a16 = Node16{a.clone(result.allocated_), result.allocated_};
+                    auto a32 = Node32<Manager>{std::move(a16), result.allocated_};
+                    return b.node_or(a32, result.allocated_);
+                },
+                [&](const Node8& a, const Node64<Manager>& b) -> StorageType {
+                    auto a16 = Node16{a.clone(result.allocated_), result.allocated_};
+                    auto a32 = Node32<Manager>{std::move(a16), result.allocated_};
+                    auto a64 = Node64<Manager>{std::move(a32), result.allocated_};
+                    return b.node_or(a64, result.allocated_);
+                },
+                [&](const Node16& a, const Node8& b) -> StorageType {
+                    auto b16 = Node16{b.clone(result.allocated_), result.allocated_};
+                    return a.node_or(b16, result.allocated_);
+                },
+                [&](const Node16& a, const Node32<Manager>& b) -> StorageType {
+                    auto a32 = Node32<Manager>{a.clone(result.allocated_), result.allocated_};
+                    return b.node_or(a32, result.allocated_);
+                },
+                [&](const Node16& a, const Node64<Manager>& b) -> StorageType {
+                    auto a32 = Node32<Manager>{a.clone(result.allocated_), result.allocated_};
+                    auto a64 = Node64<Manager>{std::move(a32), result.allocated_};
+                    return b.node_or(a64, result.allocated_);
+                },
+                [&](const Node32<Manager>& a, const Node8& b) -> StorageType {
+                    auto b16 = Node16{b.clone(result.allocated_), result.allocated_};
+                    auto b32 = Node32<Manager>{std::move(b16), result.allocated_};
+                    return a.node_or(b32, result.allocated_);
+                },
+                [&](const Node32<Manager>& a, const Node16& b) -> StorageType {
+                    auto b32 = Node32<Manager>{b.clone(result.allocated_), result.allocated_};
+                    return a.node_or(b32, result.allocated_);
+                },
+                [&](const Node32<Manager>& a, const Node64<Manager>& b) -> StorageType {
+                    auto a64 = Node64<Manager>{a.clone(result.allocated_), result.allocated_};
+                    return b.node_or(a64, result.allocated_);
+                },
+                [&](const Node64<Manager>& a, const Node8& b) -> StorageType {
+                    auto b16 = Node16{b.clone(result.allocated_), result.allocated_};
+                    auto b32 = Node32<Manager>{std::move(b16), result.allocated_};
+                    auto a64 = Node64<Manager>{std::move(b32), result.allocated_};
+                    return a.node_or(a64, result.allocated_);
+                },
+                [&](const Node64<Manager>& a, const Node16& b) -> StorageType {
+                    auto b32 = Node32<Manager>{b.clone(result.allocated_), result.allocated_};
+                    auto b64 = Node64<Manager>{std::move(b32), result.allocated_};
+                    return a.node_or(b64, result.allocated_);
+                },
+                [&](const Node64<Manager>& a, const Node32<Manager>& b) -> StorageType {
+                    auto b64 = Node64<Manager>{b.clone(result.allocated_), result.allocated_};
+                    return a.node_or(b64, result.allocated_);
+                },
+            },
+            storage_, other.storage_
+        );
+
         return result;
     }
 
@@ -1468,11 +1785,137 @@ public:
      * @brief In-place union operator
      * @param other The other VEB tree to union with
      * @return Reference to this tree after union
+     *
+     * Time complexity: O(log log U) per node
      */
     inline VebTree& operator|=(const VebTree& other) {
-        for (std::size_t element : other) {
-            insert(element);
+        if (other.empty()) {
+            return *this;
         }
+        if (empty()) {
+            storage_ = std::visit([&](const auto& node) -> StorageType {
+                if constexpr (std::is_same_v<std::decay_t<decltype(node)>, std::monostate>) {
+                    return std::monostate{};
+                } else {
+                    return node.clone(allocated_);
+                }
+            }, other.storage_);
+            return *this;
+        }
+
+        storage_ = std::visit(
+            overload{
+                [&](std::monostate, const Node8& b) -> StorageType {
+                    return b.clone(allocated_);
+                },
+                [&](std::monostate, const Node16& b) -> StorageType {
+                    return b.clone(allocated_);
+                },
+                [&](std::monostate, const Node32<Manager>& b) -> StorageType {
+                    return b.clone(allocated_);
+                },
+                [&](std::monostate, const Node64<Manager>& b) -> StorageType {
+                    return b.clone(allocated_);
+                },
+                [&](const Node8& a, std::monostate) -> StorageType {
+                    return a.clone(allocated_);
+                },
+                [&](const Node16& a, std::monostate) -> StorageType {
+                    return a.clone(allocated_);
+                },
+                [&](const Node32<Manager>& a, std::monostate) -> StorageType {
+                    return a.clone(allocated_);
+                },
+                [&](const Node64<Manager>& a, std::monostate) -> StorageType {
+                    return a.clone(allocated_);
+                },
+                [&](std::monostate, std::monostate) -> StorageType {
+                    return std::monostate{};
+                },
+                [&](const Node8& a, const Node8& b) -> StorageType {
+                    return a.node_or(b, allocated_);
+                },
+                [&](const Node16& a, const Node16& b) -> StorageType {
+                    return a.node_or(b, allocated_);
+                },
+                [&](const Node32<Manager>& a, const Node32<Manager>& b) -> StorageType {
+                    return a.node_or(b, allocated_);
+                },
+                [&](const Node64<Manager>& a, const Node64<Manager>& b) -> StorageType {
+                    return a.node_or(b, allocated_);
+                },
+                [&](const Node8& a, const Node16& b) -> StorageType {
+                    auto a_clone = a.clone(allocated_);
+                    auto a16 = Node16{std::move(a_clone), allocated_};
+                    return a16.node_or(b, allocated_);
+                },
+                [&](const Node16& a, const Node8& b) -> StorageType {
+                    auto b_clone = b.clone(allocated_);
+                    auto b16 = Node16{std::move(b_clone), allocated_};
+                    return a.node_or(b16, allocated_);
+                },
+                [&](const Node8& a, const Node32<Manager>& b) -> StorageType {
+                    auto a_clone = a.clone(allocated_);
+                    auto a16 = Node16{std::move(a_clone), allocated_};
+                    auto a32 = Node32<Manager>{std::move(a16), allocated_};
+                    return a32.node_or(b, allocated_);
+                },
+                [&](const Node32<Manager>& a, const Node8& b) -> StorageType {
+                    auto b_clone = b.clone(allocated_);
+                    auto b16 = Node16{std::move(b_clone), allocated_};
+                    auto b32 = Node32<Manager>{std::move(b16), allocated_};
+                    return a.node_or(b32, allocated_);
+                },
+                [&](const Node16& a, const Node32<Manager>& b) -> StorageType {
+                    auto a_clone = a.clone(allocated_);
+                    auto a32 = Node32<Manager>{std::move(a_clone), allocated_};
+                    return a32.node_or(b, allocated_);
+                },
+                [&](const Node32<Manager>& a, const Node16& b) -> StorageType {
+                    auto b_clone = b.clone(allocated_);
+                    auto b32 = Node32<Manager>{std::move(b_clone), allocated_};
+                    return a.node_or(b32, allocated_);
+                },
+                [&](const Node8& a, const Node64<Manager>& b) -> StorageType {
+                    auto a_clone = a.clone(allocated_);
+                    auto a16 = Node16{std::move(a_clone), allocated_};
+                    auto a32 = Node32<Manager>{std::move(a16), allocated_};
+                    auto a64 = Node64<Manager>{std::move(a32), allocated_};
+                    return a64.node_or(b, allocated_);
+                },
+                [&](const Node64<Manager>& a, const Node8& b) -> StorageType {
+                    auto b_clone = b.clone(allocated_);
+                    auto b16 = Node16{std::move(b_clone), allocated_};
+                    auto b32 = Node32<Manager>{std::move(b16), allocated_};
+                    auto b64 = Node64<Manager>{std::move(b32), allocated_};
+                    return a.node_or(b64, allocated_);
+                },
+                [&](const Node16& a, const Node64<Manager>& b) -> StorageType {
+                    auto a_clone = a.clone(allocated_);
+                    auto a32 = Node32<Manager>{std::move(a_clone), allocated_};
+                    auto a64 = Node64<Manager>{std::move(a32), allocated_};
+                    return a64.node_or(b, allocated_);
+                },
+                [&](const Node64<Manager>& a, const Node16& b) -> StorageType {
+                    auto b_clone = b.clone(allocated_);
+                    auto b32 = Node32<Manager>{std::move(b_clone), allocated_};
+                    auto b64 = Node64<Manager>{std::move(b32), allocated_};
+                    return a.node_or(b64, allocated_);
+                },
+                [&](const Node32<Manager>& a, const Node64<Manager>& b) -> StorageType {
+                    auto a_clone = a.clone(allocated_);
+                    auto a64 = Node64<Manager>{std::move(a_clone), allocated_};
+                    return a64.node_or(b, allocated_);
+                },
+                [&](const Node64<Manager>& a, const Node32<Manager>& b) -> StorageType {
+                    auto b_clone = b.clone(allocated_);
+                    auto b64 = Node64<Manager>{std::move(b_clone), allocated_};
+                    return a.node_or(b64, allocated_);
+                }
+            },
+            storage_, other.storage_
+        );
+
         return *this;
     }
 
