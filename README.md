@@ -110,11 +110,11 @@ All commands use the `BITS.` prefix to avoid conflicts with Redis built-in comma
 ### Set Operations
 
 - **`BITS.OR dest src1 [src2 ...]`** - Store union (src1 | src2 | ...) of bitsets in dest
-  - Returns: Size of the resulting set
+  - Returns: Range of the resulting set in bytes
 - **`BITS.AND dest src1 [src2 ...]`** - Store intersection (src1 & src2 & ...) of bitsets in dest
-  - Returns: Size of the resulting set
+  - Returns: Range of the resulting set in bytes
 - **`BITS.XOR dest src1 [src2 ...]`** - Store symmetric difference (src1 ^ src2 ^ ...) in dest
-  - Returns: Size of the resulting set
+  - Returns: Range of the resulting set in bytes
 
 ### Utility Operations
 

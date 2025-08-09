@@ -618,16 +618,41 @@ public:
             return *this;
         }
 
-        for (auto idx = std::make_optional(other.cluster_data_->summary_.min()); idx.has_value(); idx = other.cluster_data_->summary_.successor(*idx)) {
-            const auto& other_cluster = other.cluster_data_->clusters_[other.cluster_data_->index_of(*idx)];
+        if (auto merge_summary = cluster_data_->summary_.clone(alloc).merge_inplace(other.cluster_data_->summary_, alloc); merge_summary.size() != cluster_data_->size()) {
+            auto ptr = tracking_allocator<subnode_t>(alloc).allocate(merge_summary.size() + 1);
+            auto new_cluster_data = reinterpret_cast<cluster_data_t*>(ptr);
+            auto new_capacity = static_cast<std::uint16_t>(merge_summary.size());
+            new_cluster_data->summary_ = std::move(merge_summary);
 
-            if (cluster_data_->summary_.contains(*idx)) {
-                cluster_data_->clusters_[cluster_data_->index_of(*idx)].merge_inplace(other_cluster, alloc);
-            } else {
-                for (auto elem = std::make_optional(other_cluster.min()); elem.has_value(); elem = other_cluster.successor(*elem)) {
-                    insert(Node16::index(*idx, *elem), alloc);
+            std::size_t i = 0;
+            std::size_t j = 0;
+            std::size_t k = 0;
+            for (auto idx = std::make_optional(new_cluster_data->summary_.min()); idx.has_value(); idx = new_cluster_data->summary_.successor(*idx)) {
+                const bool in_this = cluster_data_->summary_.contains(*idx);
+                const bool in_other = other.cluster_data_->summary_.contains(*idx);
+                if (in_this && in_other) {
+                    new_cluster_data->clusters_[k++] = cluster_data_->clusters_[i++].clone(alloc).merge_inplace(other.cluster_data_->clusters_[j++], alloc); 
+                } else if (in_this) {
+                    new_cluster_data->clusters_[k++] = cluster_data_->clusters_[i++].clone(alloc);
+                } else if (in_other) {
+                    new_cluster_data->clusters_[k++] = other.cluster_data_->clusters_[j++].clone(alloc);
+                } else {
+                    std::unreachable();
                 }
             }
+            alloc_.deallocate(reinterpret_cast<subnode_t*>(cluster_data_), capacity_ + 1);
+            cluster_data_ = new_cluster_data;
+            capacity_ = new_capacity;
+            return *this;
+        }
+
+        std::size_t i = 0;
+        std::size_t j = 0;
+        for (auto idx = std::make_optional(cluster_data_->summary_.min()); idx.has_value(); idx = cluster_data_->summary_.successor(*idx)) {
+            if (other.cluster_data_->summary_.contains(*idx)) {
+                cluster_data_->clusters_[i].merge_inplace(other.cluster_data_->clusters_[j++], alloc);
+            }
+            ++i;
         }
         return *this;
     }
