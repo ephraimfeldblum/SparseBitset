@@ -109,12 +109,12 @@ All commands use the `BITS.` prefix to avoid conflicts with Redis built-in comma
 
 ### Set Operations
 
-- **`BITS.OR dest src1 [src2 ...]`** - Store union (src1 | src2 | ...) of bitsets in dest
-  - Returns: Range of the resulting set in bytes
-- **`BITS.AND dest src1 [src2 ...]`** - Store intersection (src1 & src2 & ...) of bitsets in dest
-  - Returns: Range of the resulting set in bytes
-- **`BITS.XOR dest src1 [src2 ...]`** - Store symmetric difference (src1 ^ src2 ^ ...) in dest
-  - Returns: Range of the resulting set in bytes
+- **`BITS.OP <AND | OR | XOR> dest src1 [src2 ...]`** - Perform bitwise operations between multiple bitsets
+  - **`BITS.OP AND dest src1 [src2 ...]`** - Store intersection (src1 & src2 & ...) of bitsets in dest
+  - **`BITS.OP OR dest src1 [src2 ...]`** - Store union (src1 | src2 | ...) of bitsets in dest
+  - **`BITS.OP XOR dest src1 [src2 ...]`** - Store symmetric difference (src1 ^ src2 ^ ...) in dest
+  - Returns: Size of the resulting set in bytes (like Redis BITOP)
+  - Non-existent keys are treated as empty bitsets (all zeros)
 
 ### Utility Operations
 
@@ -179,13 +179,13 @@ redis-cli BITS.TOARRAY myset
 redis-cli BITS.INSERT set1 1 2 3 4
 redis-cli BITS.INSERT set2 3 4 5 6
 
-redis-cli BITS.OR result set1 set2
+redis-cli BITS.OP OR result set1 set2
 # Returns: (integer) 1  (elements: 1,2,3,4,5,6)
 
-redis-cli BITS.AND result set1 set2
+redis-cli BITS.OP AND result set1 set2
 # Returns: (integer) 1  (elements: 3,4)
 
-redis-cli BITS.XOR result set1 set2
+redis-cli BITS.OP XOR result set1 set2
 # Returns: (integer) 1  (elements: 1,2,5,6)
 
 # Remove elements
