@@ -108,25 +108,28 @@ def run_all_benchmarks(data1, data2, i):
         pipe.execute()
     
     # OR
-    s_or_size = int(r.execute_command('BITS.OR', KEYS['dest_s'], KEYS['sparse1'], KEYS['sparse2']))
+    r.execute_command('BITS.OR', KEYS['dest_s'], KEYS['sparse1'], KEYS['sparse2'])
     r.execute_command('R.BITOP', 'OR', KEYS['dest_c'], KEYS['compressed1'], KEYS['compressed2'])
     r.bitop('OR', KEYS['dest_d'], KEYS['dense1'], KEYS['dense2'])
+    s_or_size = r.execute_command('BITS.COUNT', KEYS['dest_s'])
     d_or_size = r.bitcount(KEYS['dest_d'])
     c_or_size = r.execute_command('R.BITCOUNT', KEYS['dest_c'])
     table.add_row(["OR", f"{s_or_size}", f"{c_or_size}", f"{d_or_size}", get_stats('bits.or'), get_stats('R.BITOP'), get_stats('bitop'), compare_results(s_or_size, d_or_size)])
     
     # AND
-    s_and_size = int(r.execute_command('BITS.AND', KEYS['dest_s'], KEYS['sparse1'], KEYS['sparse2']))
+    r.execute_command('BITS.AND', KEYS['dest_s'], KEYS['sparse1'], KEYS['sparse2'])
     r.execute_command('R.BITOP', 'AND', KEYS['dest_c'], KEYS['compressed1'], KEYS['compressed2'])
     r.bitop('AND', KEYS['dest_d'], KEYS['dense1'], KEYS['dense2'])
+    s_and_size = r.execute_command('BITS.COUNT', KEYS['dest_s'])
     d_and_size = r.bitcount(KEYS['dest_d'])
     c_and_size = r.execute_command('R.BITCOUNT', KEYS['dest_c'])
     table.add_row(["AND", f"{s_and_size}", f"{c_and_size}", f"{d_and_size}", get_stats('bits.and'), get_stats('R.BITOP'), get_stats('bitop'), compare_results(s_and_size, d_and_size)])
 
     # XOR
-    s_xor_size = int(r.execute_command('BITS.XOR', KEYS['dest_s'], KEYS['sparse1'], KEYS['sparse2']))
+    r.execute_command('BITS.XOR', KEYS['dest_s'], KEYS['sparse1'], KEYS['sparse2'])
     r.execute_command('R.BITOP', 'XOR', KEYS['dest_c'], KEYS['compressed1'], KEYS['compressed2'])
     r.bitop('XOR', KEYS['dest_d'], KEYS['dense1'], KEYS['dense2'])
+    s_xor_size = r.execute_command('BITS.COUNT', KEYS['dest_s'])
     d_xor_size = r.bitcount(KEYS['dest_d'])
     c_xor_size = r.execute_command('R.BITCOUNT', KEYS['dest_c'])
     table.add_row(["XOR", f"{s_xor_size}", f"{c_xor_size}", f"{d_xor_size}", get_stats('bits.xor'), get_stats('R.BITOP'), get_stats('bitop'), compare_results(s_xor_size, d_xor_size)])

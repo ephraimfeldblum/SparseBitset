@@ -180,13 +180,13 @@ redis-cli BITS.INSERT set1 1 2 3 4
 redis-cli BITS.INSERT set2 3 4 5 6
 
 redis-cli BITS.OR result set1 set2
-# Returns: (integer) 6  (elements: 1,2,3,4,5,6)
+# Returns: (integer) 1  (elements: 1,2,3,4,5,6)
 
 redis-cli BITS.AND result set1 set2
-# Returns: (integer) 2  (elements: 3,4)
+# Returns: (integer) 1  (elements: 3,4)
 
 redis-cli BITS.XOR result set1 set2
-# Returns: (integer) 4  (elements: 1,2,5,6)
+# Returns: (integer) 1  (elements: 1,2,5,6)
 
 # Remove elements
 redis-cli BITS.REMOVE myset 5 10
