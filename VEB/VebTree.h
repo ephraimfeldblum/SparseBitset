@@ -58,6 +58,20 @@ typedef struct {
  * This structure contains function pointers for all VebTree operations.
  * It allows users to get an API object for a specific VEB instance and then
  * use that API with the instance without needing to know the specific implementation.
+ *
+ * Example usage:
+ * ```c
+ * // Create a VEB instance
+ * VebTree_Handle_t veb = vebtree_create(VEBTREE_STD, 100);
+ *
+ * // Get the API for this instance
+ * const VebTree_API_t* api = vebtree_get_api(veb);
+ *
+ * // Use the API without knowing the implementation
+ * api->insert(veb, 42);
+ * bool exists = api->contains(veb, 42);
+ * VEBTREE_DESTROY(veb);
+ * ```
  */
 typedef struct VebTree_API {
     /* Insert an element */
@@ -107,7 +121,7 @@ typedef struct VebTree_API {
 
     /* Set operations */
     bool (*equals)(VebTree_Handle_t handle1, VebTree_Handle_t handle2);
-    
+
     /* Create intersection of two trees (elements in both) */
     void (*intersection)(VebTree_Handle_t handle1, VebTree_Handle_t handle2);
 
@@ -120,28 +134,6 @@ typedef struct VebTree_API {
     /* Destroy the handle */
     void (*destroy)(VebTree_Handle_t handle);
 } VebTree_API_t;
-
-/**
- * @brief Function table for VebTree operations
- *
- * This structure contains function pointers for all VebTree operations.
- * It allows users to get an API object for a specific VEB instance and then
- * use that API with the instance without needing to know the specific implementation.
- *
- * Example usage:
- * ```c
- * // Create a VEB instance
- * VebTree_Handle_t veb = vebtree_create(VEBTREE_STD, 100);
- *
- * // Get the API for this instance
- * const VebTree_API_t* api = vebtree_get_api(veb);
- *
- * // Use the API without knowing the implementation
- * api->insert(veb, 42);
- * bool exists = api->contains(veb, 42);
- * VEBTREE_DESTROY(veb);
- * ```
- */
 
 /**
  * @brief Factory function to create a VebTree instance with specified implementation

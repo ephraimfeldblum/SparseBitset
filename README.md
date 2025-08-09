@@ -83,11 +83,6 @@ All commands use the `BITS.` prefix to avoid conflicts with Redis built-in comma
 - **`BITS.GET key offset`** - Returns the bit value at offset in the bitset
   - Returns: 1 if the bit is set, 0 otherwise
   - Behaves similarly to Redis GETBIT command
-- **`BITS.SET key offset value`** - Sets or clears the bit at offset in the bitset
-  - `offset` - The bit position (must be >= 0)
-  - `value` - The bit value to set (0 or 1)
-  - Returns: The previous value of the bit at offset
-  - Behaves similarly to Redis SETBIT command
 - **`BITS.MIN key`** - Get the smallest element in the bitset
   - Returns: The minimum element, or null if empty
 - **`BITS.MAX key`** - Get the largest element in the bitset
@@ -115,11 +110,11 @@ All commands use the `BITS.` prefix to avoid conflicts with Redis built-in comma
 ### Set Operations
 
 - **`BITS.OR dest src1 [src2 ...]`** - Store union (src1 | src2 | ...) of bitsets in dest
-  - Returns: Size of the resulting set
+  - Returns: Range of the resulting set in bytes
 - **`BITS.AND dest src1 [src2 ...]`** - Store intersection (src1 & src2 & ...) of bitsets in dest
-  - Returns: Size of the resulting set
+  - Returns: Range of the resulting set in bytes
 - **`BITS.XOR dest src1 [src2 ...]`** - Store symmetric difference (src1 ^ src2 ^ ...) in dest
-  - Returns: Size of the resulting set
+  - Returns: Range of the resulting set in bytes
 
 ### Utility Operations
 

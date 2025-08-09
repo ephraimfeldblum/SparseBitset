@@ -257,6 +257,17 @@ public:
     constexpr VebTreeMemoryStats get_memory_stats() const {
         return {0, 0, 1};
     }
+
+    Node8 clone([[maybe_unused]] std::size_t& alloc) const {
+        return *this;
+    }
+
+    Node8& merge_inplace(const Node8& other, [[maybe_unused]] std::size_t& alloc) {
+        for (std::size_t i = 0; i < 4; ++i) {
+            bits_[i] |= other.bits_[i];
+        }
+        return *this;
+    }
 };
 
 class Node16 {
@@ -307,8 +318,7 @@ private:
         return cluster_data_ ? cluster_data_->find(x) : nullptr;
     }
 
-    inline void grow_capacity() {
-        const std::uint16_t new_capacity = static_cast<std::uint16_t>(std::min(256, capacity_ + (capacity_ >> 2) + 1));
+    inline void grow_capacity(std::uint16_t new_capacity) {
         auto* ptr = alloc_.allocate(new_capacity + 1);
         auto* new_data = reinterpret_cast<cluster_data_t*>(ptr);
         new_data->summary_ = cluster_data_->summary_;
@@ -337,7 +347,7 @@ private:
 
         const std::size_t size = cluster_data_->size();
         if (size == capacity_) {
-            grow_capacity();
+            grow_capacity(static_cast<std::uint16_t>(std::min(256, capacity_ + (capacity_ >> 2) + 1)));
         }
         if (idx < size) {
             std::copy(cluster_data_->clusters_ + idx, cluster_data_->clusters_ + size, cluster_data_->clusters_ + idx + 1);
@@ -375,8 +385,21 @@ public:
         }
     }
 
-    Node16(const Node16&) = delete;
-    Node16& operator=(const Node16&) = delete;
+    Node16 clone(std::size_t& alloc) const {
+        Node16 result(min_, alloc);
+        result.min_ = min_;
+        result.max_ = max_;
+
+        if (cluster_data_) {
+            const std::size_t size = cluster_data_->size();
+            auto ptr = tracking_allocator<subnode_t>(alloc).allocate(size + 1);
+            result.cluster_data_ = reinterpret_cast<cluster_data_t*>(ptr);
+            result.capacity_ = static_cast<std::uint16_t>(size);
+            result.cluster_data_->summary_ = cluster_data_->summary_;
+            std::copy(cluster_data_->clusters_, cluster_data_->clusters_ + size, result.cluster_data_->clusters_);
+        }
+        return result;
+    }
 
     Node16(Node16&& other) noexcept
         : cluster_data_(std::exchange(other.cluster_data_, nullptr))
@@ -575,6 +598,64 @@ public:
 
         return stats;
     }
+
+    Node16& merge_inplace(const Node16& other, std::size_t& alloc) {
+        insert(other.min_, alloc);
+        insert(other.max_, alloc);
+
+        if (!other.cluster_data_) {
+            return *this;
+        }
+
+        if (!cluster_data_) {
+            const std::size_t size = other.cluster_data_->size();
+            auto ptr = tracking_allocator<subnode_t>(alloc).allocate(size + 1);
+            cluster_data_ = reinterpret_cast<cluster_data_t*>(ptr);
+            capacity_ = static_cast<std::uint16_t>(size);
+            cluster_data_->summary_ = other.cluster_data_->summary_.clone(alloc);
+            std::copy(other.cluster_data_->clusters_, other.cluster_data_->clusters_ + size, cluster_data_->clusters_);
+
+            return *this;
+        }
+
+        if (auto merge_summary = cluster_data_->summary_.clone(alloc).merge_inplace(other.cluster_data_->summary_, alloc); merge_summary.size() != cluster_data_->size()) {
+            auto ptr = tracking_allocator<subnode_t>(alloc).allocate(merge_summary.size() + 1);
+            auto new_cluster_data = reinterpret_cast<cluster_data_t*>(ptr);
+            auto new_capacity = static_cast<std::uint16_t>(merge_summary.size());
+            new_cluster_data->summary_ = std::move(merge_summary);
+
+            std::size_t i = 0;
+            std::size_t j = 0;
+            std::size_t k = 0;
+            for (auto idx = std::make_optional(new_cluster_data->summary_.min()); idx.has_value(); idx = new_cluster_data->summary_.successor(*idx)) {
+                const bool in_this = cluster_data_->summary_.contains(*idx);
+                const bool in_other = other.cluster_data_->summary_.contains(*idx);
+                if (in_this && in_other) {
+                    new_cluster_data->clusters_[k++] = cluster_data_->clusters_[i++].clone(alloc).merge_inplace(other.cluster_data_->clusters_[j++], alloc); 
+                } else if (in_this) {
+                    new_cluster_data->clusters_[k++] = cluster_data_->clusters_[i++].clone(alloc);
+                } else if (in_other) {
+                    new_cluster_data->clusters_[k++] = other.cluster_data_->clusters_[j++].clone(alloc);
+                } else {
+                    std::unreachable();
+                }
+            }
+            alloc_.deallocate(reinterpret_cast<subnode_t*>(cluster_data_), capacity_ + 1);
+            cluster_data_ = new_cluster_data;
+            capacity_ = new_capacity;
+            return *this;
+        }
+
+        std::size_t i = 0;
+        std::size_t j = 0;
+        for (auto idx = std::make_optional(cluster_data_->summary_.min()); idx.has_value(); idx = cluster_data_->summary_.successor(*idx)) {
+            if (other.cluster_data_->summary_.contains(*idx)) {
+                cluster_data_->clusters_[i].merge_inplace(other.cluster_data_->clusters_[j++], alloc);
+            }
+            ++i;
+        }
+        return *this;
+    }
 };
 
 template<typename Manager>
@@ -636,6 +717,25 @@ public:
             cluster_data_->clusters.emplace(0, std::move(old_storage));
         }
     }
+
+    Node32 clone(std::size_t& alloc) const {
+        Node32 result(min_, alloc);
+        result.min_ = min_;
+        result.max_ = max_;
+
+        if (cluster_data_) {
+            auto data_alloc = tracking_allocator<cluster_data_t>(alloc);
+            result.cluster_data_ = allocate_unique<cluster_data_t>(data_alloc, 0, alloc);
+            result.cluster_data_->summary = cluster_data_->summary.clone(alloc);
+            for (const auto& [key, cluster] : cluster_data_->clusters) {
+                result.cluster_data_->clusters.emplace(key, cluster.clone(alloc));
+            }
+        }
+        return result;
+    }
+
+    Node32(Node32&& other) noexcept = default;
+    Node32& operator=(Node32&& other) noexcept = default;
 
     static constexpr std::size_t universe_size() { return UINT32_MAX; }
     constexpr index_t min() const { return min_; }
@@ -805,6 +905,36 @@ public:
                 return acc;
             }
         ) : VebTreeMemoryStats{0, 0, 1};
+    }
+
+    Node32& merge_inplace(const Node32& other, std::size_t& alloc) {
+        insert(other.min_, alloc);
+        insert(other.max_, alloc);
+
+        if (!other.cluster_data_) {
+            return *this;
+        }
+
+        if (!cluster_data_) {
+            auto data_alloc = tracking_allocator<cluster_data_t>(alloc);
+            cluster_data_ = allocate_unique<cluster_data_t>(data_alloc, 0, alloc);
+            cluster_data_->summary = other.cluster_data_->summary.clone(alloc);
+            for (const auto& [key, cluster] : other.cluster_data_->clusters) {
+                cluster_data_->clusters.emplace(key, cluster.clone(alloc));
+            }
+
+            return *this;
+        }
+
+        cluster_data_->summary.merge_inplace(other.cluster_data_->summary, alloc);
+        for (const auto& [idx, other_cluster] : other.cluster_data_->clusters) {
+            if (auto it = cluster_data_->clusters.find(idx); it != cluster_data_->clusters.end()) {
+                it->second.merge_inplace(other_cluster, alloc);
+            } else {
+                cluster_data_->clusters.emplace(idx, other_cluster.clone(alloc));
+            }
+        }
+        return *this;
     }
 };
 
@@ -1036,6 +1166,53 @@ public:
             }
         ) : VebTreeMemoryStats{0, 0, 1};
     }
+
+    Node64 clone(std::size_t& alloc) const {
+        Node64 result(min_, alloc);
+        result.min_ = min_;
+        result.max_ = max_;
+
+        if (cluster_data_) {
+            auto data_alloc = tracking_allocator<cluster_data_t>(alloc);
+            result.cluster_data_ = allocate_unique<cluster_data_t>(data_alloc, 0, alloc);
+
+            result.cluster_data_->summary = cluster_data_->summary.clone(alloc);
+            for (const auto& [key, cluster] : cluster_data_->clusters) {
+                result.cluster_data_->clusters.emplace(key, cluster.clone(alloc));
+            }
+        }
+        return result;
+    }
+
+    Node64& merge_inplace(const Node64& other, std::size_t& alloc) {
+        insert(other.min_, alloc);
+        insert(other.max_, alloc);
+
+        if (!other.cluster_data_) {
+            return *this;
+        }
+
+        if (!cluster_data_) {
+            auto data_alloc = tracking_allocator<cluster_data_t>(alloc);
+            cluster_data_ = allocate_unique<cluster_data_t>(data_alloc, 0, alloc);
+            cluster_data_->summary = other.cluster_data_->summary.clone(alloc);
+            for (const auto& [key, cluster] : other.cluster_data_->clusters) {
+                cluster_data_->clusters.emplace(key, cluster.clone(alloc));
+            }
+
+            return *this;
+        }
+
+        cluster_data_->summary.merge_inplace(other.cluster_data_->summary, alloc);
+        for (const auto& [idx, other_cluster] : other.cluster_data_->clusters) {
+            if (auto it = cluster_data_->clusters.find(idx); it != cluster_data_->clusters.end()) {
+                it->second.merge_inplace(other_cluster, alloc);
+            } else {
+                cluster_data_->clusters.emplace(idx, other_cluster.clone(alloc));
+            }
+        }
+        return *this;
+    }
 };
 
 
@@ -1153,6 +1330,31 @@ public:
      * @brief Constructs an empty VEB tree
      */
     inline explicit VebTree() : storage_{std::monostate{}}, allocated_{sizeof(*this)} {}
+
+    inline explicit VebTree(const VebTree& other) : storage_{std::monostate{}}, allocated_{sizeof(*this)} {
+        std::visit(
+            overload{
+                [](std::monostate) {},
+                [&](const auto& s) {
+                    storage_ = s.clone(allocated_);
+                },
+            },
+            other.storage_
+        );
+    }
+
+    inline VebTree(VebTree&& other) noexcept
+        : storage_(std::exchange(other.storage_, std::monostate{}))
+        , allocated_(std::exchange(other.allocated_, 0)) {
+    }
+
+    inline VebTree& operator=(VebTree&& other) noexcept {
+        if (this != &other) {
+            storage_ = std::exchange(other.storage_, std::monostate{});
+            allocated_ = std::exchange(other.allocated_, 0);
+        }
+        return *this;
+    }
 
     /**
      * @brief Inserts an element into the VEB tree
@@ -1415,16 +1617,11 @@ public:
      * @param other The other VEB tree to union with
      * @return A new VEB tree containing elements present in either tree
      *
-     * Time complexity: O((|this| + |other|) * log log U)
+     * Time complexity: O(log log U) per node
      */
     inline VebTree operator|(const VebTree& other) const {
-        VebTree result;
-        for (std::size_t element : *this) {
-            result.insert(element);
-        }
-        for (std::size_t element : other) {
-            result.insert(element);
-        }
+        VebTree result(*this);
+        result |= other;
         return result;
     }
 
@@ -1468,11 +1665,131 @@ public:
      * @brief In-place union operator
      * @param other The other VEB tree to union with
      * @return Reference to this tree after union
+     *
+     * Time complexity: O(log log U) per node
      */
     inline VebTree& operator|=(const VebTree& other) {
-        for (std::size_t element : other) {
-            insert(element);
+        if (other.empty()) {
+            return *this;
         }
+        if (empty()) {
+            storage_ = std::visit(overload{
+                [](std::monostate) -> StorageType { return std::monostate{}; },
+                [&](const auto& node) -> StorageType { return node.clone(allocated_); },
+            }, other.storage_);
+            return *this;
+        }
+
+        std::visit(
+            overload{
+                [&](std::monostate, const Node8&) -> void {
+                },
+                [&](std::monostate, const Node16&) -> void {
+                },
+                [&](std::monostate, const Node32<Manager>&) -> void {
+                },
+                [&](std::monostate, const Node64<Manager>&) -> void {
+                },
+                [&](Node8&, std::monostate) -> void {
+                },
+                [&](Node16&, std::monostate) -> void {
+                },
+                [&](Node32<Manager>&, std::monostate) -> void {
+                },
+                [&](Node64<Manager>&, std::monostate) -> void {
+                },
+                [&](std::monostate, std::monostate) -> void {
+                },
+                [&](Node8& a, const Node8& b) -> void {
+                    a.merge_inplace(b, allocated_);
+                },
+                [&](Node16& a, const Node16& b) -> void {
+                    a.merge_inplace(b, allocated_);
+                },
+                [&](Node32<Manager>& a, const Node32<Manager>& b) -> void {
+                    a.merge_inplace(b, allocated_);
+                },
+                [&](Node64<Manager>& a, const Node64<Manager>& b) -> void {
+                    a.merge_inplace(b, allocated_);
+                },
+                [&](Node8& a, const Node16& b) -> void {
+                    auto a_clone = a.clone(allocated_);
+                    auto a16 = Node16{std::move(a_clone), allocated_};
+                    a16.merge_inplace(b, allocated_);
+                    storage_ = std::move(a16);
+                },
+                [&](Node16& a, const Node8& b) -> void {
+                    auto b_clone = b.clone(allocated_);
+                    auto b16 = Node16{std::move(b_clone), allocated_};
+                    a.merge_inplace(b16, allocated_);
+                },
+                [&](Node8& a, const Node32<Manager>& b) -> void {
+                    auto a_clone = a.clone(allocated_);
+                    auto a16 = Node16{std::move(a_clone), allocated_};
+                    auto a32 = Node32<Manager>{std::move(a16), allocated_};
+                    a32.merge_inplace(b, allocated_);
+                    storage_ = std::move(a32);
+                },
+                [&](Node32<Manager>& a, const Node8& b) -> void {
+                    auto b_clone = b.clone(allocated_);
+                    auto b16 = Node16{std::move(b_clone), allocated_};
+                    auto b32 = Node32<Manager>{std::move(b16), allocated_};
+                    a.merge_inplace(b32, allocated_);
+                },
+                [&](Node16& a, const Node32<Manager>& b) -> void {
+                    auto a_clone = a.clone(allocated_);
+                    auto a32 = Node32<Manager>{std::move(a_clone), allocated_};
+                    a32.merge_inplace(b, allocated_);
+                    storage_ = std::move(a32);
+                },
+                [&](Node32<Manager>& a, const Node16& b) -> void {
+                    auto b_clone = b.clone(allocated_);
+                    auto b32 = Node32<Manager>{std::move(b_clone), allocated_};
+                    a.merge_inplace(b32, allocated_);
+                },
+                [&](Node8& a, const Node64<Manager>& b) -> void {
+                    auto a_clone = a.clone(allocated_);
+                    auto a16 = Node16{std::move(a_clone), allocated_};
+                    auto a32 = Node32<Manager>{std::move(a16), allocated_};
+                    auto a64 = Node64<Manager>{std::move(a32), allocated_};
+                    a64.merge_inplace(b, allocated_);
+                    storage_ = std::move(a64);
+                },
+                [&](Node64<Manager>& a, const Node8& b) -> void {
+                    auto b_clone = b.clone(allocated_);
+                    auto b16 = Node16{std::move(b_clone), allocated_};
+                    auto b32 = Node32<Manager>{std::move(b16), allocated_};
+                    auto b64 = Node64<Manager>{std::move(b32), allocated_};
+                    a.merge_inplace(b64, allocated_);
+                },
+                [&](Node16& a, const Node64<Manager>& b) -> void {
+                    auto a_clone = a.clone(allocated_);
+                    auto a32 = Node32<Manager>{std::move(a_clone), allocated_};
+                    auto a64 = Node64<Manager>{std::move(a32), allocated_};
+                    a64.merge_inplace(b, allocated_);
+                    storage_ = std::move(a64);
+                },
+                [&](Node64<Manager>& a, const Node16& b) -> void {
+                    auto b_clone = b.clone(allocated_);
+                    auto b32 = Node32<Manager>{std::move(b_clone), allocated_};
+                    auto b64 = Node64<Manager>{std::move(b32), allocated_};
+                    a.merge_inplace(b64, allocated_);
+                },
+                [&](Node32<Manager>& a, const Node64<Manager>& b) -> void {
+                    auto a_clone = a.clone(allocated_);
+                    auto a64 = Node64<Manager>{std::move(a_clone), allocated_};
+                    a64.merge_inplace(b, allocated_);
+                    storage_ = std::move(a64);
+                },
+                [&](Node64<Manager>& a, const Node32<Manager>& b) -> void {
+                    auto b_clone = b.clone(allocated_);
+                    auto b64 = Node64<Manager>{std::move(b_clone), allocated_};
+                    a.merge_inplace(b64, allocated_);
+                }
+            },
+            storage_, other.storage_
+        );
+
         return *this;
     }
 

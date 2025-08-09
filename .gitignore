@@ -15,6 +15,9 @@ cmake-build-*/
 # Log files
 *.log
 
+# Python cache
+__pycache__
+
 # IDE/Editor files
 .vscode/
 .idea/

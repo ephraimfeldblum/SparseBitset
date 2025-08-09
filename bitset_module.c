@@ -2,20 +2,29 @@
 #include "VEB/VebTree.h"
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>  // For strcasecmp
+#include <strings.h>
 
 #define BITSET_TYPE_NAME "sparsebit"
 
-// Redis data type for bitset
+void* malloc(size_t size) {
+    return RedisModule_Alloc(size);
+}
+
+void* realloc(void* ptr, size_t size) {
+    return RedisModule_Realloc(ptr, size);
+}
+
+void free(void* ptr) {
+    RedisModule_Free(ptr);
+}
+
 static RedisModuleType *BitsetType;
 
-// Bitset structure that wraps VebTree
 typedef struct {
     VebTree_Handle_t handle;
     const VebTree_API_t *api;
 } Bitset;
 
-// Create a new bitset
 static Bitset *bitset_create(VebTree_ImplType_t impl_type) {
     Bitset *bitset = RedisModule_Alloc(sizeof(Bitset));
     bitset->handle = vebtree_create(impl_type);
@@ -27,7 +36,6 @@ static Bitset *bitset_create(VebTree_ImplType_t impl_type) {
     return bitset;
 }
 
-// Free a bitset
 static void bitset_free(Bitset *bitset) {
     if (bitset) {
         if (bitset->handle) {
@@ -37,7 +45,6 @@ static void bitset_free(Bitset *bitset) {
     }
 }
 
-// Redis type methods
 static void *bitset_rdb_load(RedisModuleIO *rdb, int encver) {
     if (encver != 0) {
         return NULL;
@@ -62,15 +69,12 @@ static void *bitset_rdb_load(RedisModuleIO *rdb, int encver) {
 static void bitset_rdb_save(RedisModuleIO *rdb, void *value) {
     Bitset *bitset = value;
 
-    // Save implementation type
     VebTree_ImplType_t impl_type = vebtree_get_impl_type(bitset->handle);
     RedisModule_SaveUnsigned(rdb, impl_type);
 
-    // Save size
     size_t size = bitset->api->size(bitset->handle);
     RedisModule_SaveUnsigned(rdb, size);
 
-    // Save all elements
     size_t *array = bitset->api->to_array(bitset->handle);
     for (size_t i = 0; i < size; i++) {
         RedisModule_SaveUnsigned(rdb, array[i]);
@@ -107,7 +111,6 @@ static int bitset_defrag(RedisModuleDefragCtx *ctx, RedisModuleString *key, void
     return 0;
 }
 
-// Helper function to get or create bitset
 static Bitset *get_bitset_key(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode) {
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyname, mode);
     int type = RedisModule_KeyType(key);
@@ -205,11 +208,9 @@ static int bits_get_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
     Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
     if (!bitset) {
-        // When key does not exist, it is assumed to be an empty string, so offset is always out of range and the value is 0
         return RedisModule_ReplyWithLongLong(ctx, 0);
     }
 
-    // Check if the bit at offset is set
     bool bit_set = bitset->api->contains(bitset->handle, (size_t)offset);
     return RedisModule_ReplyWithLongLong(ctx, bit_set ? 1 : 0);
 }
@@ -235,16 +236,12 @@ static int bits_set_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_ReplyWithError(ctx, "ERR failed to create or access bitset");
     }
 
-    // Get the previous value of the bit
     bool previous_bit_set = bitset->api->contains(bitset->handle, (size_t)offset);
     long long previous_value = previous_bit_set ? 1 : 0;
 
-    // Set or clear the bit based on the value
     if (value == 1) {
-        // Set the bit (insert the element)
         bitset->api->insert(bitset->handle, (size_t)offset);
     } else {
-        // Clear the bit (remove the element)
         bitset->api->remove(bitset->handle, (size_t)offset);
     }
 
@@ -252,23 +249,19 @@ static int bits_set_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RedisModule_ReplyWithLongLong(ctx, previous_value);
 }
 
-// Helper function to count elements in a range
 static long long count_elements_in_range(Bitset *bitset, long long start, long long end, bool is_bit_range) {
     if (!bitset || start > end) {
         return 0;
     }
 
-    // Convert byte indices to bit indices if needed
     long long bit_start = is_bit_range ? start : start * 8;
     long long bit_end = is_bit_range ? end : (end * 8) + 7;
 
-    // Ensure non-negative indices
     if (bit_start < 0) bit_start = 0;
     if (bit_end < 0) return 0;
 
     long long count = 0;
 
-    // Find the first element >= bit_start
     VebTree_OptionalSize_t current;
     if (bit_start == 0) {
         current = bitset->api->min(bitset->handle);
@@ -276,7 +269,6 @@ static long long count_elements_in_range(Bitset *bitset, long long start, long l
         current = bitset->api->successor(bitset->handle, (size_t)(bit_start - 1));
     }
 
-    // Count elements in the range
     while (current.has_value && (long long)current.value <= bit_end) {
         count++;
         current = bitset->api->successor(bitset->handle, current.value);
@@ -287,7 +279,6 @@ static long long count_elements_in_range(Bitset *bitset, long long start, long l
 
 // bits.COUNT key [start end [BYTE | BIT]]
 static int bits_count_command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    // Validate argument count
     if (argc < 2 || argc > 5) {
         return RedisModule_WrongArity(ctx);
     }
@@ -297,13 +288,11 @@ static int bits_count_command(RedisModuleCtx *ctx, RedisModuleString **argv, int
         return RedisModule_ReplyWithLongLong(ctx, 0);
     }
 
-    // If no range specified, return total count
     if (argc == 2) {
         size_t size = bitset->api->size(bitset->handle);
         return RedisModule_ReplyWithLongLong(ctx, (long long)size);
     }
 
-    // Parse start and end indices
     long long start, end;
     if (RedisModule_StringToLongLong(argv[2], &start) != REDISMODULE_OK) {
         return RedisModule_ReplyWithError(ctx, "ERR invalid start index");
@@ -312,7 +301,6 @@ static int bits_count_command(RedisModuleCtx *ctx, RedisModuleString **argv, int
         return RedisModule_ReplyWithError(ctx, "ERR invalid end index");
     }
 
-    // Parse BYTE/BIT specification (default is BYTE)
     bool is_bit_range = false;
     if (argc == 5) {
         const char *unit = RedisModule_StringPtrLen(argv[4], NULL);
@@ -325,9 +313,7 @@ static int bits_count_command(RedisModuleCtx *ctx, RedisModuleString **argv, int
         }
     }
 
-    // Handle negative end index (count from end)
     if (end < 0) {
-        // For negative end, we need to find the maximum element to calculate the actual end
         VebTree_OptionalSize_t max_elem = bitset->api->max(bitset->handle);
         if (!max_elem.has_value) {
             return RedisModule_ReplyWithLongLong(ctx, 0);
@@ -478,16 +464,13 @@ static int bits_or_command(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         return RedisModule_WrongArity(ctx);
     }
 
-    // Get or create destination bitset
     Bitset *dest = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
     if (!dest) {
         return RedisModule_ReplyWithError(ctx, "ERR failed to create or access destination bitset");
     }
 
-    // Clear destination first
     dest->api->clear(dest->handle);
 
-    // Union all source bitsets
     for (int i = 2; i < argc; i++) {
         Bitset *src = get_bitset_key(ctx, argv[i], REDISMODULE_READ);
         if (src) {
@@ -495,9 +478,13 @@ static int bits_or_command(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         }
     }
 
-    size_t result_size = dest->api->size(dest->handle);
+    size_t result_bytes = 0;
+    VebTree_OptionalSize_t max_elem = dest->api->max(dest->handle);
+    if (max_elem.has_value) {
+        result_bytes = (max_elem.value / 8) + 1;
+    }
     RedisModule_ReplicateVerbatim(ctx);
-    return RedisModule_ReplyWithLongLong(ctx, (long long)result_size);
+    return RedisModule_ReplyWithLongLong(ctx, (long long)result_bytes);
 }
 
 // bits.AND dest src1 [src2 ...]
@@ -506,10 +493,8 @@ static int bits_and_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_WrongArity(ctx);
     }
 
-    // Get first source bitset
     Bitset *first_src = get_bitset_key(ctx, argv[2], REDISMODULE_READ);
     if (!first_src) {
-        // If first source doesn't exist, result is empty
         Bitset *dest = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
         if (dest) {
             dest->api->clear(dest->handle);
@@ -518,31 +503,31 @@ static int bits_and_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_ReplyWithLongLong(ctx, 0);
     }
 
-    // Get or create destination and copy first source
     Bitset *dest = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
     if (!dest) {
         return RedisModule_ReplyWithError(ctx, "ERR failed to create or access destination bitset");
     }
 
-    // Copy first source to destination
     dest->api->clear(dest->handle);
     dest->api->union_op(dest->handle, first_src->handle);
 
-    // Intersect with remaining sources
     for (int i = 3; i < argc; i++) {
         Bitset *src = get_bitset_key(ctx, argv[i], REDISMODULE_READ);
         if (src) {
             dest->api->intersection(dest->handle, src->handle);
         } else {
-            // If any source doesn't exist, result is empty
             dest->api->clear(dest->handle);
             break;
         }
     }
 
-    size_t result_size = dest->api->size(dest->handle);
+    size_t result_bytes = 0;
+    VebTree_OptionalSize_t max_elem = dest->api->max(dest->handle);
+    if (max_elem.has_value) {
+        result_bytes = (max_elem.value / 8) + 1;
+    }
     RedisModule_ReplicateVerbatim(ctx);
-    return RedisModule_ReplyWithLongLong(ctx, (long long)result_size);
+    return RedisModule_ReplyWithLongLong(ctx, (long long)result_bytes);
 }
 
 // bits.XOR dest src1 [src2 ...]
@@ -551,10 +536,8 @@ static int bits_xor_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_WrongArity(ctx);
     }
 
-    // Get first source bitset
     Bitset *first_src = get_bitset_key(ctx, argv[2], REDISMODULE_READ);
     if (!first_src) {
-        // If first source doesn't exist, result is empty
         Bitset *dest = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
         if (dest) {
             dest->api->clear(dest->handle);
@@ -563,17 +546,14 @@ static int bits_xor_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_ReplyWithLongLong(ctx, 0);
     }
 
-    // Get or create destination and copy first source
     Bitset *dest = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
     if (!dest) {
         return RedisModule_ReplyWithError(ctx, "ERR failed to create or access destination bitset");
     }
 
-    // Copy first source to destination
     dest->api->clear(dest->handle);
     dest->api->union_op(dest->handle, first_src->handle);
 
-    // XOR with remaining sources
     for (int i = 3; i < argc; i++) {
         Bitset *src = get_bitset_key(ctx, argv[i], REDISMODULE_READ);
         if (src) {
@@ -581,27 +561,27 @@ static int bits_xor_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         }
     }
 
-    size_t result_size = dest->api->size(dest->handle);
+    size_t result_bytes = 0;
+    VebTree_OptionalSize_t max_elem = dest->api->max(dest->handle);
+    if (max_elem.has_value) {
+        result_bytes = (max_elem.value / 8) + 1;
+    }
     RedisModule_ReplicateVerbatim(ctx);
-    return RedisModule_ReplyWithLongLong(ctx, (long long)result_size);
+    return RedisModule_ReplyWithLongLong(ctx, (long long)result_bytes);
 }
 
-// Helper function to find the position of the first bit set to the specified value
 static long long find_bit_position(Bitset *bitset, int bit_value, long long start, long long end, bool is_bit_range) {
     if (!bitset) {
         return -1;
     }
 
-    // Convert byte indices to bit indices if needed
     long long bit_start = is_bit_range ? start : start * 8;
     long long bit_end = is_bit_range ? end : (end * 8) + 7;
 
-    // Ensure non-negative indices
     if (bit_start < 0) bit_start = 0;
     if (bit_end < 0) return -1;
 
     if (bit_value == 1) {
-        // Looking for first set bit (1)
         VebTree_OptionalSize_t current;
         if (bit_start == 0) {
             current = bitset->api->min(bitset->handle);
@@ -613,8 +593,6 @@ static long long find_bit_position(Bitset *bitset, int bit_value, long long star
             return (long long)current.value;
         }
     } else {
-        // Looking for first unset bit (0)
-        // We need to scan through the range and find the first position that's not set
         for (long long pos = bit_start; pos <= bit_end; pos++) {
             if (!bitset->api->contains(bitset->handle, (size_t)pos)) {
                 return pos;
@@ -627,40 +605,34 @@ static long long find_bit_position(Bitset *bitset, int bit_value, long long star
 
 // bits.POS key bit [start [end [BYTE | BIT]]]
 static int bits_pos_command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    // Validate argument count
     if (argc < 3 || argc > 6) {
         return RedisModule_WrongArity(ctx);
     }
 
     Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
 
-    // Parse bit value (0 or 1)
     long long bit_value;
     if (RedisModule_StringToLongLong(argv[2], &bit_value) != REDISMODULE_OK ||
         (bit_value != 0 && bit_value != 1)) {
         return RedisModule_ReplyWithError(ctx, "ERR bit value must be 0 or 1");
     }
 
-    // Default range covers entire bitset
     long long start = 0;
-    long long end = -1;  // Will be set to max position if not specified
+    long long end = -1;
     bool is_bit_range = false;
 
-    // Parse start index if provided
     if (argc >= 4) {
         if (RedisModule_StringToLongLong(argv[3], &start) != REDISMODULE_OK) {
             return RedisModule_ReplyWithError(ctx, "ERR invalid start index");
         }
     }
 
-    // Parse end index if provided
     if (argc >= 5) {
         if (RedisModule_StringToLongLong(argv[4], &end) != REDISMODULE_OK) {
             return RedisModule_ReplyWithError(ctx, "ERR invalid end index");
         }
     }
 
-    // Parse BYTE/BIT specification (default is BYTE)
     if (argc == 6) {
         const char *unit = RedisModule_StringPtrLen(argv[5], NULL);
         if (strcasecmp(unit, "BIT") == 0) {
@@ -672,20 +644,15 @@ static int bits_pos_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         }
     }
 
-    // Handle non-existent key (treated as empty string)
     if (!bitset) {
         if (bit_value == 0) {
-            // First unset bit in empty string is at position 0
             return RedisModule_ReplyWithLongLong(ctx, start >= 0 ? start : 0);
         } else {
-            // No set bits in empty string
             return RedisModule_ReplyWithLongLong(ctx, -1);
         }
     }
 
-    // Handle negative end index (count from end)
     if (end < 0 && argc >= 5) {
-        // For negative end, we need to find the maximum element to calculate the actual end
         VebTree_OptionalSize_t max_elem = bitset->api->max(bitset->handle);
         if (max_elem.has_value) {
             long long max_index = is_bit_range ? (long long)max_elem.value : ((long long)max_elem.value / 8);
@@ -694,7 +661,6 @@ static int bits_pos_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
                 return RedisModule_ReplyWithLongLong(ctx, -1);
             }
         } else {
-            // Empty bitset, treat as if searching in empty string
             if (bit_value == 0) {
                 return RedisModule_ReplyWithLongLong(ctx, start >= 0 ? start : 0);
             } else {
@@ -702,12 +668,10 @@ static int bits_pos_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
             }
         }
     } else if (end < 0) {
-        // If end is not specified, search to the end of the bitset
         VebTree_OptionalSize_t max_elem = bitset->api->max(bitset->handle);
         if (max_elem.has_value) {
             end = is_bit_range ? (long long)max_elem.value : ((long long)max_elem.value / 8);
         } else {
-            // Empty bitset
             if (bit_value == 0) {
                 return RedisModule_ReplyWithLongLong(ctx, start >= 0 ? start : 0);
             } else {
@@ -716,7 +680,6 @@ static int bits_pos_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         }
     }
 
-    // Handle negative start index
     if (start < 0) {
         VebTree_OptionalSize_t max_elem = bitset->api->max(bitset->handle);
         if (max_elem.has_value) {
@@ -768,7 +731,6 @@ static int bits_info_command(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return REDISMODULE_OK;
 }
 
-// Module initialization
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     (void)argv;
     (void)argc;
