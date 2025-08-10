@@ -58,7 +58,7 @@ def run_all_benchmarks(data1, data2, i):
     
     # --- READ (GET / GETBIT) ---
     print("Benchmarking reads...")
-    sample = random.sample(data1, 10000)
+    sample = random.sample(data1, s_count//100)
     with r.pipeline() as pipe:
         for val in sample: pipe.execute_command('BITS.GET', KEYS['sparse1'], val)
         start_time = time.time(); pipe.execute(); s_time = time.time() - start_time
@@ -88,15 +88,26 @@ def run_all_benchmarks(data1, data2, i):
         for val in sample: pipe.execute_command('BITS.INSERT', KEYS['sparse1'], val); pipe.execute_command('R.SETBIT', KEYS['compressed1'], val, 1); pipe.execute_command('SETBIT', KEYS['dense1'], val, 1)
         pipe.execute()
     
-    # --- MIN/MAX/SUCCESSOR/PREDECESSOR ---
-    print("Benchmarking min/max/succ/pred...")
+    # --- MIN/MAX ---
+    print("Benchmarking min/max...")
     min_val, max_val = int(r.execute_command('BITS.MIN', KEYS['sparse1'])), int(r.execute_command('BITS.MAX', KEYS['sparse1']))
-    # succ = int(r.execute_command('BITS.SUCCESSOR', KEYS['sparse1'], min_val))
-    # pred = int(r.execute_command('BITS.PREDECESSOR', KEYS['sparse1'], max_val))
     c_min = int(r.execute_command('R.MIN', KEYS['compressed1']))
     c_max = int(r.execute_command('R.MAX', KEYS['compressed1']))
     table.add_row(["Min/Max", f"{min_val}/{max_val}", f"{c_min}/{c_max}", "N/A", f"{get_stats('bits.min')}/{get_stats('bits.max')}", f"{get_stats('R.MIN')}/{get_stats('R.MAX')}", "N/A", f"{compare_results(min_val, c_min)}/{compare_results(max_val, c_max)}"])
-    # table.add_row(["Succ/Pred", f"{succ}/{pred}", "N/A", f"{get_stats('bits.successor')}/{get_stats('bits.predecessor')}", "N/A", "N/A"])
+
+    # --- ITERATION ---
+    print("Benchmarking iteration...")
+    vals = r.execute_command('BITS.TOARRAY', KEYS['sparse1'])
+    with r.pipeline() as pipe:
+        for val in vals: pipe.execute_command('BITS.SUCCESSOR', KEYS['sparse1'], val)
+    start_time = time.time(); pipe.execute(); s_iter_time = time.time() - start_time
+    with r.pipeline() as pipe:
+        for val in vals: pipe.execute_command('R.POS', KEYS['compressed1'], 1, val + 1)
+    start_time = time.time(); pipe.execute(); c_iter_time = time.time() - start_time
+    with r.pipeline() as pipe:
+        for val in vals: pipe.bitpos(KEYS['dense1'], 1, val + 1)
+    start_time = time.time(); pipe.execute(); d_iter_time = time.time() - start_time
+    table.add_row(["Iteration", f"{s_iter_time:.2f}s ({s_count})", f"{c_iter_time:.2f}s ({c_count})", f"{d_iter_time:.2f}s ({d_count})", get_stats('bits.successor'), get_stats('R.POS'), get_stats('bitpos'), compare_results(s_count, d_count)])
 
     # --- SET OPERATIONS ---
     print("Benchmarking set operations...")

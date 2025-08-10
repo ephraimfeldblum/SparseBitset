@@ -262,9 +262,25 @@ public:
         return *this;
     }
 
-    Node8& merge_inplace(const Node8& other, [[maybe_unused]] std::size_t& alloc) {
+    Node8& or_inplace(const Node8& other, [[maybe_unused]] std::size_t& alloc) {
         for (std::size_t i = 0; i < 4; ++i) {
             bits_[i] |= other.bits_[i];
+        }
+        return *this;
+    }
+    bool is_tombstone() const {
+        return size() == 0;
+    }
+
+    Node8& and_inplace(const Node8& other, [[maybe_unused]] std::size_t& alloc) {
+        for (std::size_t i = 0; i < 4; ++i) {
+            bits_[i] &= other.bits_[i];
+        }
+        return *this;
+    }
+    Node8& xor_inplace(const Node8& other, [[maybe_unused]] std::size_t& alloc) {
+        for (std::size_t i = 0; i < 4; ++i) {
+            bits_[i] ^= other.bits_[i];
         }
         return *this;
     }
@@ -454,7 +470,7 @@ public:
             } else {
                 auto min_cluster = cluster_data_->summary_.min();
                 auto min_element = cluster_data_->clusters_[cluster_data_->index_of(min_cluster)].min();
-                x = min_ = Node16::index(min_cluster, min_element);
+                x = min_ = index(min_cluster, min_element);
             }
         }
 
@@ -469,7 +485,7 @@ public:
             } else {
                 auto max_cluster = cluster_data_->summary_.max();
                 auto max_element = cluster_data_->clusters_[cluster_data_->index_of(max_cluster)].max();
-                x = max_ = Node16::index(max_cluster, max_element);
+                x = max_ = index(max_cluster, max_element);
             }
         }
 
@@ -524,14 +540,14 @@ public:
         if (const auto* cluster = find(h)) {
             if (l < cluster->max()) {
                 if (auto succ = cluster->successor(l)) {
-                    return Node16::index(h, *succ);
+                    return index(h, *succ);
                 }
             }
         }
 
         if (auto succ_cluster = cluster_data_->summary_.successor(h)) {
             auto min_element = cluster_data_->clusters_[cluster_data_->index_of(*succ_cluster)].min();
-            return Node16::index(*succ_cluster, min_element);
+            return index(*succ_cluster, min_element);
         }
 
         return std::make_optional(max_);
@@ -552,14 +568,14 @@ public:
         if (const auto* cluster = find(h)) {
             if (l > cluster->min()) {
                 if (auto pred = cluster->predecessor(l)) {
-                    return Node16::index(h, *pred);
+                    return index(h, *pred);
                 }
             }
         }
 
         if (auto pred_cluster = cluster_data_->summary_.predecessor(h)) {
             auto max_element = cluster_data_->clusters_[cluster_data_->index_of(*pred_cluster)].max();
-            return Node16::index(*pred_cluster, max_element);
+            return index(*pred_cluster, max_element);
         }
 
         return min_;
@@ -599,7 +615,7 @@ public:
         return stats;
     }
 
-    Node16& merge_inplace(const Node16& other, std::size_t& alloc) {
+    Node16& or_inplace(const Node16& other, std::size_t& alloc) {
         insert(other.min_, alloc);
         insert(other.max_, alloc);
 
@@ -618,7 +634,7 @@ public:
             return *this;
         }
 
-        if (auto merge_summary = cluster_data_->summary_.clone(alloc).merge_inplace(other.cluster_data_->summary_, alloc); merge_summary.size() != cluster_data_->size()) {
+        if (auto merge_summary = cluster_data_->summary_.clone(alloc).or_inplace(other.cluster_data_->summary_, alloc); merge_summary.size() != cluster_data_->size()) {
             auto ptr = tracking_allocator<subnode_t>(alloc).allocate(merge_summary.size() + 1);
             auto new_cluster_data = reinterpret_cast<cluster_data_t*>(ptr);
             auto new_capacity = static_cast<std::uint16_t>(merge_summary.size());
@@ -631,9 +647,9 @@ public:
                 const bool in_this = cluster_data_->summary_.contains(*idx);
                 const bool in_other = other.cluster_data_->summary_.contains(*idx);
                 if (in_this && in_other) {
-                    new_cluster_data->clusters_[k++] = cluster_data_->clusters_[i++].clone(alloc).merge_inplace(other.cluster_data_->clusters_[j++], alloc); 
+                    new_cluster_data->clusters_[k++] = cluster_data_->clusters_[i++].or_inplace(other.cluster_data_->clusters_[j++], alloc); 
                 } else if (in_this) {
-                    new_cluster_data->clusters_[k++] = cluster_data_->clusters_[i++].clone(alloc);
+                    new_cluster_data->clusters_[k++] = cluster_data_->clusters_[i++];
                 } else if (in_other) {
                     new_cluster_data->clusters_[k++] = other.cluster_data_->clusters_[j++].clone(alloc);
                 } else {
@@ -650,10 +666,89 @@ public:
         std::size_t j = 0;
         for (auto idx = std::make_optional(cluster_data_->summary_.min()); idx.has_value(); idx = cluster_data_->summary_.successor(*idx)) {
             if (other.cluster_data_->summary_.contains(*idx)) {
-                cluster_data_->clusters_[i].merge_inplace(other.cluster_data_->clusters_[j++], alloc);
+                cluster_data_->clusters_[i].or_inplace(other.cluster_data_->clusters_[j++], alloc);
             }
             ++i;
         }
+        return *this;
+    }
+
+    Node16& empty_clusters_or_tombstone(std::optional<index_t> new_min, std::optional<index_t> new_max) {
+        alloc_.deallocate(reinterpret_cast<subnode_t*>(cluster_data_), capacity_ + 1);
+        cluster_data_ = nullptr;
+        capacity_ = 0;
+        if (new_min.has_value() && new_max.has_value()) {
+            min_ = *new_min;
+            max_ = *new_max;
+        } else if (new_min.has_value()) {
+            min_ = *new_min;
+            max_ = *new_min;
+        } else if (new_max.has_value()) {
+            min_ = *new_max;
+            max_ = *new_max;
+        } else {
+            min_ = std::numeric_limits<index_t>::max();
+            max_ = std::numeric_limits<index_t>::min();
+        }
+        return *this;
+    }
+
+    bool is_tombstone() const {
+        return min_ > max_;
+    }
+
+    Node16& and_inplace(const Node16& other, std::size_t& alloc) {
+        index_t potential_min = std::max(min_, other.min_);
+        index_t potential_max = std::min(max_, other.max_);
+        auto new_min = contains(potential_min) && other.contains(potential_min) ? std::make_optional(potential_min) : std::nullopt;
+        auto new_max = contains(potential_max) && other.contains(potential_max) ? std::make_optional(potential_max) : std::nullopt;
+        if (potential_min >= potential_max || !cluster_data_ || !other.cluster_data_) {
+            return empty_clusters_or_tombstone(new_min, new_max);
+        }
+        subnode_t summary_intersection = cluster_data_->summary_.clone(alloc).and_inplace(other.cluster_data_->summary_, alloc);
+        if (summary_intersection.is_tombstone()) {
+            return empty_clusters_or_tombstone(new_min, new_max);
+        }
+
+        std::size_t write_idx = 0;
+        for (auto cluster_idx = std::make_optional(summary_intersection.min()); cluster_idx.has_value(); cluster_idx = summary_intersection.successor(*cluster_idx)) {
+            const subindex_t this_cluster_pos = cluster_data_->index_of(*cluster_idx);
+            const subindex_t other_cluster_pos = other.cluster_data_->index_of(*cluster_idx);
+            auto& this_cluster = cluster_data_->clusters_[this_cluster_pos];
+            auto& other_cluster = other.cluster_data_->clusters_[other_cluster_pos];
+
+            if (!this_cluster.and_inplace(other_cluster, alloc).is_tombstone()) {
+                if (write_idx != this_cluster_pos) {
+                    cluster_data_->clusters_[write_idx] = this_cluster;
+                }
+                write_idx++;
+            } else if (summary_intersection.remove(*cluster_idx, alloc)) {
+                return empty_clusters_or_tombstone(new_min, new_max);
+            }
+        }
+        cluster_data_->summary_ = summary_intersection;
+
+        min_ = *new_min.or_else([&] {
+            auto min_cluster = cluster_data_->summary_.min();
+            auto min_element = cluster_data_->clusters_[0].min();
+            return std::make_optional(index(min_cluster, min_element));
+        });
+        max_ = *new_max.or_else([&] {
+            auto max_cluster = cluster_data_->summary_.max();
+            auto max_element = cluster_data_->clusters_[cluster_data_->size() - 1].max();
+            return std::make_optional(index(max_cluster, max_element));
+        });
+        if (max_ != potential_max && cluster_data_->clusters_[cluster_data_->size() - 1].remove(static_cast<subindex_t>(max_), alloc)) {
+            cluster_data_->summary_.remove(cluster_data_->summary_.max(), alloc);
+        }
+        if (min_ != potential_min && cluster_data_->clusters_[0].remove(static_cast<subindex_t>(min_), alloc)) {
+            cluster_data_->summary_.remove(cluster_data_->summary_.min(), alloc);
+            std::copy(cluster_data_->clusters_ + 1, cluster_data_->clusters_ + write_idx, cluster_data_->clusters_);
+        }
+        if (cluster_data_->size() == 0) {
+            return empty_clusters_or_tombstone(min_, max_);
+        }
+
         return *this;
     }
 };
@@ -907,7 +1002,7 @@ public:
         ) : VebTreeMemoryStats{0, 0, 1};
     }
 
-    Node32& merge_inplace(const Node32& other, std::size_t& alloc) {
+    Node32& or_inplace(const Node32& other, std::size_t& alloc) {
         insert(other.min_, alloc);
         insert(other.max_, alloc);
 
@@ -926,14 +1021,84 @@ public:
             return *this;
         }
 
-        cluster_data_->summary.merge_inplace(other.cluster_data_->summary, alloc);
+        cluster_data_->summary.or_inplace(other.cluster_data_->summary, alloc);
         for (const auto& [idx, other_cluster] : other.cluster_data_->clusters) {
             if (auto it = cluster_data_->clusters.find(idx); it != cluster_data_->clusters.end()) {
-                it->second.merge_inplace(other_cluster, alloc);
+                it->second.or_inplace(other_cluster, alloc);
             } else {
                 cluster_data_->clusters.emplace(idx, other_cluster.clone(alloc));
             }
         }
+        return *this;
+    }
+
+private:
+    Node32& empty_clusters_or_tombstone(std::optional<index_t> new_min, std::optional<index_t> new_max) {
+        cluster_data_.reset();
+        if (new_min.has_value() && new_max.has_value()) {
+            min_ = *new_min;
+            max_ = *new_max;
+        } else if (new_min.has_value()) {
+            min_ = *new_min;
+            max_ = *new_min;
+        } else if (new_max.has_value()) {
+            min_ = *new_max;
+            max_ = *new_max;
+        } else {
+            min_ = std::numeric_limits<index_t>::max();
+            max_ = std::numeric_limits<index_t>::min();
+        }
+        return *this;
+    }
+
+public:
+    bool is_tombstone() const {
+        return min_ > max_;
+    }
+
+    Node32& and_inplace(const Node32& other, std::size_t& alloc) {
+        index_t potential_min = std::max(min_, other.min_);
+        index_t potential_max = std::min(max_, other.max_);
+        auto new_min = contains(potential_min) && other.contains(potential_min) ? std::make_optional(potential_min) : std::nullopt;
+        auto new_max = contains(potential_max) && other.contains(potential_max) ? std::make_optional(potential_max) : std::nullopt;
+        if (potential_min >= potential_max || !cluster_data_ || !other.cluster_data_) {
+            return empty_clusters_or_tombstone(new_min, new_max);
+        }
+
+        subnode_t summary_intersection = std::move(cluster_data_->summary.clone(alloc).and_inplace(other.cluster_data_->summary, alloc));
+        if (summary_intersection.is_tombstone()) {
+            return empty_clusters_or_tombstone(new_min, new_max);
+        }
+
+        for (auto cluster_idx = std::make_optional(summary_intersection.min()); cluster_idx.has_value(); cluster_idx = summary_intersection.successor(*cluster_idx)) {
+            if (auto this_it = cluster_data_->clusters.find(*cluster_idx),
+                     other_it = other.cluster_data_->clusters.find(*cluster_idx);
+                this_it != cluster_data_->clusters.end() &&
+                other_it != other.cluster_data_->clusters.end() &&
+                this_it->second.and_inplace(other_it->second, alloc).is_tombstone() &&
+                (cluster_data_->clusters.erase(this_it), summary_intersection.remove(*cluster_idx, alloc))
+            ) {
+                return empty_clusters_or_tombstone(new_min, new_max);
+            }
+        }
+
+        cluster_data_->summary = std::move(summary_intersection);
+
+        min_ = *new_min.or_else([&] {
+            auto min_cluster = cluster_data_->summary.min();
+            auto min_element = cluster_data_->clusters.at(min_cluster).min();
+            return std::make_optional(index(min_cluster, min_element));
+        });
+        max_ = *new_max.or_else([&] {
+            auto max_cluster = cluster_data_->summary.max();
+            auto max_element = cluster_data_->clusters.at(max_cluster).max();
+            return std::make_optional(index(max_cluster, max_element));
+        });
+
+        if (cluster_data_->clusters.empty()) {
+            return empty_clusters_or_tombstone(min_, max_);
+        }
+
         return *this;
     }
 };
@@ -1134,6 +1299,30 @@ public:
         return min_;
     }
 
+private:
+    Node64& empty_clusters_or_tombstone(std::optional<index_t> new_min, std::optional<index_t> new_max) {
+        cluster_data_.reset();
+        if (new_min.has_value() && new_max.has_value()) {
+            min_ = *new_min;
+            max_ = *new_max;
+        } else if (new_min.has_value()) {
+            min_ = *new_min;
+            max_ = *new_min;
+        } else if (new_max.has_value()) {
+            min_ = *new_max;
+            max_ = *new_max;
+        } else {
+            min_ = std::numeric_limits<index_t>::max();
+            max_ = std::numeric_limits<index_t>::min();
+        }
+        return *this;
+    }
+
+public:
+    bool is_tombstone() const {
+        return min_ > max_;
+    }
+
     constexpr inline std::size_t size() const {
         std::size_t base_count = (min_ == max_) ? 1uz : 2uz;
 
@@ -1184,7 +1373,7 @@ public:
         return result;
     }
 
-    Node64& merge_inplace(const Node64& other, std::size_t& alloc) {
+    Node64& or_inplace(const Node64& other, std::size_t& alloc) {
         insert(other.min_, alloc);
         insert(other.max_, alloc);
 
@@ -1203,14 +1392,60 @@ public:
             return *this;
         }
 
-        cluster_data_->summary.merge_inplace(other.cluster_data_->summary, alloc);
+        cluster_data_->summary.or_inplace(other.cluster_data_->summary, alloc);
         for (const auto& [idx, other_cluster] : other.cluster_data_->clusters) {
             if (auto it = cluster_data_->clusters.find(idx); it != cluster_data_->clusters.end()) {
-                it->second.merge_inplace(other_cluster, alloc);
+                it->second.or_inplace(other_cluster, alloc);
             } else {
                 cluster_data_->clusters.emplace(idx, other_cluster.clone(alloc));
             }
         }
+        return *this;
+    }
+
+    Node64& and_inplace(const Node64& other, std::size_t& alloc) {
+        index_t potential_min = std::max(min_, other.min_);
+        index_t potential_max = std::min(max_, other.max_);
+        auto new_min = contains(potential_min) && other.contains(potential_min) ? std::make_optional(potential_min) : std::nullopt;
+        auto new_max = contains(potential_max) && other.contains(potential_max) ? std::make_optional(potential_max) : std::nullopt;
+        if (potential_min >= potential_max || !cluster_data_ || !other.cluster_data_) {
+            return empty_clusters_or_tombstone(new_min, new_max);
+        }
+
+        subnode_t summary_intersection = std::move(cluster_data_->summary.clone(alloc).and_inplace(other.cluster_data_->summary, alloc));
+        if (summary_intersection.is_tombstone()) {
+            return empty_clusters_or_tombstone(new_min, new_max);
+        }
+
+        for (auto cluster_idx = std::make_optional(summary_intersection.min()); cluster_idx.has_value(); cluster_idx = summary_intersection.successor(*cluster_idx)) {
+            if (auto this_it = cluster_data_->clusters.find(*cluster_idx),
+                     other_it = other.cluster_data_->clusters.find(*cluster_idx);
+                this_it != cluster_data_->clusters.end() &&
+                other_it != other.cluster_data_->clusters.end() &&
+                this_it->second.and_inplace(other_it->second, alloc).is_tombstone() &&
+                (cluster_data_->clusters.erase(this_it), summary_intersection.remove(*cluster_idx, alloc))
+            ) {
+                return empty_clusters_or_tombstone(new_min, new_max);
+            }
+        }
+
+        cluster_data_->summary = std::move(summary_intersection);
+
+        min_ = *new_min.or_else([&] {
+            auto min_cluster = cluster_data_->summary.min();
+            auto min_element = cluster_data_->clusters.at(min_cluster).min();
+            return std::make_optional(index(min_cluster, min_element));
+        });
+        max_ = *new_max.or_else([&] {
+            auto max_cluster = cluster_data_->summary.max();
+            auto max_element = cluster_data_->clusters.at(max_cluster).max();
+            return std::make_optional(index(max_cluster, max_element));
+        });
+
+        if (cluster_data_->clusters.empty()) {
+            return empty_clusters_or_tombstone(min_, max_);
+        }
+
         return *this;
     }
 };
@@ -1595,20 +1830,11 @@ public:
      * @param other The other VEB tree to intersect with
      * @return A new VEB tree containing elements present in both trees
      *
-     * Time complexity: O(min(|this|, |other|) * log log U)
+     * Time complexity: O(log log U) per node
      */
     inline VebTree operator&(const VebTree& other) const {
-        VebTree result;
-        if (empty() || other.empty()) return result;
-
-        const auto& [smaller, larger] = (size() <= other.size())
-            ? std::pair{this, &other} : std::pair{&other, this};
-
-        for (std::size_t element : *smaller) {
-            if (larger->contains(element)) {
-                result.insert(element);
-            }
-        }
+        VebTree result(*this);
+        result &= other;
         return result;
     }
 
@@ -1651,13 +1877,120 @@ public:
      * @brief In-place intersection operator
      * @param other The other VEB tree to intersect with
      * @return Reference to this tree after intersection
+     *
+     * Time complexity: O(log log U) per node
      */
     inline VebTree& operator&=(const VebTree& other) {
-        for (std::size_t element : *this) {
-            if (!other.contains(element)) {
-                remove(element);
-            }
+        if (empty() || other.empty()) {
+            storage_ = std::monostate{};
+            return *this;
         }
+
+        std::visit(
+            overload{
+                [&](Node8& a, const Node8& b) -> void {
+                    a.and_inplace(b, allocated_);
+                },
+                [&](Node16& a, const Node16& b) -> void {
+                    a.and_inplace(b, allocated_);
+                },
+                [&](Node32<Manager>& a, const Node32<Manager>& b) -> void {
+                    a.and_inplace(b, allocated_);
+                },
+                [&](Node64<Manager>& a, const Node64<Manager>& b) -> void {
+                    a.and_inplace(b, allocated_);
+                },
+                [&](Node8& a, const Node16& b) -> void {
+                    auto a_clone = a.clone(allocated_);
+                    auto a16 = Node16{std::move(a_clone), allocated_};
+                    a16.and_inplace(b, allocated_);
+                    storage_ = std::move(a16);
+                },
+                [&](Node16& a, const Node8& b) -> void {
+                    auto b_clone = b.clone(allocated_);
+                    auto b16 = Node16{std::move(b_clone), allocated_};
+                    a.and_inplace(b16, allocated_);
+                },
+                [&](Node8& a, const Node32<Manager>& b) -> void {
+                    auto a_clone = a.clone(allocated_);
+                    auto a16 = Node16{std::move(a_clone), allocated_};
+                    auto a32 = Node32<Manager>{std::move(a16), allocated_};
+                    a32.and_inplace(b, allocated_);
+                    storage_ = std::move(a32);
+                },
+                [&](Node32<Manager>& a, const Node8& b) -> void {
+                    auto b_clone = b.clone(allocated_);
+                    auto b16 = Node16{std::move(b_clone), allocated_};
+                    auto b32 = Node32<Manager>{std::move(b16), allocated_};
+                    a.and_inplace(b32, allocated_);
+                },
+                [&](Node16& a, const Node32<Manager>& b) -> void {
+                    auto a_clone = a.clone(allocated_);
+                    auto a32 = Node32<Manager>{std::move(a_clone), allocated_};
+                    a32.and_inplace(b, allocated_);
+                    storage_ = std::move(a32);
+                },
+                [&](Node32<Manager>& a, const Node16& b) -> void {
+                    auto b_clone = b.clone(allocated_);
+                    auto b32 = Node32<Manager>{std::move(b_clone), allocated_};
+                    a.and_inplace(b32, allocated_);
+                },
+                [&](Node8& a, const Node64<Manager>& b) -> void {
+                    auto a_clone = a.clone(allocated_);
+                    auto a16 = Node16{std::move(a_clone), allocated_};
+                    auto a32 = Node32<Manager>{std::move(a16), allocated_};
+                    auto a64 = Node64<Manager>{std::move(a32), allocated_};
+                    a64.and_inplace(b, allocated_);
+                    storage_ = std::move(a64);
+                },
+                [&](Node64<Manager>& a, const Node8& b) -> void {
+                    auto b_clone = b.clone(allocated_);
+                    auto b16 = Node16{std::move(b_clone), allocated_};
+                    auto b32 = Node32<Manager>{std::move(b16), allocated_};
+                    auto b64 = Node64<Manager>{std::move(b32), allocated_};
+                    a.and_inplace(b64, allocated_);
+                },
+                [&](Node16& a, const Node64<Manager>& b) -> void {
+                    auto a_clone = a.clone(allocated_);
+                    auto a32 = Node32<Manager>{std::move(a_clone), allocated_};
+                    auto a64 = Node64<Manager>{std::move(a32), allocated_};
+                    a64.and_inplace(b, allocated_);
+                    storage_ = std::move(a64);
+                },
+                [&](Node64<Manager>& a, const Node16& b) -> void {
+                    auto b_clone = b.clone(allocated_);
+                    auto b32 = Node32<Manager>{std::move(b_clone), allocated_};
+                    auto b64 = Node64<Manager>{std::move(b32), allocated_};
+                    a.and_inplace(b64, allocated_);
+                },
+                [&](Node32<Manager>& a, const Node64<Manager>& b) -> void {
+                    auto a_clone = a.clone(allocated_);
+                    auto a64 = Node64<Manager>{std::move(a_clone), allocated_};
+                    a64.and_inplace(b, allocated_);
+                    storage_ = std::move(a64);
+                },
+                [&](Node64<Manager>& a, const Node32<Manager>& b) -> void {
+                    auto b_clone = b.clone(allocated_);
+                    auto b64 = Node64<Manager>{std::move(b_clone), allocated_};
+                    a.and_inplace(b64, allocated_);
+                },
+                [](auto&&, auto&&) {}
+            },
+            storage_, other.storage_
+        );
+
+        std::visit(
+            overload{
+                [](std::monostate) {},
+                [&](auto& node) {
+                    if (node.is_tombstone()) {
+                        storage_ = std::monostate{};
+                    }
+                },
+            },
+            storage_
+        );
+
         return *this;
     }
 
@@ -1682,77 +2015,59 @@ public:
 
         std::visit(
             overload{
-                [&](std::monostate, const Node8&) -> void {
-                },
-                [&](std::monostate, const Node16&) -> void {
-                },
-                [&](std::monostate, const Node32<Manager>&) -> void {
-                },
-                [&](std::monostate, const Node64<Manager>&) -> void {
-                },
-                [&](Node8&, std::monostate) -> void {
-                },
-                [&](Node16&, std::monostate) -> void {
-                },
-                [&](Node32<Manager>&, std::monostate) -> void {
-                },
-                [&](Node64<Manager>&, std::monostate) -> void {
-                },
-                [&](std::monostate, std::monostate) -> void {
-                },
                 [&](Node8& a, const Node8& b) -> void {
-                    a.merge_inplace(b, allocated_);
+                    a.or_inplace(b, allocated_);
                 },
                 [&](Node16& a, const Node16& b) -> void {
-                    a.merge_inplace(b, allocated_);
+                    a.or_inplace(b, allocated_);
                 },
                 [&](Node32<Manager>& a, const Node32<Manager>& b) -> void {
-                    a.merge_inplace(b, allocated_);
+                    a.or_inplace(b, allocated_);
                 },
                 [&](Node64<Manager>& a, const Node64<Manager>& b) -> void {
-                    a.merge_inplace(b, allocated_);
+                    a.or_inplace(b, allocated_);
                 },
                 [&](Node8& a, const Node16& b) -> void {
                     auto a_clone = a.clone(allocated_);
                     auto a16 = Node16{std::move(a_clone), allocated_};
-                    a16.merge_inplace(b, allocated_);
+                    a16.or_inplace(b, allocated_);
                     storage_ = std::move(a16);
                 },
                 [&](Node16& a, const Node8& b) -> void {
                     auto b_clone = b.clone(allocated_);
                     auto b16 = Node16{std::move(b_clone), allocated_};
-                    a.merge_inplace(b16, allocated_);
+                    a.or_inplace(b16, allocated_);
                 },
                 [&](Node8& a, const Node32<Manager>& b) -> void {
                     auto a_clone = a.clone(allocated_);
                     auto a16 = Node16{std::move(a_clone), allocated_};
                     auto a32 = Node32<Manager>{std::move(a16), allocated_};
-                    a32.merge_inplace(b, allocated_);
+                    a32.or_inplace(b, allocated_);
                     storage_ = std::move(a32);
                 },
                 [&](Node32<Manager>& a, const Node8& b) -> void {
                     auto b_clone = b.clone(allocated_);
                     auto b16 = Node16{std::move(b_clone), allocated_};
                     auto b32 = Node32<Manager>{std::move(b16), allocated_};
-                    a.merge_inplace(b32, allocated_);
+                    a.or_inplace(b32, allocated_);
                 },
                 [&](Node16& a, const Node32<Manager>& b) -> void {
                     auto a_clone = a.clone(allocated_);
                     auto a32 = Node32<Manager>{std::move(a_clone), allocated_};
-                    a32.merge_inplace(b, allocated_);
+                    a32.or_inplace(b, allocated_);
                     storage_ = std::move(a32);
                 },
                 [&](Node32<Manager>& a, const Node16& b) -> void {
                     auto b_clone = b.clone(allocated_);
                     auto b32 = Node32<Manager>{std::move(b_clone), allocated_};
-                    a.merge_inplace(b32, allocated_);
+                    a.or_inplace(b32, allocated_);
                 },
                 [&](Node8& a, const Node64<Manager>& b) -> void {
                     auto a_clone = a.clone(allocated_);
                     auto a16 = Node16{std::move(a_clone), allocated_};
                     auto a32 = Node32<Manager>{std::move(a16), allocated_};
                     auto a64 = Node64<Manager>{std::move(a32), allocated_};
-                    a64.merge_inplace(b, allocated_);
+                    a64.or_inplace(b, allocated_);
                     storage_ = std::move(a64);
                 },
                 [&](Node64<Manager>& a, const Node8& b) -> void {
@@ -1760,32 +2075,33 @@ public:
                     auto b16 = Node16{std::move(b_clone), allocated_};
                     auto b32 = Node32<Manager>{std::move(b16), allocated_};
                     auto b64 = Node64<Manager>{std::move(b32), allocated_};
-                    a.merge_inplace(b64, allocated_);
+                    a.or_inplace(b64, allocated_);
                 },
                 [&](Node16& a, const Node64<Manager>& b) -> void {
                     auto a_clone = a.clone(allocated_);
                     auto a32 = Node32<Manager>{std::move(a_clone), allocated_};
                     auto a64 = Node64<Manager>{std::move(a32), allocated_};
-                    a64.merge_inplace(b, allocated_);
+                    a64.or_inplace(b, allocated_);
                     storage_ = std::move(a64);
                 },
                 [&](Node64<Manager>& a, const Node16& b) -> void {
                     auto b_clone = b.clone(allocated_);
                     auto b32 = Node32<Manager>{std::move(b_clone), allocated_};
                     auto b64 = Node64<Manager>{std::move(b32), allocated_};
-                    a.merge_inplace(b64, allocated_);
+                    a.or_inplace(b64, allocated_);
                 },
                 [&](Node32<Manager>& a, const Node64<Manager>& b) -> void {
                     auto a_clone = a.clone(allocated_);
                     auto a64 = Node64<Manager>{std::move(a_clone), allocated_};
-                    a64.merge_inplace(b, allocated_);
+                    a64.or_inplace(b, allocated_);
                     storage_ = std::move(a64);
                 },
                 [&](Node64<Manager>& a, const Node32<Manager>& b) -> void {
                     auto b_clone = b.clone(allocated_);
                     auto b64 = Node64<Manager>{std::move(b_clone), allocated_};
-                    a.merge_inplace(b64, allocated_);
-                }
+                    a.or_inplace(b64, allocated_);
+                },
+                [](auto&&, auto&&) {}
             },
             storage_, other.storage_
         );
