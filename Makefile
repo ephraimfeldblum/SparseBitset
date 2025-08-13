@@ -27,12 +27,6 @@ INCLUDES = -I$(VEB_DIR) -I.
 # Libraries
 LIBS = -L$(VEB_BUILD_DIR) -Wl,-rpath,$(shell pwd)/$(VEB_BUILD_DIR) -lvebtree -lstdc++
 
-# Check for Abseil libraries
-ABSL_LIBS := $(shell pkg-config --libs absl_flat_hash_map 2>/dev/null)
-ifneq ($(ABSL_LIBS),)
-    LIBS += $(ABSL_LIBS)
-endif
-
 # Source files
 MODULE_SOURCES = bitset_module.c
 MODULE_OBJECTS = $(MODULE_SOURCES:.c=.o)

@@ -6,7 +6,6 @@ A Redis module that provides efficient sparse bitset operations using van Emde B
 
 - **Sparse bitset operations**: Efficiently handle bitsets with large gaps between set bits
 - **VEB tree backend**: O(log log U) time complexity, where U is the universe size
-- **Multiple hash table implementations**: Support for std, Abseil, and Boost hash tables
 - **Set operations**: Union, intersection, symmetric difference (XOR)
 - **Range queries**: Find all set bits in a given range
 - **Memory efficient**: Only stores set bits, not the entire bit array, with O(n) space complexity, where n is the number of set bits
@@ -18,7 +17,6 @@ A Redis module that provides efficient sparse bitset operations using van Emde B
 - GCC with C++23 support
 - CMake 3.16 or later
 - Redis server (for testing)
-- Optional: Abseil or Boost libraries for alternative hash table implementations
 
 ### Build Steps
 
@@ -121,7 +119,7 @@ All commands use the `BITS.` prefix to avoid conflicts with Redis built-in comma
 - **`BITS.TOARRAY key`** - Get all elements as an array, sorted in ascending order
   - Returns: Array of all elements
 - **`BITS.INFO key`** - Get detailed information about the bitset
-  - Returns: Array with size, universe_size, allocated_memory, total_clusters, max_depth, hash_table
+  - Returns: Array with size, universe_size, allocated_memory, total_clusters, max_depth
 
 ## Usage Examples
 
@@ -232,11 +230,6 @@ redis-cli BITS.POS postest 0 2 8 BIT
 ## Implementation Details
 
 The module uses van Emde Boas trees as the underlying data structure, which provides excellent performance for sparse bitsets. The VEB tree recursively divides the universe into clusters, allowing for very fast operations even with large universe sizes.
-
-The module supports multiple hash table implementations:
-- **std**: Uses `std::unordered_map` (always available)
-- **absl**: Uses `absl::flat_hash_map` (if Abseil is available)
-- **boost**: Uses `boost::unordered_flat_map` (if Boost is available)
 
 ## License
 
