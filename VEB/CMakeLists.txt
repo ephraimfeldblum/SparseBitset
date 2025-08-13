@@ -28,6 +28,10 @@ set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "Valgrind
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wconversion -fPIC")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wpedantic -Wconversion -fPIC")
 
+# AVX-512 support flags
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx512f -mavx512vpopcntdq")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mavx512f -mavx512vpopcntdq")
+
 # Build type specific flags
 set(CMAKE_CXX_FLAGS_DEBUG "-g -DDEBUG -O0")
 set(CMAKE_C_FLAGS_DEBUG "-g -DDEBUG -O0")
