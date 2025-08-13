@@ -35,79 +35,78 @@ def compare_results(a, b):
 # --- BENCHMARK FUNCTIONS ---
 def run_all_benchmarks(data1, data2, i):
     table = PrettyTable()
-    table.field_names = ["Operation", "SparseBitset", "Compressed", "Redis Bitmap", "μs/call (Sparse)", "μs/call (Compressed)", "μs/call (Dense)", "Correct"]
+    table.field_names = ["Operation", "vEB Bitmap", "Roaring Bitmap", "Redis Bitmap", "μs/call (vEB)", "μs/call (Roaring)", "μs/call (Redis)", "Correct"]
     
     # --- WRITE (INSERT / SETBIT) ---
     print("Benchmarking writes...")
     with r.pipeline() as pipe:
-        for val in data1: pipe.execute_command('BITS.INSERT', KEYS['sparse1'], val)
-        start_time = time.time(); pipe.execute(); s_time = time.time() - start_time
+        for val in data1: pipe.setbit(KEYS['dense1'], val, 1)
+        start_time = time.time(); pipe.execute(); d_time = time.time() - start_time
     with r.pipeline() as pipe:
         for val in data1: pipe.execute_command('R.SETBIT', KEYS['compressed1'], val, 1)
         start_time = time.time(); pipe.execute(); c_time = time.time() - start_time
     with r.pipeline() as pipe:
-        for val in data1: pipe.setbit(KEYS['dense1'], val, 1)
-        start_time = time.time(); pipe.execute(); d_time = time.time() - start_time
-    table.add_row(["Insert 1M", f"{s_time:.2f}s", f"{c_time:.2f}s", f"{d_time:.2f}s", get_stats('bits.insert'), get_stats('R.SETBIT'), get_stats('setbit'), "N/A"])
+        for val in data1: pipe.execute_command('BITS.INSERT', KEYS['sparse1'], val)
+        start_time = time.time(); pipe.execute(); s_time = time.time() - start_time
+    table.add_row([f"Insert ({len(data1)})", f"{s_time:.2f}s", f"{c_time:.2f}s", f"{d_time:.2f}s", get_stats('bits.insert'), get_stats('R.SETBIT'), get_stats('setbit'), "N/A"])
 
     # --- COUNT ---
-    s_count = int(r.execute_command('BITS.COUNT', KEYS['sparse1']))
-    c_count = int(r.execute_command('R.BITCOUNT', KEYS['compressed1']))
     d_count = r.bitcount(KEYS['dense1'])
+    c_count = int(r.execute_command('R.BITCOUNT', KEYS['compressed1']))
+    s_count = int(r.execute_command('BITS.COUNT', KEYS['sparse1']))
     table.add_row(["Count", f"{s_count}", f"{c_count}", f"{d_count}", get_stats('bits.count'), get_stats('R.BITCOUNT'), get_stats('bitcount'), compare_results(s_count, d_count)])
     
     # --- READ (GET / GETBIT) ---
     print("Benchmarking reads...")
-    sample = random.sample(data1, s_count//100)
+    n_sample = s_count // 100
+    sample = random.sample(data1, n_sample)
     with r.pipeline() as pipe:
-        for val in sample: pipe.execute_command('BITS.GET', KEYS['sparse1'], val)
-        start_time = time.time(); pipe.execute(); s_time = time.time() - start_time
+        for val in sample: pipe.execute_command('R.GETBIT', KEYS['compressed1'], val)
+        start_time = time.time(); pipe.execute(); c_time = time.time() - start_time
     with r.pipeline() as pipe:
         for val in sample: pipe.getbit(KEYS['dense1'], val)
         start_time = time.time(); pipe.execute(); d_time = time.time() - start_time
     with r.pipeline() as pipe:
-        for val in sample: pipe.execute_command('R.GETBIT', KEYS['compressed1'], val)
-        start_time = time.time(); pipe.execute(); c_time = time.time() - start_time
-    table.add_row(["Get (10k)", f"{s_time:.2f}s", f"{c_time:.2f}s", f"{d_time:.2f}s", get_stats('bits.get'), get_stats('R.GETBIT'), get_stats('getbit'), "N/A"])
-    
+        for val in sample: pipe.execute_command('BITS.GET', KEYS['sparse1'], val)
+        start_time = time.time(); pipe.execute(); s_time = time.time() - start_time
+    table.add_row([f"Get ({n_sample})", f"{s_time:.2f}s", f"{c_time:.2f}s", f"{d_time:.2f}s", get_stats('bits.get'), get_stats('R.GETBIT'), get_stats('getbit'), "N/A"])
+
     # --- REMOVE (REMOVE / SETBIT) ---
     print("Benchmarking removes...")
     with r.pipeline() as pipe:
-        for val in sample: pipe.execute_command('BITS.REMOVE', KEYS['sparse1'], val)
-        start_time = time.time(); pipe.execute(); s_time = time.time() - start_time
+        for val in sample: pipe.setbit(KEYS['dense1'], val, 0)
+        start_time = time.time(); pipe.execute(); d_time = time.time() - start_time
     with r.pipeline() as pipe:
         for val in sample: pipe.execute_command('R.setbit', KEYS['compressed1'], val, 0)
         start_time = time.time(); pipe.execute(); c_time = time.time() - start_time
     with r.pipeline() as pipe:
-        for val in sample: pipe.setbit(KEYS['dense1'], val, 0)
-        start_time = time.time(); pipe.execute(); d_time = time.time() - start_time
-    table.add_row(["Remove (10k)", f"{s_time:.2f}s", f"{c_time:.2f}s", f"{d_time:.2f}s", get_stats('bits.remove'), get_stats('R.SETBIT'), get_stats('setbit'), compare_results(int(r.execute_command('BITS.COUNT', KEYS['sparse1'])), r.bitcount(KEYS['dense1']))])
+        for val in sample: pipe.execute_command('BITS.REMOVE', KEYS['sparse1'], val)
+        start_time = time.time(); pipe.execute(); s_time = time.time() - start_time
+    table.add_row([f"Remove ({n_sample})", f"{s_time:.2f}s", f"{c_time:.2f}s", f"{d_time:.2f}s", get_stats('bits.remove'), get_stats('R.SETBIT'), get_stats('setbit'), compare_results(int(r.execute_command('BITS.COUNT', KEYS['sparse1'])), r.bitcount(KEYS['dense1']))])
 
     # Re-insert removed data for subsequent tests
     with r.pipeline() as pipe:
-        for val in sample: pipe.execute_command('BITS.INSERT', KEYS['sparse1'], val); pipe.execute_command('R.SETBIT', KEYS['compressed1'], val, 1); pipe.execute_command('SETBIT', KEYS['dense1'], val, 1)
+        for val in sample:
+            pipe.execute_command('BITS.INSERT', KEYS['sparse1'], val)
+            pipe.execute_command('R.SETBIT', KEYS['compressed1'], val, 1)
+            pipe.execute_command('SETBIT', KEYS['dense1'], val, 1)
         pipe.execute()
     
     # --- MIN/MAX ---
     print("Benchmarking min/max...")
+    c_min, c_max = int(r.execute_command('R.MIN', KEYS['compressed1'])), int(r.execute_command('R.MAX', KEYS['compressed1']))
     min_val, max_val = int(r.execute_command('BITS.MIN', KEYS['sparse1'])), int(r.execute_command('BITS.MAX', KEYS['sparse1']))
-    c_min = int(r.execute_command('R.MIN', KEYS['compressed1']))
-    c_max = int(r.execute_command('R.MAX', KEYS['compressed1']))
     table.add_row(["Min/Max", f"{min_val}/{max_val}", f"{c_min}/{c_max}", "N/A", f"{get_stats('bits.min')}/{get_stats('bits.max')}", f"{get_stats('R.MIN')}/{get_stats('R.MAX')}", "N/A", f"{compare_results(min_val, c_min)}/{compare_results(max_val, c_max)}"])
 
     # --- ITERATION ---
     print("Benchmarking iteration...")
-    vals = r.execute_command('BITS.TOARRAY', KEYS['sparse1'])
     with r.pipeline() as pipe:
-        for val in vals: pipe.execute_command('BITS.SUCCESSOR', KEYS['sparse1'], val)
-    start_time = time.time(); pipe.execute(); s_iter_time = time.time() - start_time
+        for val in data1: pipe.bitpos(KEYS['dense1'], 1, val + 1)
+        start_time = time.time(); pipe.execute(); d_iter_time = time.time() - start_time
     with r.pipeline() as pipe:
-        for val in vals: pipe.execute_command('R.POS', KEYS['compressed1'], 1, val + 1)
-    start_time = time.time(); pipe.execute(); c_iter_time = time.time() - start_time
-    with r.pipeline() as pipe:
-        for val in vals: pipe.bitpos(KEYS['dense1'], 1, val + 1)
-    start_time = time.time(); pipe.execute(); d_iter_time = time.time() - start_time
-    table.add_row(["Iteration", f"{s_iter_time:.2f}s ({s_count})", f"{c_iter_time:.2f}s ({c_count})", f"{d_iter_time:.2f}s ({d_count})", get_stats('bits.successor'), get_stats('R.POS'), get_stats('bitpos'), compare_results(s_count, d_count)])
+        for val in data1: pipe.execute_command('BITS.SUCCESSOR', KEYS['sparse1'], val)
+        start_time = time.time(); pipe.execute(); s_iter_time = time.time() - start_time
+    table.add_row(["Iteration", f"{s_iter_time:.2f}s", "N/A", f"{d_iter_time:.2f}s", get_stats('bits.successor'), "N/A", get_stats('bitpos'), "N/A"])
 
     # --- SET OPERATIONS ---
     print("Benchmarking set operations...")
@@ -119,31 +118,31 @@ def run_all_benchmarks(data1, data2, i):
         pipe.execute()
     
     # OR
-    r.execute_command('BITS.OP', 'OR', KEYS['dest_s'], KEYS['sparse1'], KEYS['sparse2'])
-    r.execute_command('R.BITOP', 'OR', KEYS['dest_c'], KEYS['compressed1'], KEYS['compressed2'])
     r.bitop('OR', KEYS['dest_d'], KEYS['dense1'], KEYS['dense2'])
+    r.execute_command('R.BITOP', 'OR', KEYS['dest_c'], KEYS['compressed1'], KEYS['compressed2'])
+    r.execute_command('BITS.OP', 'OR', KEYS['dest_s'], KEYS['sparse1'], KEYS['sparse2'])
     s_or_size = r.execute_command('BITS.COUNT', KEYS['dest_s'])
     d_or_size = r.bitcount(KEYS['dest_d'])
     c_or_size = r.execute_command('R.BITCOUNT', KEYS['dest_c'])
     table.add_row(["OR", f"{s_or_size}", f"{c_or_size}", f"{d_or_size}", get_stats('bits.op'), get_stats('R.BITOP'), get_stats('bitop'), compare_results(s_or_size, d_or_size)])
 
     # AND
-    r.execute_command('BITS.OP', 'AND', KEYS['dest_s'], KEYS['sparse1'], KEYS['sparse2'])
-    r.execute_command('R.BITOP', 'AND', KEYS['dest_c'], KEYS['compressed1'], KEYS['compressed2'])
     r.bitop('AND', KEYS['dest_d'], KEYS['dense1'], KEYS['dense2'])
+    r.execute_command('R.BITOP', 'AND', KEYS['dest_c'], KEYS['compressed1'], KEYS['compressed2'])
+    r.execute_command('BITS.OP', 'AND', KEYS['dest_s'], KEYS['sparse1'], KEYS['sparse2'])
     s_and_size = r.execute_command('BITS.COUNT', KEYS['dest_s'])
     d_and_size = r.bitcount(KEYS['dest_d'])
     c_and_size = r.execute_command('R.BITCOUNT', KEYS['dest_c'])
     table.add_row(["AND", f"{s_and_size}", f"{c_and_size}", f"{d_and_size}", get_stats('bits.op'), get_stats('R.BITOP'), get_stats('bitop'), compare_results(s_and_size, d_and_size)])
 
     # XOR
-    r.execute_command('BITS.OP', 'XOR', KEYS['dest_s'], KEYS['sparse1'], KEYS['sparse2'])
-    r.execute_command('R.BITOP', 'XOR', KEYS['dest_c'], KEYS['compressed1'], KEYS['compressed2'])
-    r.bitop('XOR', KEYS['dest_d'], KEYS['dense1'], KEYS['dense2'])
-    s_xor_size = r.execute_command('BITS.COUNT', KEYS['dest_s'])
-    d_xor_size = r.bitcount(KEYS['dest_d'])
-    c_xor_size = r.execute_command('R.BITCOUNT', KEYS['dest_c'])
-    table.add_row(["XOR", f"{s_xor_size}", f"{c_xor_size}", f"{d_xor_size}", get_stats('bits.op'), get_stats('R.BITOP'), get_stats('bitop'), compare_results(s_xor_size, d_xor_size)])
+    # r.bitop('XOR', KEYS['dest_d'], KEYS['dense1'], KEYS['dense2'])
+    # r.execute_command('R.BITOP', 'XOR', KEYS['dest_c'], KEYS['compressed1'], KEYS['compressed2'])
+    # r.execute_command('BITS.OP', 'XOR', KEYS['dest_s'], KEYS['sparse1'], KEYS['sparse2'])
+    # s_xor_size = r.execute_command('BITS.COUNT', KEYS['dest_s'])
+    # d_xor_size = r.bitcount(KEYS['dest_d'])
+    # c_xor_size = r.execute_command('R.BITCOUNT', KEYS['dest_c'])
+    # table.add_row(["XOR", f"{s_xor_size}", f"{c_xor_size}", f"{d_xor_size}", get_stats('bits.op'), get_stats('R.BITOP'), get_stats('bitop'), compare_results(s_xor_size, d_xor_size)])
 
     # # --- TOARRAY ---
     # print("Benchmarking toarray...")

@@ -19,7 +19,7 @@ extern "C" {
 /**
  * @brief Opaque handle to a VebTree instance
  */
-typedef struct VebTree_Handle* VebTree_Handle_t;
+typedef struct VebTree* VebTree_Handle_t;
 
 /**
  * @brief Result structure for operations that return an optional size_t
@@ -148,10 +148,9 @@ VebTree_Handle_t vebtree_create();
  * VEBTREE_DESTROY(veb);
  * ```
  *
- * @param handle The VebTree handle
  * @return const VebTree_API_t* Pointer to the API function table.
  */
-const VebTree_API_t* vebtree_get_api(VebTree_Handle_t handle);
+const VebTree_API_t* vebtree_get_api();
 
 /**
  * @brief Safe destruction macro for VebTree handles

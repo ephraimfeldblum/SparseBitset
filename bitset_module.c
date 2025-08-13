@@ -32,7 +32,7 @@ static Bitset *bitset_create() {
         RedisModule_Free(bitset);
         return NULL;
     }
-    bitset->api = vebtree_get_api(bitset->handle);
+    bitset->api = vebtree_get_api();
     return bitset;
 }
 
