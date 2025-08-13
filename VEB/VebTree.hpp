@@ -6,34 +6,28 @@
  * Each node is associated with a summary structure to indicate which clusters contain elements.
  *
  * The tree can be visualized as shown below:
- * Node<log U = 64>
- * ┌────────────────────────────────────┐
- * | min, max: u64                      | ← Lazily propagated. Not inserted into clusters.
- * | cluster_data: * {                  | ← Lazily constructed only if non-empty.
- * |   summary : Node<32>               | ← Tracks which clusters are non-empty.
- * |   clusters: HashMap<u32, Node<32>> | ← Up to √U clusters, each of size √U.
- * | }           |                      |
- * └─────────────|──────────────────────┘
- * Node<32>      ▼
- * ┌────────────────────────────────────┐
- * | min, max: u32                      |
- * | cluster_data: * {                  |
- * |   summary : Node<16>               |
- * |   clusters: HashMap<u16, Node<16>> |
- * | }           |                      |
- * └─────────────|──────────────────────┘
+ * Node<log U = 32> 
+ * ┌───────────────────────────────┐
+ * | min, max: u32                 | ← Lazily propagated. Not inserted into clusters.
+ * | cluster_data: * {             | ← Lazily constructed only if non-empty.
+ * |   summary : Node<16>          | ← Tracks which clusters are non-empty.
+ * |   clusters: HashSet<Node<16>> | ← Up to √U clusters, each of size √U. Set is cache-friendlier than Map.
+ * | }           |                 |
+ * └─────────────|─────────────────┘
  * Node<16>      ▼
- * ┌────────────────────────────────────┐
- * | min, max: u16                      |
- * | cluster_data: * {                  |
- * |   summary : Node<8>                | ← Used to index into clusters in constant time. Requires sorted clusters.
- * |   clusters: Array<Node<8>, 0>      | ← Up to 256 elements. FAM is more cache-friendly than HashMap.
- * | }           |                      |
- * └─────────────|──────────────────────┘
+ * ┌───────────────────────────────┐
+ * | key: u16                      | ← Store which cluster this node belongs to directly in padding bytes.
+ * | min, max: u16                 |
+ * | capacity: u16                 |
+ * | cluster_data: * {             |
+ * |   summary : Node<8>           | ← Used to index into clusters in constant time. Requires sorted clusters.
+ * |   clusters: Array<Node<8>, 0> | ← Up to 256 elements. FAM is more cache-friendly than HashMap.
+ * | }           |                 |
+ * └─────────────|─────────────────┘
  * Node<8>       ▼
- * ┌────────────────────────────────────┐
- * | bits: Array<u64, 4>                | ← 256 bits, SIMD-friendly.
- * └────────────────────────────────────┘
+ * ┌───────────────────────────────┐
+ * | bits: Array<u64, 4>           | ← 256 bits, SIMD-friendly.
+ * └───────────────────────────────┘
  */
 
 #ifndef VEBTREE_HPP
@@ -53,6 +47,7 @@
 #include <ranges>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -60,9 +55,6 @@
 
 #include "allocator/tracking_allocator.hpp"
 #include "allocator/allocate_unique.hpp"
-
-template<typename Key, typename Value>
-using HashMap = std::unordered_map<Key, Value, std::hash<Key>, std::equal_to<Key>, tracking_allocator<std::pair<const Key, Value>>>;
 
 struct VebTreeMemoryStats {
     std::size_t total_clusters = 0;
@@ -268,6 +260,7 @@ private:
     cluster_data_t* cluster_data_ = nullptr;
     tracking_allocator<subnode_t> alloc_;
     std::uint16_t capacity_ = 0;
+    index_t key_;
     index_t min_;
     index_t max_;
 
@@ -324,14 +317,15 @@ private:
     }
 
 public:
-    inline explicit Node16(index_t x, std::size_t& alloc)
-        : cluster_data_(nullptr), alloc_(alloc), capacity_(0), min_(x), max_(x) {
+    inline explicit Node16(index_t hi, index_t lo, std::size_t& alloc)
+        : cluster_data_(nullptr), alloc_(alloc), capacity_(0), key_(hi), min_(lo), max_(lo) {
     }
 
     inline Node16(Node8&& old_storage, std::size_t& alloc)
         : cluster_data_(nullptr)
         , alloc_(alloc)
         , capacity_(0)
+        , key_(0)
         , min_(old_storage.min())
         , max_(old_storage.max())
     {
@@ -353,7 +347,7 @@ public:
     }
 
     Node16 clone(std::size_t& alloc) const {
-        Node16 result(min_, alloc);
+        Node16 result(key_, min_, alloc);
         result.min_ = min_;
         result.max_ = max_;
 
@@ -372,6 +366,7 @@ public:
         : cluster_data_(std::exchange(other.cluster_data_, nullptr))
         , alloc_(other.alloc_)
         , capacity_(std::exchange(other.capacity_, 0))
+        , key_(other.key_)
         , min_(other.min_)
         , max_(other.max_) {
     }
@@ -702,6 +697,36 @@ public:
 
         return *this;
     }
+
+    friend struct std::hash<Node16>;
+    friend struct std::equal_to<Node16>;
+};
+
+template<>
+struct std::equal_to<Node16> {
+    using is_transparent = void;
+    bool operator()(const Node16& lhs, const Node16& rhs) const {
+        return lhs.key_ == rhs.key_;
+    }
+    bool operator()(const Node16& lhs, const Node16::index_t& rhs) const {
+        return lhs.key_ == rhs;
+    }
+    bool operator()(const Node16::index_t& lhs, const Node16& rhs) const {
+        return lhs == rhs.key_;
+    }
+    bool operator()(const Node16::index_t& lhs, const Node16::index_t& rhs) const {
+        return lhs == rhs;
+    }
+};
+template<>
+struct std::hash<Node16> {
+    using is_transparent = void;
+    std::size_t operator()(const Node16& node) const {
+        return std::hash<Node16::index_t>()(node.key_);
+    }
+    std::size_t operator()(const Node16::index_t& key) const {
+        return std::hash<Node16::index_t>()(key);
+    }
 };
 
 class Node32 {
@@ -713,16 +738,13 @@ public:
 
 private:
     struct cluster_data_t {
-        using cluster_map_t = HashMap<subindex_t, subnode_t>;
+        using cluster_map_t = std::unordered_set<subnode_t, std::hash<subnode_t>, std::equal_to<subnode_t>, tracking_allocator<subnode_t>>;
         cluster_map_t clusters;
         subnode_t summary;
 
         cluster_data_t(subindex_t x, std::size_t& alloc)
-            : clusters(tracking_allocator<std::pair<const subindex_t, subnode_t>>(alloc)),
-              summary(x, alloc) {}
-
-        auto values() const { return std::views::values(clusters); }
-        auto values() { return std::views::values(clusters); }
+            : clusters(tracking_allocator<subnode_t>(alloc)),
+              summary(0, x, alloc) {}
     };
     using clusters_t = std::unique_ptr<cluster_data_t, AllocDeleter<tracking_allocator<cluster_data_t>>>;
     clusters_t cluster_data_;
@@ -759,7 +781,7 @@ public:
         if (old_storage.size() > 0) {
             auto data_alloc = tracking_allocator<cluster_data_t>(alloc);
             cluster_data_ = allocate_unique<cluster_data_t>(data_alloc, 0, alloc);
-            cluster_data_->clusters.emplace(0, std::move(old_storage));
+            cluster_data_->clusters.emplace(std::move(old_storage));
         }
     }
 
@@ -772,8 +794,8 @@ public:
             auto data_alloc = tracking_allocator<cluster_data_t>(alloc);
             result.cluster_data_ = allocate_unique<cluster_data_t>(data_alloc, 0, alloc);
             result.cluster_data_->summary = cluster_data_->summary.clone(alloc);
-            for (const auto& [key, cluster] : cluster_data_->clusters) {
-                result.cluster_data_->clusters.emplace(key, cluster.clone(alloc));
+            for (const auto& cluster : cluster_data_->clusters) {
+                result.cluster_data_->clusters.emplace(cluster.clone(alloc));
             }
         }
         return result;
@@ -802,12 +824,13 @@ public:
         if (!cluster_data_) {
             auto data_alloc = tracking_allocator<cluster_data_t>(alloc);
             cluster_data_ = allocate_unique<cluster_data_t>(data_alloc, h, alloc);
-            cluster_data_->clusters.try_emplace(h, l, alloc);
+            cluster_data_->clusters.emplace(h, l, alloc);
         } else if (auto it = cluster_data_->clusters.find(h); it != cluster_data_->clusters.end()) {
-            it->second.insert(l, alloc);
+            auto& cluster = const_cast<Node16&>(*it);
+            cluster.insert(l, alloc);
         } else {
             cluster_data_->summary.insert(h, alloc);
-            cluster_data_->clusters.try_emplace(h, l, alloc);
+            cluster_data_->clusters.emplace(h, l, alloc);
         }
     }
 
@@ -817,7 +840,7 @@ public:
                 return true;
             } else {
                 auto min_cluster = cluster_data_->summary.min();
-                auto min_element = cluster_data_->clusters.at(min_cluster).min();
+                auto min_element = cluster_data_->clusters.find(min_cluster)->min();
                 x = min_ = index(min_cluster, min_element);
             }
         }
@@ -827,7 +850,7 @@ public:
                 max_ = min_;
             } else {
                 auto max_cluster = cluster_data_->summary.max();
-                auto max_element = cluster_data_->clusters.at(max_cluster).max();
+                auto max_element = cluster_data_->clusters.find(max_cluster)->max();
                 x = max_ = index(max_cluster, max_element);
             }
         }
@@ -836,7 +859,8 @@ public:
 
         if (cluster_data_) {
             if (auto it = cluster_data_->clusters.find(h); it != cluster_data_->clusters.end()) {
-                if (it->second.remove(l, alloc)) {
+                auto& cluster = const_cast<Node16&>(*it);
+                if (cluster.remove(l, alloc)) {
                     cluster_data_->clusters.erase(it);
                     cluster_data_->summary.remove(h, alloc);
                     if (cluster_data_->clusters.empty()) {
@@ -860,7 +884,7 @@ public:
 
         const auto [h, l] = decompose(x);
         if (auto it = cluster_data_->clusters.find(h); it != cluster_data_->clusters.end()) {
-            return it->second.contains(l);
+            return it->contains(l);
         }
         return false;
     }
@@ -879,14 +903,14 @@ public:
 
         const auto [h, l] = decompose(x);
 
-        if (auto it = cluster_data_->clusters.find(h); it != cluster_data_->clusters.end() && l < it->second.max()) {
-            if (auto succ = it->second.successor(l)) {
+        if (auto it = cluster_data_->clusters.find(h); it != cluster_data_->clusters.end() && l < it->max()) {
+            if (auto succ = it->successor(l)) {
                 return index(h, *succ);
             }
         }
 
         if (auto succ_cluster = cluster_data_->summary.successor(h)) {
-            auto min_element = cluster_data_->clusters.at(*succ_cluster).min();
+            auto min_element = cluster_data_->clusters.find(*succ_cluster)->min();
             return index(*succ_cluster, min_element);
         }
 
@@ -905,14 +929,14 @@ public:
 
         const auto [h, l] = decompose(x);
 
-        if (auto it = cluster_data_->clusters.find(h); it != cluster_data_->clusters.end() && l > it->second.min()) {
-            if (auto pred = it->second.predecessor(l)) {
+        if (auto it = cluster_data_->clusters.find(h); it != cluster_data_->clusters.end() && l > it->min()) {
+            if (auto pred = it->predecessor(l)) {
                 return index(h, *pred);
             }
         }
 
         if (auto pred_cluster = cluster_data_->summary.predecessor(h)) {
-            auto max_element = cluster_data_->clusters.at(*pred_cluster).max();
+            auto max_element = cluster_data_->clusters.find(*pred_cluster)->max();
             return index(*pred_cluster, max_element);
         }
 
@@ -928,14 +952,14 @@ public:
 #ifdef __cpp_lib_execution
             std::execution::unseq,
 #endif
-            cluster_data_->values().begin(), cluster_data_->values().end(),
+            cluster_data_->clusters.begin(), cluster_data_->clusters.end(),
             base_count, std::plus<>(), [](const auto& cluster) { return cluster.size(); }
         );
     }
 
     inline VebTreeMemoryStats get_memory_stats() const {
         return cluster_data_ ? std::ranges::fold_left(
-            cluster_data_->values(),
+            cluster_data_->clusters,
             [&] {
                 auto stats = cluster_data_->summary.get_memory_stats();
                 stats.total_clusters += cluster_data_->clusters.size();
@@ -964,19 +988,20 @@ public:
             auto data_alloc = tracking_allocator<cluster_data_t>(alloc);
             cluster_data_ = allocate_unique<cluster_data_t>(data_alloc, 0, alloc);
             cluster_data_->summary = other.cluster_data_->summary.clone(alloc);
-            for (const auto& [key, cluster] : other.cluster_data_->clusters) {
-                cluster_data_->clusters.emplace(key, cluster.clone(alloc));
+            for (const auto& cluster : other.cluster_data_->clusters) {
+                cluster_data_->clusters.emplace(cluster.clone(alloc));
             }
 
             return *this;
         }
 
         cluster_data_->summary.or_inplace(other.cluster_data_->summary, alloc);
-        for (const auto& [idx, other_cluster] : other.cluster_data_->clusters) {
-            if (auto it = cluster_data_->clusters.find(idx); it != cluster_data_->clusters.end()) {
-                it->second.or_inplace(other_cluster, alloc);
+        for (const auto& other_cluster : other.cluster_data_->clusters) {
+            if (auto it = cluster_data_->clusters.find(other_cluster); it != cluster_data_->clusters.end()) {
+                auto& cluster = const_cast<Node16&>(*it);
+                cluster.or_inplace(other_cluster, alloc);
             } else {
-                cluster_data_->clusters.emplace(idx, other_cluster.clone(alloc));
+                cluster_data_->clusters.emplace(other_cluster.clone(alloc));
             }
         }
         return *this;
@@ -1015,35 +1040,41 @@ public:
             return empty_clusters_or_tombstone(new_min, new_max);
         }
 
-        subnode_t summary_intersection = std::move(cluster_data_->summary.clone(alloc).and_inplace(other.cluster_data_->summary, alloc));
-        if (summary_intersection.is_tombstone()) {
+        if (cluster_data_->summary.and_inplace(other.cluster_data_->summary, alloc).is_tombstone()) {
             return empty_clusters_or_tombstone(new_min, new_max);
         }
 
-        for (auto cluster_idx = std::make_optional(summary_intersection.min()); cluster_idx.has_value(); cluster_idx = summary_intersection.successor(*cluster_idx)) {
-            if (auto this_it = cluster_data_->clusters.find(*cluster_idx),
-                     other_it = other.cluster_data_->clusters.find(*cluster_idx);
-                this_it != cluster_data_->clusters.end() &&
-                other_it != other.cluster_data_->clusters.end() &&
-                this_it->second.and_inplace(other_it->second, alloc).is_tombstone() &&
-                (cluster_data_->clusters.erase(this_it), summary_intersection.remove(*cluster_idx, alloc))
-            ) {
-                return empty_clusters_or_tombstone(new_min, new_max);
+        for (auto cluster_idx = std::make_optional(cluster_data_->summary.min()); cluster_idx.has_value(); cluster_idx = cluster_data_->summary.successor(*cluster_idx)) {
+            if (auto this_it = cluster_data_->clusters.find(*cluster_idx), other_it = other.cluster_data_->clusters.find(*cluster_idx);
+                this_it != cluster_data_->clusters.end() && other_it != other.cluster_data_->clusters.end()) {
+                if (auto& cluster = const_cast<Node16&>(*this_it);
+                    cluster.and_inplace(*other_it, alloc).is_tombstone() && (cluster_data_->clusters.erase(this_it), cluster_data_->summary.remove(*cluster_idx, alloc))) {
+                    return empty_clusters_or_tombstone(new_min, new_max);
+                }
             }
         }
 
-        cluster_data_->summary = std::move(summary_intersection);
-
         min_ = *new_min.or_else([&] {
             auto min_cluster = cluster_data_->summary.min();
-            auto min_element = cluster_data_->clusters.at(min_cluster).min();
+            auto min_element = cluster_data_->clusters.find(min_cluster)->min();
             return std::make_optional(index(min_cluster, min_element));
         });
         max_ = *new_max.or_else([&] {
             auto max_cluster = cluster_data_->summary.max();
-            auto max_element = cluster_data_->clusters.at(max_cluster).max();
+            auto max_element = cluster_data_->clusters.find(max_cluster)->max();
             return std::make_optional(index(max_cluster, max_element));
         });
+
+        if (max_ != potential_max) {
+            auto it = cluster_data_->clusters.find(cluster_data_->summary.max());
+            auto& cluster = const_cast<Node16&>(*it);
+            cluster.remove(static_cast<subindex_t>(max_), alloc) && cluster_data_->summary.remove(cluster_data_->summary.max(), alloc);
+        }
+        if (min_ != potential_min) {
+            auto it = cluster_data_->clusters.find(cluster_data_->summary.min());
+            auto& cluster = const_cast<Node16&>(*it);
+            cluster.remove(static_cast<subindex_t>(min_), alloc) && cluster_data_->summary.remove(cluster_data_->summary.min(), alloc);
+        }
 
         if (cluster_data_->clusters.empty()) {
             return empty_clusters_or_tombstone(min_, max_);
@@ -1062,7 +1093,7 @@ public:
 
 private:
     struct cluster_data_t {
-        using cluster_map_t = HashMap<subindex_t, subnode_t>;
+        using cluster_map_t = std::unordered_map<subindex_t, subnode_t, std::hash<subindex_t>, std::equal_to<subindex_t>, tracking_allocator<std::pair<const subindex_t, subnode_t>>>;
         cluster_map_t clusters;
         subnode_t summary;
 
@@ -1361,24 +1392,21 @@ public:
             return empty_clusters_or_tombstone(new_min, new_max);
         }
 
-        subnode_t summary_intersection = std::move(cluster_data_->summary.clone(alloc).and_inplace(other.cluster_data_->summary, alloc));
-        if (summary_intersection.is_tombstone()) {
+        if (cluster_data_->summary.and_inplace(other.cluster_data_->summary, alloc).is_tombstone()) {
             return empty_clusters_or_tombstone(new_min, new_max);
         }
 
-        for (auto cluster_idx = std::make_optional(summary_intersection.min()); cluster_idx.has_value(); cluster_idx = summary_intersection.successor(*cluster_idx)) {
+        for (auto cluster_idx = std::make_optional(cluster_data_->summary.min()); cluster_idx.has_value(); cluster_idx = cluster_data_->summary.successor(*cluster_idx)) {
             if (auto this_it = cluster_data_->clusters.find(*cluster_idx),
                      other_it = other.cluster_data_->clusters.find(*cluster_idx);
                 this_it != cluster_data_->clusters.end() &&
                 other_it != other.cluster_data_->clusters.end() &&
                 this_it->second.and_inplace(other_it->second, alloc).is_tombstone() &&
-                (cluster_data_->clusters.erase(this_it), summary_intersection.remove(*cluster_idx, alloc))
+                (cluster_data_->clusters.erase(this_it), cluster_data_->summary.remove(*cluster_idx, alloc))
             ) {
                 return empty_clusters_or_tombstone(new_min, new_max);
             }
         }
-
-        cluster_data_->summary = std::move(summary_intersection);
 
         min_ = *new_min.or_else([&] {
             auto min_cluster = cluster_data_->summary.min();
@@ -1390,6 +1418,13 @@ public:
             auto max_element = cluster_data_->clusters.at(max_cluster).max();
             return std::make_optional(index(max_cluster, max_element));
         });
+
+        if (max_ != potential_max && cluster_data_->clusters.at(cluster_data_->summary.max()).remove(static_cast<subindex_t>(max_), alloc)) {
+            cluster_data_->summary.remove(cluster_data_->summary.max(), alloc);
+        }
+        if (min_ != potential_min && cluster_data_->clusters.at(cluster_data_->summary.min()).remove(static_cast<subindex_t>(min_), alloc)) {
+            cluster_data_->summary.remove(cluster_data_->summary.min(), alloc);
+        }
 
         if (cluster_data_->clusters.empty()) {
             return empty_clusters_or_tombstone(min_, max_);
@@ -1420,7 +1455,7 @@ private:
         if (x <= Node8::universe_size()) {
             return Node8{static_cast<Node8::index_t>(x), alloc};
         } else if (x <= Node16::universe_size()) {
-            return Node16{static_cast<Node16::index_t>(x), alloc};
+            return Node16{0, static_cast<Node16::index_t>(x), alloc};
         } else if (x <= Node32::universe_size()) {
             return Node32{static_cast<Node32::index_t>(x), alloc};
         } else {
