@@ -25,9 +25,9 @@ typedef struct {
     const VebTree_API_t *api;
 } Bitset;
 
-static Bitset *bitset_create(VebTree_ImplType_t impl_type) {
+static Bitset *bitset_create() {
     Bitset *bitset = RedisModule_Alloc(sizeof(Bitset));
-    bitset->handle = vebtree_create(impl_type);
+    bitset->handle = vebtree_create();
     if (!bitset->handle) {
         RedisModule_Free(bitset);
         return NULL;
@@ -50,10 +50,9 @@ static void *bitset_rdb_load(RedisModuleIO *rdb, int encver) {
         return NULL;
     }
     
-    VebTree_ImplType_t impl_type = RedisModule_LoadUnsigned(rdb);
     size_t count = RedisModule_LoadUnsigned(rdb);
     
-    Bitset *bitset = bitset_create(impl_type);
+    Bitset *bitset = bitset_create();
     if (!bitset) {
         return NULL;
     }
@@ -68,9 +67,6 @@ static void *bitset_rdb_load(RedisModuleIO *rdb, int encver) {
 
 static void bitset_rdb_save(RedisModuleIO *rdb, void *value) {
     Bitset *bitset = value;
-
-    VebTree_ImplType_t impl_type = vebtree_get_impl_type(bitset->handle);
-    RedisModule_SaveUnsigned(rdb, impl_type);
 
     size_t size = bitset->api->size(bitset->handle);
     RedisModule_SaveUnsigned(rdb, size);
@@ -117,7 +113,7 @@ static Bitset *get_bitset_key(RedisModuleCtx *ctx, RedisModuleString *keyname, i
     
     if (type == REDISMODULE_KEYTYPE_EMPTY) {
         if (mode == REDISMODULE_WRITE) {
-            Bitset *bitset = bitset_create(VEBTREE_STD);
+            Bitset *bitset = bitset_create();
             if (!bitset) {
                 RedisModule_CloseKey(key);
                 return NULL;
@@ -694,9 +690,8 @@ static int bits_info_command(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     size_t allocated_memory = bitset->api->get_allocated_memory(bitset->handle);
     size_t universe_size = bitset->api->universe_size(bitset->handle);
     size_t size = bitset->api->size(bitset->handle);
-    const char *hash_table_name = bitset->api->hash_table_name();
 
-    RedisModule_ReplyWithArray(ctx, 12);
+    RedisModule_ReplyWithArray(ctx, 10);
     RedisModule_ReplyWithSimpleString(ctx, "size");
     RedisModule_ReplyWithLongLong(ctx, (long long)size);
     RedisModule_ReplyWithSimpleString(ctx, "universe_size");
@@ -707,8 +702,6 @@ static int bits_info_command(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     RedisModule_ReplyWithLongLong(ctx, (long long)stats.total_clusters);
     RedisModule_ReplyWithSimpleString(ctx, "max_depth");
     RedisModule_ReplyWithLongLong(ctx, (long long)stats.max_depth);
-    RedisModule_ReplyWithSimpleString(ctx, "hash_table");
-    RedisModule_ReplyWithSimpleString(ctx, hash_table_name);
 
     return REDISMODULE_OK;
 }

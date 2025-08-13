@@ -10,16 +10,16 @@
  * ┌────────────────────────────────────┐
  * | min, max: u64                      | ← Lazily propagated. Not inserted into clusters.
  * | cluster_data: * {                  | ← Lazily constructed only if non-empty.
- * |   clusters: HashMap<u32, Node<32>> | ← Up to √U clusters, each of size √U.
  * |   summary : Node<32>               | ← Tracks which clusters are non-empty.
+ * |   clusters: HashMap<u32, Node<32>> | ← Up to √U clusters, each of size √U.
  * | }           |                      |
  * └─────────────|──────────────────────┘
  * Node<32>      ▼
  * ┌────────────────────────────────────┐
  * | min, max: u32                      |
  * | cluster_data: * {                  |
- * |   clusters: HashMap<u16, Node<16>> |
  * |   summary : Node<16>               |
+ * |   clusters: HashMap<u16, Node<16>> |
  * | }           |                      |
  * └─────────────|──────────────────────┘
  * Node<16>      ▼
@@ -61,46 +61,8 @@
 #include "allocator/tracking_allocator.hpp"
 #include "allocator/allocate_unique.hpp"
 
-template<typename Key, typename Value, template<typename...> typename HM>
-using HashMap = HM<Key, Value, std::hash<Key>, std::equal_to<Key>, tracking_allocator<std::pair<const Key, Value>>>;
-
-struct StdManager {
-    template<typename Key, typename Value>
-    using HashMap_t = HashMap<Key, Value, std::unordered_map>;
-    static const char* name() { return "std::unordered_map"; }
-};
-
-#ifdef HAVE_ABSL
-#include <absl/container/flat_hash_map.h>
-struct AbslManager {
-    template<typename Key, typename Value>
-    using HashMap_t = HashMap<Key, Value, absl::flat_hash_map>;
-    static const char* name() { return "absl::flat_hash_map"; }
-};
-#endif
-
-#ifdef HAVE_BOOST
-#include <boost/unordered/unordered_flat_map.hpp>
-#include <boost/unordered/unordered_node_map.hpp>
-#include <boost/unordered_map.hpp>
-struct BoostFlatManager {
-    template<typename Key, typename Value>
-    using HashMap_t = HashMap<Key, Value, boost::unordered_flat_map>;
-    static const char* name() { return "boost::unordered_flat_map"; }
-};
-
-struct BoostNodeManager {
-    template<typename Key, typename Value>
-    using HashMap_t = HashMap<Key, Value, boost::unordered_node_map>;
-    static const char* name() { return "boost::unordered_node_map"; }
-};
-
-struct BoostManager {
-    template<typename Key, typename Value>
-    using HashMap_t = HashMap<Key, Value, boost::unordered_map>;
-    static const char* name() { return "boost::unordered_map"; }
-};
-#endif
+template<typename Key, typename Value>
+using HashMap = std::unordered_map<Key, Value, std::hash<Key>, std::equal_to<Key>, tracking_allocator<std::pair<const Key, Value>>>;
 
 struct VebTreeMemoryStats {
     std::size_t total_clusters = 0;
@@ -120,7 +82,7 @@ template<typename... Fs>
 overload(Fs...) -> overload<Fs...>;
 
 class Node8 {
-    template<typename Manager> friend class VebTree;
+    friend class VebTree;
 public:
     using subindex_t = std::uint8_t;
     using index_t = std::uint8_t;
@@ -162,7 +124,7 @@ public:
     constexpr inline index_t min() const {
         for (subindex_t word = 0; word < 4; ++word) {
             if (bits_[word] != 0) {
-                return Node8::index(word, static_cast<subindex_t>(std::countr_zero(bits_[word])));
+                return index(word, static_cast<subindex_t>(std::countr_zero(bits_[word])));
             }
         }
         std::unreachable();
@@ -171,7 +133,7 @@ public:
     constexpr inline index_t max() const {
         for (subindex_t word = 4; word > 0; --word) {
             if (bits_[word - 1] != 0) {
-                return Node8::index(word - 1, static_cast<subindex_t>(63 - std::countl_zero(bits_[word - 1])));
+                return index(word - 1, static_cast<subindex_t>(63 - std::countl_zero(bits_[word - 1])));
             }
         }
         std::unreachable();
@@ -200,10 +162,6 @@ public:
     }
 
     constexpr inline std::optional<index_t> successor(index_t x) const {
-        if (x >= max()) {
-            return std::nullopt;
-        }
-
         const auto [start_word, start_bit] = decompose(x);
 
         std::uint64_t word = 0;
@@ -211,12 +169,12 @@ public:
             word = bits_[start_word] & (~0ULL << (start_bit + 1));
         }
         if (word != 0) {
-            return Node8::index(start_word, static_cast<subindex_t>(std::countr_zero(word)));
+            return index(start_word, static_cast<subindex_t>(std::countr_zero(word)));
         }
 
         for (subindex_t word_idx = start_word + 1; word_idx < 4; ++word_idx) {
             if (bits_[word_idx] != 0) {
-                return Node8::index(word_idx, static_cast<subindex_t>(std::countr_zero(bits_[word_idx])));
+                return index(word_idx, static_cast<subindex_t>(std::countr_zero(bits_[word_idx])));
             }
         }
 
@@ -224,23 +182,16 @@ public:
     }
 
     constexpr inline std::optional<index_t> predecessor(index_t x) const {
-        if (x <= min()) {
-            return std::nullopt;
-        }
-        if (x > max()) {
-            return max();
-        }
-
         const auto [start_word, start_bit] = decompose(x - 1);
 
         std::uint64_t word = bits_[start_word] & (start_bit == 63 ? -1ULL : ((1ULL << (start_bit + 1)) - 1));
         if (word != 0) {
-            return Node8::index(start_word, static_cast<subindex_t>(63 - std::countl_zero(word)));
+            return index(start_word, static_cast<subindex_t>(63 - std::countl_zero(word)));
         }
 
         for (subindex_t word_idx = start_word; word_idx > 0; --word_idx) {
             if (bits_[word_idx - 1] != 0) {
-                return Node8::index(word_idx - 1, static_cast<subindex_t>(63 - std::countl_zero(bits_[word_idx - 1])));
+                return index(word_idx - 1, static_cast<subindex_t>(63 - std::countl_zero(bits_[word_idx - 1])));
             }
         }
 
@@ -287,7 +238,7 @@ public:
 };
 
 class Node16 {
-    template<typename Manager> friend class VebTree;
+    friend class VebTree;
 public:
     using subnode_t = Node8;
     using subindex_t = subnode_t::index_t;
@@ -384,8 +335,8 @@ public:
         , min_(old_storage.min())
         , max_(old_storage.max())
     {
-        auto old_min = static_cast<Node8::index_t>(min_);
-        auto old_max = static_cast<Node8::index_t>(max_);
+        auto old_min = static_cast<subindex_t>(min_);
+        auto old_max = static_cast<subindex_t>(max_);
 
         old_storage.remove(old_min, alloc);
         if (old_min != old_max) {
@@ -753,9 +704,8 @@ public:
     }
 };
 
-template<typename Manager>
 class Node32 {
-    template<typename M> friend class VebTree;
+    friend class VebTree;
 public:
     using subnode_t = Node16;
     using subindex_t = subnode_t::index_t;
@@ -763,7 +713,7 @@ public:
 
 private:
     struct cluster_data_t {
-        using cluster_map_t = typename Manager::template HashMap_t<subindex_t, subnode_t>;
+        using cluster_map_t = HashMap<subindex_t, subnode_t>;
         cluster_map_t clusters;
         subnode_t summary;
 
@@ -798,8 +748,8 @@ public:
         , min_(old_storage.min())
         , max_(old_storage.max())
     {
-        auto old_min = static_cast<Node16::index_t>(min_);
-        auto old_max = static_cast<Node16::index_t>(max_);
+        auto old_min = static_cast<subindex_t>(min_);
+        auto old_max = static_cast<subindex_t>(max_);
 
         old_storage.remove(old_min, alloc);
         if (old_min != old_max) {
@@ -868,7 +818,7 @@ public:
             } else {
                 auto min_cluster = cluster_data_->summary.min();
                 auto min_element = cluster_data_->clusters.at(min_cluster).min();
-                x = min_ = Node32::index(min_cluster, min_element);
+                x = min_ = index(min_cluster, min_element);
             }
         }
 
@@ -878,7 +828,7 @@ public:
             } else {
                 auto max_cluster = cluster_data_->summary.max();
                 auto max_element = cluster_data_->clusters.at(max_cluster).max();
-                x = max_ = Node32::index(max_cluster, max_element);
+                x = max_ = index(max_cluster, max_element);
             }
         }
 
@@ -931,13 +881,13 @@ public:
 
         if (auto it = cluster_data_->clusters.find(h); it != cluster_data_->clusters.end() && l < it->second.max()) {
             if (auto succ = it->second.successor(l)) {
-                return Node32::index(h, *succ);
+                return index(h, *succ);
             }
         }
 
         if (auto succ_cluster = cluster_data_->summary.successor(h)) {
             auto min_element = cluster_data_->clusters.at(*succ_cluster).min();
-            return Node32::index(*succ_cluster, min_element);
+            return index(*succ_cluster, min_element);
         }
 
         return std::make_optional(max_);
@@ -957,13 +907,13 @@ public:
 
         if (auto it = cluster_data_->clusters.find(h); it != cluster_data_->clusters.end() && l > it->second.min()) {
             if (auto pred = it->second.predecessor(l)) {
-                return Node32::index(h, *pred);
+                return index(h, *pred);
             }
         }
 
         if (auto pred_cluster = cluster_data_->summary.predecessor(h)) {
             auto max_element = cluster_data_->clusters.at(*pred_cluster).max();
-            return Node32::index(*pred_cluster, max_element);
+            return index(*pred_cluster, max_element);
         }
 
         return min_;
@@ -1103,17 +1053,16 @@ public:
     }
 };
 
-template<typename Manager>
 class Node64 {
-    template<typename M> friend class VebTree;
+    friend class VebTree;
 public:
-    using subnode_t = Node32<Manager>;
+    using subnode_t = Node32;
     using subindex_t = subnode_t::index_t;
     using index_t = std::uint64_t;
 
 private:
     struct cluster_data_t {
-        using cluster_map_t = typename Manager::template HashMap_t<subindex_t, subnode_t>;
+        using cluster_map_t = HashMap<subindex_t, subnode_t>;
         cluster_map_t clusters;
         subnode_t summary;
 
@@ -1142,13 +1091,13 @@ public:
         , min_(x), max_(x) {
     }
 
-    inline Node64(Node32<Manager>&& old_storage, std::size_t& alloc)
+    inline Node64(Node32&& old_storage, std::size_t& alloc)
         : cluster_data_{nullptr, AllocDeleter{tracking_allocator<cluster_data_t>(alloc)}}
         , min_(old_storage.min())
         , max_(old_storage.max())
     {
-        auto old_min = static_cast<typename Node32<Manager>::index_t>(min_);
-        auto old_max = static_cast<typename Node32<Manager>::index_t>(max_);
+        auto old_min = static_cast<subindex_t>(min_);
+        auto old_max = static_cast<subindex_t>(max_);
 
         old_storage.remove(old_min, alloc);
         if (old_min != old_max) {
@@ -1198,7 +1147,7 @@ public:
             } else {
                 auto min_cluster = cluster_data_->summary.min();
                 auto min_element = cluster_data_->clusters.at(min_cluster).min();
-                x = min_ = Node64::index(min_cluster, min_element);
+                x = min_ = index(min_cluster, min_element);
             }
         }
 
@@ -1208,7 +1157,7 @@ public:
             } else {
                 auto max_cluster = cluster_data_->summary.max();
                 auto max_element = cluster_data_->clusters.at(max_cluster).max();
-                x = max_ = Node64::index(max_cluster, max_element);
+                x = max_ = index(max_cluster, max_element);
             }
         }
 
@@ -1261,13 +1210,13 @@ public:
 
         if (auto it = cluster_data_->clusters.find(h); it != cluster_data_->clusters.end() && l < it->second.max()) {
             if (auto succ = it->second.successor(l)) {
-                return Node64::index(h, *succ);
+                return index(h, *succ);
             }
         }
 
         if (auto succ_cluster = cluster_data_->summary.successor(h)) {
             auto min_element = cluster_data_->clusters.at(*succ_cluster).min();
-            return Node64::index(*succ_cluster, min_element);
+            return index(*succ_cluster, min_element);
         }
 
         return std::make_optional(max_);
@@ -1287,13 +1236,13 @@ public:
 
         if (auto it = cluster_data_->clusters.find(h); it != cluster_data_->clusters.end() && l > it->second.min()) {
             if (auto pred = it->second.predecessor(l)) {
-                return Node64::index(h, *pred);
+                return index(h, *pred);
             }
         }
 
         if (auto pred_cluster = cluster_data_->summary.predecessor(h)) {
             auto max_element = cluster_data_->clusters.at(*pred_cluster).max();
-            return Node64::index(*pred_cluster, max_element);
+            return index(*pred_cluster, max_element);
         }
 
         return min_;
@@ -1460,14 +1409,10 @@ public:
  * - Node16 for universe ≤ 65536 (2^16)
  * - Node32 for universe ≤ 4294967296 (2^32)
  * - Node64 for larger universes
- *
- * @tparam Manager The hash table manager class that defines which
- *                 hash table implementation to use
  */
-template<typename Manager = StdManager>
 class VebTree {
 private:
-    using StorageType = std::variant<std::monostate, Node8, Node16, Node32<Manager>, Node64<Manager>>;
+    using StorageType = std::variant<std::monostate, Node8, Node16, Node32, Node64>;
     StorageType storage_;
     mutable std::size_t allocated_ = 0;
 
@@ -1476,10 +1421,10 @@ private:
             return Node8{static_cast<Node8::index_t>(x), alloc};
         } else if (x <= Node16::universe_size()) {
             return Node16{static_cast<Node16::index_t>(x), alloc};
-        } else if (x <= Node32<Manager>::universe_size()) {
-            return Node32<Manager>{static_cast<typename Node32<Manager>::index_t>(x), alloc};
+        } else if (x <= Node32::universe_size()) {
+            return Node32{static_cast<Node32::index_t>(x), alloc};
         } else {
-            return Node64<Manager>{static_cast<typename Node64<Manager>::index_t>(x), alloc};
+            return Node64{static_cast<Node64::index_t>(x), alloc};
         }
     }
 
@@ -1490,10 +1435,10 @@ private:
                     storage_ = Node16{std::move(old_storage), alloc};
                 },
                 [&](Node16&& old_storage) {
-                    storage_ = Node32<Manager>{std::move(old_storage), alloc};
+                    storage_ = Node32{std::move(old_storage), alloc};
                 },
-                [&](Node32<Manager>&& old_storage) {
-                    storage_ = Node64<Manager>{std::move(old_storage), alloc};
+                [&](Node32&& old_storage) {
+                    storage_ = Node64{std::move(old_storage), alloc};
                 },
                 [](auto&&) { std::unreachable(); },
             },
@@ -1553,13 +1498,6 @@ public:
             return current_;
         }
     };
-    
-    /**
-     * @brief Returns the name of the hash table implementation being used
-     */
-    static const char* hash_table_name() {
-        return Manager::name();
-    }
 
     /**
      * @brief Constructs an empty VEB tree
@@ -1757,7 +1695,7 @@ public:
         return std::visit(
             overload{
                 [](std::monostate) { return 0uz; },
-                [&](const auto& s) { return s.size(); },
+                [](const auto& s) { return s.size(); },
             },
             storage_);
     }
@@ -1782,7 +1720,7 @@ public:
         return std::visit(
             overload{
                 [](std::monostate) { return VebTreeMemoryStats{}; },
-                [&](const auto& s) { return s.get_memory_stats(); },
+                [](const auto& s) { return s.get_memory_stats(); },
             },
             storage_);
     }
@@ -1795,7 +1733,7 @@ public:
         return std::visit(
             overload{
                 [](std::monostate) { return 0uz; },
-                [&](const auto& s) { return s.universe_size(); },
+                [](const auto& s) { return s.universe_size(); },
             },
             storage_);
     }
@@ -1860,16 +1798,7 @@ public:
      */
     inline VebTree operator^(const VebTree& other) const {
         VebTree result;
-        for (std::size_t element : *this) {
-            if (!other.contains(element)) {
-                result.insert(element);
-            }
-        }
-        for (std::size_t element : other) {
-            if (!contains(element)) {
-                result.insert(element);
-            }
-        }
+        result ^= other;
         return result;
     }
 
@@ -1894,10 +1823,10 @@ public:
                 [&](Node16& a, const Node16& b) -> void {
                     a.and_inplace(b, allocated_);
                 },
-                [&](Node32<Manager>& a, const Node32<Manager>& b) -> void {
+                [&](Node32& a, const Node32& b) -> void {
                     a.and_inplace(b, allocated_);
                 },
-                [&](Node64<Manager>& a, const Node64<Manager>& b) -> void {
+                [&](Node64& a, const Node64& b) -> void {
                     a.and_inplace(b, allocated_);
                 },
                 [&](Node8& a, const Node16& b) -> void {
@@ -1911,67 +1840,67 @@ public:
                     auto b16 = Node16{std::move(b_clone), allocated_};
                     a.and_inplace(b16, allocated_);
                 },
-                [&](Node8& a, const Node32<Manager>& b) -> void {
+                [&](Node8& a, const Node32& b) -> void {
                     auto a_clone = a.clone(allocated_);
                     auto a16 = Node16{std::move(a_clone), allocated_};
-                    auto a32 = Node32<Manager>{std::move(a16), allocated_};
+                    auto a32 = Node32{std::move(a16), allocated_};
                     a32.and_inplace(b, allocated_);
                     storage_ = std::move(a32);
                 },
-                [&](Node32<Manager>& a, const Node8& b) -> void {
+                [&](Node32& a, const Node8& b) -> void {
                     auto b_clone = b.clone(allocated_);
                     auto b16 = Node16{std::move(b_clone), allocated_};
-                    auto b32 = Node32<Manager>{std::move(b16), allocated_};
+                    auto b32 = Node32{std::move(b16), allocated_};
                     a.and_inplace(b32, allocated_);
                 },
-                [&](Node16& a, const Node32<Manager>& b) -> void {
+                [&](Node16& a, const Node32& b) -> void {
                     auto a_clone = a.clone(allocated_);
-                    auto a32 = Node32<Manager>{std::move(a_clone), allocated_};
+                    auto a32 = Node32{std::move(a_clone), allocated_};
                     a32.and_inplace(b, allocated_);
                     storage_ = std::move(a32);
                 },
-                [&](Node32<Manager>& a, const Node16& b) -> void {
+                [&](Node32& a, const Node16& b) -> void {
                     auto b_clone = b.clone(allocated_);
-                    auto b32 = Node32<Manager>{std::move(b_clone), allocated_};
+                    auto b32 = Node32{std::move(b_clone), allocated_};
                     a.and_inplace(b32, allocated_);
                 },
-                [&](Node8& a, const Node64<Manager>& b) -> void {
+                [&](Node8& a, const Node64& b) -> void {
                     auto a_clone = a.clone(allocated_);
                     auto a16 = Node16{std::move(a_clone), allocated_};
-                    auto a32 = Node32<Manager>{std::move(a16), allocated_};
-                    auto a64 = Node64<Manager>{std::move(a32), allocated_};
+                    auto a32 = Node32{std::move(a16), allocated_};
+                    auto a64 = Node64{std::move(a32), allocated_};
                     a64.and_inplace(b, allocated_);
                     storage_ = std::move(a64);
                 },
-                [&](Node64<Manager>& a, const Node8& b) -> void {
+                [&](Node64& a, const Node8& b) -> void {
                     auto b_clone = b.clone(allocated_);
                     auto b16 = Node16{std::move(b_clone), allocated_};
-                    auto b32 = Node32<Manager>{std::move(b16), allocated_};
-                    auto b64 = Node64<Manager>{std::move(b32), allocated_};
+                    auto b32 = Node32{std::move(b16), allocated_};
+                    auto b64 = Node64{std::move(b32), allocated_};
                     a.and_inplace(b64, allocated_);
                 },
-                [&](Node16& a, const Node64<Manager>& b) -> void {
+                [&](Node16& a, const Node64& b) -> void {
                     auto a_clone = a.clone(allocated_);
-                    auto a32 = Node32<Manager>{std::move(a_clone), allocated_};
-                    auto a64 = Node64<Manager>{std::move(a32), allocated_};
+                    auto a32 = Node32{std::move(a_clone), allocated_};
+                    auto a64 = Node64{std::move(a32), allocated_};
                     a64.and_inplace(b, allocated_);
                     storage_ = std::move(a64);
                 },
-                [&](Node64<Manager>& a, const Node16& b) -> void {
+                [&](Node64& a, const Node16& b) -> void {
                     auto b_clone = b.clone(allocated_);
-                    auto b32 = Node32<Manager>{std::move(b_clone), allocated_};
-                    auto b64 = Node64<Manager>{std::move(b32), allocated_};
+                    auto b32 = Node32{std::move(b_clone), allocated_};
+                    auto b64 = Node64{std::move(b32), allocated_};
                     a.and_inplace(b64, allocated_);
                 },
-                [&](Node32<Manager>& a, const Node64<Manager>& b) -> void {
+                [&](Node32& a, const Node64& b) -> void {
                     auto a_clone = a.clone(allocated_);
-                    auto a64 = Node64<Manager>{std::move(a_clone), allocated_};
+                    auto a64 = Node64{std::move(a_clone), allocated_};
                     a64.and_inplace(b, allocated_);
                     storage_ = std::move(a64);
                 },
-                [&](Node64<Manager>& a, const Node32<Manager>& b) -> void {
+                [&](Node64& a, const Node32& b) -> void {
                     auto b_clone = b.clone(allocated_);
-                    auto b64 = Node64<Manager>{std::move(b_clone), allocated_};
+                    auto b64 = Node64{std::move(b_clone), allocated_};
                     a.and_inplace(b64, allocated_);
                 },
                 [](auto&&, auto&&) {}
@@ -2021,10 +1950,10 @@ public:
                 [&](Node16& a, const Node16& b) -> void {
                     a.or_inplace(b, allocated_);
                 },
-                [&](Node32<Manager>& a, const Node32<Manager>& b) -> void {
+                [&](Node32& a, const Node32& b) -> void {
                     a.or_inplace(b, allocated_);
                 },
-                [&](Node64<Manager>& a, const Node64<Manager>& b) -> void {
+                [&](Node64& a, const Node64& b) -> void {
                     a.or_inplace(b, allocated_);
                 },
                 [&](Node8& a, const Node16& b) -> void {
@@ -2038,67 +1967,67 @@ public:
                     auto b16 = Node16{std::move(b_clone), allocated_};
                     a.or_inplace(b16, allocated_);
                 },
-                [&](Node8& a, const Node32<Manager>& b) -> void {
+                [&](Node8& a, const Node32& b) -> void {
                     auto a_clone = a.clone(allocated_);
                     auto a16 = Node16{std::move(a_clone), allocated_};
-                    auto a32 = Node32<Manager>{std::move(a16), allocated_};
+                    auto a32 = Node32{std::move(a16), allocated_};
                     a32.or_inplace(b, allocated_);
                     storage_ = std::move(a32);
                 },
-                [&](Node32<Manager>& a, const Node8& b) -> void {
+                [&](Node32& a, const Node8& b) -> void {
                     auto b_clone = b.clone(allocated_);
                     auto b16 = Node16{std::move(b_clone), allocated_};
-                    auto b32 = Node32<Manager>{std::move(b16), allocated_};
+                    auto b32 = Node32{std::move(b16), allocated_};
                     a.or_inplace(b32, allocated_);
                 },
-                [&](Node16& a, const Node32<Manager>& b) -> void {
+                [&](Node16& a, const Node32& b) -> void {
                     auto a_clone = a.clone(allocated_);
-                    auto a32 = Node32<Manager>{std::move(a_clone), allocated_};
+                    auto a32 = Node32{std::move(a_clone), allocated_};
                     a32.or_inplace(b, allocated_);
                     storage_ = std::move(a32);
                 },
-                [&](Node32<Manager>& a, const Node16& b) -> void {
+                [&](Node32& a, const Node16& b) -> void {
                     auto b_clone = b.clone(allocated_);
-                    auto b32 = Node32<Manager>{std::move(b_clone), allocated_};
+                    auto b32 = Node32{std::move(b_clone), allocated_};
                     a.or_inplace(b32, allocated_);
                 },
-                [&](Node8& a, const Node64<Manager>& b) -> void {
+                [&](Node8& a, const Node64& b) -> void {
                     auto a_clone = a.clone(allocated_);
                     auto a16 = Node16{std::move(a_clone), allocated_};
-                    auto a32 = Node32<Manager>{std::move(a16), allocated_};
-                    auto a64 = Node64<Manager>{std::move(a32), allocated_};
+                    auto a32 = Node32{std::move(a16), allocated_};
+                    auto a64 = Node64{std::move(a32), allocated_};
                     a64.or_inplace(b, allocated_);
                     storage_ = std::move(a64);
                 },
-                [&](Node64<Manager>& a, const Node8& b) -> void {
+                [&](Node64& a, const Node8& b) -> void {
                     auto b_clone = b.clone(allocated_);
                     auto b16 = Node16{std::move(b_clone), allocated_};
-                    auto b32 = Node32<Manager>{std::move(b16), allocated_};
-                    auto b64 = Node64<Manager>{std::move(b32), allocated_};
+                    auto b32 = Node32{std::move(b16), allocated_};
+                    auto b64 = Node64{std::move(b32), allocated_};
                     a.or_inplace(b64, allocated_);
                 },
-                [&](Node16& a, const Node64<Manager>& b) -> void {
+                [&](Node16& a, const Node64& b) -> void {
                     auto a_clone = a.clone(allocated_);
-                    auto a32 = Node32<Manager>{std::move(a_clone), allocated_};
-                    auto a64 = Node64<Manager>{std::move(a32), allocated_};
+                    auto a32 = Node32{std::move(a_clone), allocated_};
+                    auto a64 = Node64{std::move(a32), allocated_};
                     a64.or_inplace(b, allocated_);
                     storage_ = std::move(a64);
                 },
-                [&](Node64<Manager>& a, const Node16& b) -> void {
+                [&](Node64& a, const Node16& b) -> void {
                     auto b_clone = b.clone(allocated_);
-                    auto b32 = Node32<Manager>{std::move(b_clone), allocated_};
-                    auto b64 = Node64<Manager>{std::move(b32), allocated_};
+                    auto b32 = Node32{std::move(b_clone), allocated_};
+                    auto b64 = Node64{std::move(b32), allocated_};
                     a.or_inplace(b64, allocated_);
                 },
-                [&](Node32<Manager>& a, const Node64<Manager>& b) -> void {
+                [&](Node32& a, const Node64& b) -> void {
                     auto a_clone = a.clone(allocated_);
-                    auto a64 = Node64<Manager>{std::move(a_clone), allocated_};
+                    auto a64 = Node64{std::move(a_clone), allocated_};
                     a64.or_inplace(b, allocated_);
                     storage_ = std::move(a64);
                 },
-                [&](Node64<Manager>& a, const Node32<Manager>& b) -> void {
+                [&](Node64& a, const Node32& b) -> void {
                     auto b_clone = b.clone(allocated_);
-                    auto b64 = Node64<Manager>{std::move(b_clone), allocated_};
+                    auto b64 = Node64{std::move(b_clone), allocated_};
                     a.or_inplace(b64, allocated_);
                 },
                 [](auto&&, auto&&) {}
@@ -2143,24 +2072,5 @@ public:
         return !(*this == other);
     }
 };
-
-template class VebTree<StdManager>;
-using StdVebTree = VebTree<StdManager>;
-
-#ifdef HAVE_ABSL
-template class VebTree<AbslManager>;
-using AbslVebTree = VebTree<AbslManager>;
-#endif
-
-#ifdef HAVE_BOOST
-template class VebTree<BoostFlatManager>;
-using BoostFlatVebTree = VebTree<BoostFlatManager>;
-
-template class VebTree<BoostNodeManager>;
-using BoostNodeVebTree = VebTree<BoostNodeManager>;
-
-template class VebTree<BoostManager>;
-using BoostVebTree = VebTree<BoostManager>;
-#endif
 
 #endif // VEBTREE_HPP

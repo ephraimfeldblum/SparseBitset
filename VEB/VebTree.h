@@ -3,8 +3,6 @@
  * @brief C API for van Emde Boas Tree implementation
  *
  * This header provides a C-compatible interface to the C++ VebTree template class.
- * It uses X macros to generate the interface for different hash table implementations
- * and provides a function table approach for implementation-agnostic usage.
  */
 
 #ifndef VEBTREE_H
@@ -22,18 +20,6 @@ extern "C" {
  * @brief Opaque handle to a VebTree instance
  */
 typedef struct VebTree_Handle* VebTree_Handle_t;
-
-/**
- * @brief Implementation types for VebTree
- */
-typedef enum {
-    VEBTREE_STD = 0,         /* std::unordered_map (always available) */
-    VEBTREE_ABSL = 1,        /* absl::flat_hash_map (if available) */
-    VEBTREE_BOOST_FLAT = 2,  /* boost::unordered_flat_map (if available) */
-    VEBTREE_BOOST_NODE = 3,  /* boost::unordered_node_map (if available) */
-    VEBTREE_BOOST = 4,       /* boost::unordered_map (if available) */
-    VEBTREE_NUM_IMPL_TYPES,
-} VebTree_ImplType_t;
 
 /**
  * @brief Result structure for operations that return an optional size_t
@@ -116,9 +102,6 @@ typedef struct VebTree_API {
     /* Get the current universe size */
     size_t (*universe_size)(VebTree_Handle_t handle);
 
-    /* Get the hash table implementation name */
-    const char* (*hash_table_name)(void);
-
     /* Set operations */
     bool (*equals)(VebTree_Handle_t handle1, VebTree_Handle_t handle2);
 
@@ -143,15 +126,7 @@ typedef struct VebTree_API {
  *
  * Note: Every call to vebtree_create() must be matched with a call to VEBTREE_DESTROY().
  */
-VebTree_Handle_t vebtree_create(VebTree_ImplType_t impl_type);
-
-/**
- * @brief Get the implementation type of a VebTree instance
- *
- * @param handle The VebTree handle
- * @return VebTree_ImplType_t The implementation type used by this handle
- */
-VebTree_ImplType_t vebtree_get_impl_type(VebTree_Handle_t handle);
+VebTree_Handle_t vebtree_create();
 
 /**
  * @brief Get the API function table for a specific VebTree instance
