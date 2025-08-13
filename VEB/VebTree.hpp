@@ -11,7 +11,7 @@
  * | min, max: u32                 | ← Lazily propagated. Not inserted into clusters.
  * | cluster_data: * {             | ← Lazily constructed only if non-empty.
  * |   summary : Node<16>          | ← Tracks which clusters are non-empty.
- * |   clusters: HashSet<Node<16>> | ← Up to √U clusters, each of size √U. Set is cache-friendlier than Map.
+ * |   clusters: HashSet<Node<16>> | ← Up to √U clusters, each of size √U. Use HashSet to exploit cache locality.
  * | }           |                 |
  * └─────────────|─────────────────┘
  * Node<16>      ▼
@@ -21,7 +21,7 @@
  * | capacity: u16                 |
  * | cluster_data: * {             |
  * |   summary : Node<8>           | ← Used to index into clusters in constant time. Requires sorted clusters.
- * |   clusters: Array<Node<8>, 0> | ← Up to 256 elements. FAM is more cache-friendly than HashMap.
+ * |   clusters: Array<Node<8>, …> | ← Up to 256 elements. FAM is more cache-friendly than HashMap.
  * | }           |                 |
  * └─────────────|─────────────────┘
  * Node<8>       ▼
@@ -52,6 +52,22 @@
 #include <variant>
 #include <vector>
 #include <execution>
+
+#if defined(__x86_64__) || defined(_M_X64)
+#include <immintrin.h>
+
+inline bool has_avx512() {
+    static bool checked = false;
+    static bool result = false;
+
+    if (!checked) {
+        __builtin_cpu_init();
+        result = __builtin_cpu_supports("avx512vpopcntdq");
+        checked = true;
+    }
+    return result;
+}
+#endif
 
 #include "allocator/tracking_allocator.hpp"
 #include "allocator/allocate_unique.hpp"
@@ -191,6 +207,14 @@ public:
     }
 
     constexpr inline std::size_t size() const {
+// #if defined(__x86_64__) || defined(_M_X64)
+//         if (has_avx512()) {
+//             auto data256 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(bits_.data()));
+//             auto popcount = _mm256_popcnt_epi64(data256);
+//             const auto* popcnt_ptr = reinterpret_cast<const std::uint64_t*>(&popcount);
+//             return std::accumulate(popcnt_ptr, popcnt_ptr + 4, 0uz);
+//         }
+// #endif
         return std::transform_reduce(
             bits_.begin(), bits_.end(), 0uz,
             std::plus<>(), [](std::uint64_t word) { return std::popcount(word); }
@@ -532,12 +556,27 @@ public:
 
         if (!cluster_data_) return total;
 
+        const auto* data = &cluster_data_->clusters_[0];
+        std::size_t count = cluster_data_->size();
+#if defined(__x86_64__) || defined(_M_X64)
+        if (has_avx512() && count > 0) {
+            const __m512i* data512 = reinterpret_cast<const __m512i*>(data);
+            return total + std::transform_reduce(
+                data512, data512 + count / 2, count & 1 ? data[count - 1].size() : 0uz,
+                std::plus<>(), [](const __m512i& vec) {
+                    return _mm512_reduce_add_epi64(_mm512_popcnt_epi64(vec));
+                }
+            );
+        }
+#endif
+
         return std::transform_reduce(
 #ifdef __cpp_lib_execution
             std::execution::unseq,
 #endif
-            &cluster_data_->clusters_[0], &cluster_data_->clusters_[cluster_data_->size()],
-            total, std::plus<>(), [](const auto& cluster) { return cluster.size(); }
+            data, data + count, total, std::plus<>(), [](const auto& cluster) {
+                return cluster.size();
+            }
         );
     }
 
