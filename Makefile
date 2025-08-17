@@ -9,9 +9,9 @@ MODULE_VERSION = 1
 BUILD_TYPE ?= Release
 
 # Directories
-VEB_DIR = VEB
+SRC_DIR = src
+VEB_DIR = $(SRC_DIR)/VEB
 VEB_BUILD_DIR = $(VEB_DIR)/build
-SRC_DIR = .
 BUILD_DIR = build
 
 # Compiler and flags
@@ -22,13 +22,13 @@ CXXFLAGS = -Wall -Wextra -O2 -fPIC -std=c++23 -mavx2
 LDFLAGS = -shared
 
 # Include directories
-INCLUDES = -I$(VEB_DIR) -I.
+INCLUDES = -I$(VEB_DIR) -I$(SRC_DIR)
 
 # Libraries
 LIBS = -L$(VEB_BUILD_DIR) -Wl,-rpath,$(shell pwd)/$(VEB_BUILD_DIR) -lvebtree -lstdc++
 
 # Source files
-MODULE_SOURCES = bitset_module.c
+MODULE_SOURCES = $(SRC_DIR)/bitset_module.c
 MODULE_OBJECTS = $(MODULE_SOURCES:.c=.o)
 
 # Target shared library
