@@ -53,21 +53,9 @@
 #include <vector>
 #include <execution>
 
-#if defined(__x86_64__) || defined(_M_X64)
-#include <immintrin.h>
-
-inline bool has_avx512() {
-    static bool checked = false;
-    static bool result = false;
-
-    if (!checked) {
-        __builtin_cpu_init();
-        result = __builtin_cpu_supports("avx512vpopcntdq");
-        checked = true;
-    }
-    return result;
-}
-#endif
+// #if defined(__x86_64__) || defined(__x86_64) || defined(__amd64__) || defined(__amd64)
+// #include <immintrin.h>
+// #endif
 
 #include "allocator/tracking_allocator.hpp"
 #include "allocator/allocate_unique.hpp"
@@ -207,18 +195,31 @@ public:
     }
 
     constexpr inline std::size_t size() const {
-// #if defined(__x86_64__) || defined(_M_X64)
-//         if (has_avx512()) {
-//             auto data256 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(bits_.data()));
-//             auto popcount = _mm256_popcnt_epi64(data256);
-//             const auto* popcnt_ptr = reinterpret_cast<const std::uint64_t*>(&popcount);
-//             return std::accumulate(popcnt_ptr, popcnt_ptr + 4, 0uz);
-//         }
+// #if defined(__AVX2__) && (defined(__x86_64__) || defined(__x86_64) || defined(__amd64__) || defined(__amd64))
+//         static const __m256i lookup = _mm256_setr_epi8(
+//             0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4,
+//             0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4
+//         );
+
+//         __m256i vec = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(bits_.data()));
+
+//         __m256i low  = _mm256_and_si256(vec, _mm256_set1_epi8(0x0F));
+//         __m256i high = _mm256_and_si256(_mm256_srli_epi16(vec, 4), _mm256_set1_epi8(0x0F));
+
+//         __m256i popcnt1 = _mm256_shuffle_epi8(lookup, low);
+//         __m256i popcnt2 = _mm256_shuffle_epi8(lookup, high);
+
+//         __m256i popcnt = _mm256_add_epi8(popcnt1, popcnt2);
+//         __m256i zero = _mm256_setzero_si256();
+//         __m256i sad = _mm256_sad_epu8(popcnt, zero);
+
+//         alignas(32) std::uint64_t partial[4];
+//         _mm256_store_si256(reinterpret_cast<__m256i*>(partial), sad);
+
+//         return partial[0] + partial[1] + partial[2] + partial[3];
 // #endif
-        return std::transform_reduce(
-            bits_.begin(), bits_.end(), 0uz,
-            std::plus<>(), [](std::uint64_t word) { return std::popcount(word); }
-        );
+        return std::popcount(bits_[0]) + std::popcount(bits_[1]) +
+               std::popcount(bits_[2]) + std::popcount(bits_[3]);
     }
 
     constexpr VebTreeMemoryStats get_memory_stats() const {
@@ -552,31 +553,19 @@ public:
     }
 
     inline std::size_t size() const {
-        std::size_t total = (min_ == max_) ? 1uz : 2uz;
+        std::size_t base_count = (min_ == max_) ? 1uz : 2uz;
 
-        if (!cluster_data_) return total;
+        if (!cluster_data_) return base_count;
 
         const auto* data = &cluster_data_->clusters_[0];
         std::size_t count = cluster_data_->size();
-#if defined(__x86_64__) || defined(_M_X64)
-        if (has_avx512() && count > 0) {
-            const __m512i* data512 = reinterpret_cast<const __m512i*>(data);
-            return total + std::transform_reduce(
-                data512, data512 + count / 2, count & 1 ? data[count - 1].size() : 0uz,
-                std::plus<>(), [](const __m512i& vec) {
-                    return _mm512_reduce_add_epi64(_mm512_popcnt_epi64(vec));
-                }
-            );
-        }
-#endif
 
         return std::transform_reduce(
 #ifdef __cpp_lib_execution
             std::execution::unseq,
 #endif
-            data, data + count, total, std::plus<>(), [](const auto& cluster) {
-                return cluster.size();
-            }
+            data, data + count, base_count, std::plus<>(),
+            [](const auto& cluster) { return cluster.size(); }
         );
     }
 
