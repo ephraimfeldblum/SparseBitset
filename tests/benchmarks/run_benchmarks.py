@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import redis
 import time
 from prettytable import PrettyTable
@@ -93,20 +95,20 @@ def run_all_benchmarks(data1, data2, i):
         pipe.execute()
     
     # --- MIN/MAX ---
-    print("Benchmarking min/max...")
-    c_min, c_max = int(r.execute_command('R.MIN', KEYS['compressed1'])), int(r.execute_command('R.MAX', KEYS['compressed1']))
-    min_val, max_val = int(r.execute_command('BITS.MIN', KEYS['sparse1'])), int(r.execute_command('BITS.MAX', KEYS['sparse1']))
-    table.add_row(["Min/Max", f"{min_val}/{max_val}", f"{c_min}/{c_max}", "N/A", f"{get_stats('bits.min')}/{get_stats('bits.max')}", f"{get_stats('R.MIN')}/{get_stats('R.MAX')}", "N/A", f"{compare_results(min_val, c_min)}/{compare_results(max_val, c_max)}"])
+    # print("Benchmarking min/max...")
+    # c_min, c_max = int(r.execute_command('R.MIN', KEYS['compressed1'])), int(r.execute_command('R.MAX', KEYS['compressed1']))
+    # min_val, max_val = int(r.execute_command('BITS.MIN', KEYS['sparse1'])), int(r.execute_command('BITS.MAX', KEYS['sparse1']))
+    # table.add_row(["Min/Max", f"{min_val}/{max_val}", f"{c_min}/{c_max}", "N/A", f"{get_stats('bits.min')}/{get_stats('bits.max')}", f"{get_stats('R.MIN')}/{get_stats('R.MAX')}", "N/A", f"{compare_results(min_val, c_min)}/{compare_results(max_val, c_max)}"])
 
     # --- ITERATION ---
-    print("Benchmarking iteration...")
-    with r.pipeline() as pipe:
-        for val in data1: pipe.bitpos(KEYS['dense1'], 1, val + 1)
-        start_time = time.time(); pipe.execute(); d_iter_time = time.time() - start_time
-    with r.pipeline() as pipe:
-        for val in data1: pipe.execute_command('BITS.SUCCESSOR', KEYS['sparse1'], val)
-        start_time = time.time(); pipe.execute(); s_iter_time = time.time() - start_time
-    table.add_row(["Iteration", f"{s_iter_time:.2f}s", "N/A", f"{d_iter_time:.2f}s", get_stats('bits.successor'), "N/A", get_stats('bitpos'), "N/A"])
+    # print("Benchmarking iteration...")
+    # with r.pipeline() as pipe:
+    #     for val in data1: pipe.bitpos(KEYS['dense1'], 1, val + 1)
+    #     start_time = time.time(); pipe.execute(); d_iter_time = time.time() - start_time
+    # with r.pipeline() as pipe:
+    #     for val in data1: pipe.execute_command('BITS.SUCCESSOR', KEYS['sparse1'], val)
+    #     start_time = time.time(); pipe.execute(); s_iter_time = time.time() - start_time
+    # table.add_row(["Iteration", f"{s_iter_time:.2f}s", "N/A", f"{d_iter_time:.2f}s", get_stats('bits.successor'), "N/A", get_stats('bitpos'), "N/A"])
 
     # --- SET OPERATIONS ---
     print("Benchmarking set operations...")
