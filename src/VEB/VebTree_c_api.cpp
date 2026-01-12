@@ -24,7 +24,7 @@ static VebTree_OptionalSize_t to_c_optional(std::optional<std::size_t> opt) {
 }
 
 VebTree_Handle_t vebtree_create() {
-    VebTree_Handle_t p = static_cast<VebTree_Handle_t>(std::malloc(sizeof *p));
+    VebTree_Handle_t p = static_cast<VebTree_Handle_t>(malloc(sizeof *p));
     new (p) VebTree;
     return p;
 }
@@ -46,25 +46,25 @@ static bool vebtree_contains(VebTree_Handle_t handle, size_t x) {
 
 static VebTree_OptionalSize_t vebtree_successor(VebTree_Handle_t handle, size_t x) {
     assert(handle);
-    auto result = handle->successor(x);
+    auto result{handle->successor(x)};
     return to_c_optional(result);
 }
 
 static VebTree_OptionalSize_t vebtree_predecessor(VebTree_Handle_t handle, size_t x) {
     assert(handle);
-    auto result = handle->predecessor(x);
+    auto result{handle->predecessor(x)};
     return to_c_optional(result);
 }
 
 static VebTree_OptionalSize_t vebtree_min(VebTree_Handle_t handle) {
     assert(handle);
-    auto result = handle->min();
+    auto result{handle->min()};
     return to_c_optional(result);
 }
 
 static VebTree_OptionalSize_t vebtree_max(VebTree_Handle_t handle) {
     assert(handle);
-    auto result = handle->max();
+    auto result{handle->max()};
     return to_c_optional(result);
 }
 
@@ -85,15 +85,15 @@ static std::size_t vebtree_size(VebTree_Handle_t handle) {
 
 static std::size_t* vebtree_to_array(VebTree_Handle_t handle) {
     assert(handle);
-    auto vec = handle->to_vector();
-    std::size_t* array = static_cast<std::size_t*>(malloc(vec.size() * sizeof(std::size_t)));
+    auto vec{handle->to_vector()};
+    std::size_t* array = static_cast<std::size_t*>(malloc(vec.size() * sizeof *array));
     std::ranges::copy(vec, array);
     return array;
 }
 
 static VebTree_MemoryStats_t vebtree_get_memory_stats(VebTree_Handle_t handle) {
     assert(handle);
-    auto cpp_stats = handle->get_memory_stats();
+    auto cpp_stats{handle->get_memory_stats()};
     return VebTree_MemoryStats_t{          
         .total_clusters = cpp_stats.total_clusters,
         .max_depth = cpp_stats.max_depth,  
@@ -132,9 +132,9 @@ static void vebtree_symmetric_difference(VebTree_Handle_t handle1, VebTree_Handl
 }
 
 static void vebtree_destroy(VebTree_Handle_t handle) {
-    if (handle) {                          
+    if (handle != nullptr) {
         handle->~VebTree();
-        std::free(handle);
+        free(handle);
     }
 }
 

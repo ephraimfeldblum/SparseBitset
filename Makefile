@@ -25,7 +25,7 @@ LDFLAGS = -shared
 INCLUDES = -I$(VEB_DIR) -I$(SRC_DIR)
 
 # Libraries
-LIBS = -L$(VEB_BUILD_DIR) -Wl,-rpath,$(shell pwd)/$(VEB_BUILD_DIR) -lvebtree -lstdc++
+LIBS = -L$(VEB_BUILD_DIR) -Wl,-rpath,$(shell pwd)/$(VEB_BUILD_DIR) -lvebtree
 
 # Source files
 MODULE_SOURCES = $(SRC_DIR)/bitset_module.c
@@ -58,7 +58,7 @@ $(VEB_BUILD_DIR)/libvebtree.so: $(VEB_BUILD_DIR)
 
 # Link the module
 $(MODULE_SO): $(MODULE_OBJECTS) $(VEB_BUILD_DIR)/libvebtree.so
-	$(CC) $(LDFLAGS) -o $@ $(MODULE_OBJECTS) $(LIBS)
+	$(CXX) $(LDFLAGS) -o $@ $(MODULE_OBJECTS) $(LIBS)
 
 # Clean build artifacts
 clean:
@@ -104,3 +104,20 @@ help:
 	@echo "  BUILD_TYPE=$(BUILD_TYPE) (can be Debug or Release)"
 
 .PHONY: all debug release clean distclean install help
+
+.PHONY: test
+
+# Run flow tests locally (uses run_flow_tests.sh)
+test:
+	tr -d '\r' < ./run_flow_tests.sh | bash -s --
+
+.PHONY: docker-build-image docker-test
+
+# Build the Docker image used for tests
+docker-build-image:
+	docker build -t sparsebitset:test .
+
+# Run RLTest-based flow tests inside Docker and store logs inside the repo
+# Usage: make docker-test
+docker-test: docker-build-image
+	./run_in_docker.sh
