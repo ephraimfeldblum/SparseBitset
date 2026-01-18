@@ -200,6 +200,7 @@ public:
         if (cluster_data_ != nullptr) {
             if (auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end()) {
                 if (auto& cluster{const_cast<Node16&>(*it)}; cluster.remove(l, alloc)) {
+                    cluster.destroy(alloc);
                     cluster_data_->clusters.erase(it);
                     cluster_data_->summary.remove(h, alloc);
                     if (cluster_data_->clusters.empty()) {
@@ -402,9 +403,12 @@ public:
         for (auto cluster_idx{std::make_optional(this_summary.min())}; cluster_idx.has_value(); cluster_idx = this_summary.successor(*cluster_idx)) {
             if (auto this_it{this_clusters.find(*cluster_idx)}, other_it{other_clusters.find(*cluster_idx)};
                 this_it != this_clusters.end() && other_it != other_clusters.end()) {
-                if (auto& cluster{const_cast<Node16&>(*this_it)};
-                    cluster.and_inplace(*other_it, alloc).is_tombstone() && (this_clusters.erase(this_it), this_summary.remove(*cluster_idx, alloc))) {
-                    return empty_clusters_or_tombstone(new_min, new_max, alloc);
+                if (auto& cluster{const_cast<Node16&>(*this_it)}; cluster.and_inplace(*other_it, alloc).is_tombstone()) {
+                    cluster.destroy(alloc);
+                    this_clusters.erase(this_it);
+                    if (this_summary.remove(*cluster_idx, alloc)) {
+                        return empty_clusters_or_tombstone(new_min, new_max, alloc);
+                    }
                 }
             }
         }

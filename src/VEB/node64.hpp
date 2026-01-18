@@ -35,8 +35,8 @@ private:
         subnode_t summary;
 
         cluster_data_t(subindex_t x, std::size_t& alloc)
-            : clusters{allocator_t{alloc}},
-              summary{x} {
+            : clusters{allocator_t{alloc}}
+            , summary{x} {
         }
 
         auto values() const { return std::views::values(clusters); }
@@ -148,6 +148,7 @@ public:
         if (cluster_data_ != nullptr) {
             if (auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end()) {
                 if (it->second.remove(l, alloc)) {
+                    it->second.destroy(alloc);
                     cluster_data_->clusters.erase(it);
                     cluster_data_->summary.remove(h, alloc);
                     if (cluster_data_->clusters.empty()) {
@@ -363,6 +364,7 @@ public:
                 other_it != other.cluster_data_->clusters.end() &&
                 this_it->second.and_inplace(other_it->second, alloc).is_tombstone()
               ) {
+                this_it->second.destroy(alloc);
                 cluster_data_->clusters.erase(this_it);
                 if (cluster_data_->summary.remove(*cluster_idx, alloc)) {
                     return empty_clusters_or_tombstone(new_min, new_max, alloc);
