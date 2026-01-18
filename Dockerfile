@@ -7,13 +7,13 @@ RUN apt-get update \
        build-essential cmake python3 python3-venv python3-pip redis-server git wget ca-certificates software-properties-common lsb-release apt-transport-https gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# Install newer GCC/G++ (13) for full C++23 support
+# Install newer GCC/G++ (14) for full C++23 support
 RUN apt-get update \
     && add-apt-repository ppa:ubuntu-toolchain-r/test -y \
     && apt-get update \
-    && apt-get install -y --no-install-recommends gcc-13 g++-13 \
-    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 60 \
-    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 60 \
+    && apt-get install -y --no-install-recommends gcc-14 g++-14 \
+    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 60 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 60 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace

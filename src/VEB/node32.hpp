@@ -22,7 +22,8 @@
  * The layout of this node is as follows:
  *   - A pointer to a `cluster_data_t` structure containing:.
  *       - An instance of a subnode serving as the summary.
- *       - A hash set of subnodes representing individual clusters.
+ *       - A hash map of subnodes representing individual clusters.
+ *         - The map is implemented as an `unordered_set` with keys inlined in the nodes to optimize memory usage.
  *   - Two index fields (`min_` and `max_`) to lazily propagate the minimum and maximum elements.
  *
  * The purpose of this design is to optimize memory usage while maintaining fast operations on the underlying nodes.
@@ -283,7 +284,7 @@ public:
         return std::make_optional(min_);
     }
 
-    inline std::size_t size() const {
+    constexpr inline std::size_t size() const {
         std::size_t base_count = (min_ == max_) ? 1uz : 2uz;
 
         if (cluster_data_ == nullptr) {

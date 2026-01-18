@@ -45,12 +45,18 @@ $(BUILD_DIR):
 $(VEB_BUILD_DIR):
 	@echo "Setting up VEB build directory..."
 	mkdir -p $(VEB_BUILD_DIR)
-	cd $(VEB_BUILD_DIR) && cmake -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) ..
+	cd $(VEB_BUILD_DIR) && \
+		cmake -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
+		-DCMAKE_C_COMPILER=$(CC) \
+		-DCMAKE_CXX_COMPILER=$(CXX) \
+		-DCMAKE_C_FLAGS="$(CFLAGS)" \
+		-DCMAKE_CXX_FLAGS="$(CXXFLAGS)" \
+		-DCMAKE_CXX_STANDARD=23 ..
 
 # Build VEB library if needed
 $(VEB_BUILD_DIR)/libvebtree.so: $(VEB_BUILD_DIR)
 	@echo "Building VEB library with $(BUILD_TYPE) configuration..."
-	cd $(VEB_BUILD_DIR) && $(MAKE) vebtree
+	cd $(VEB_BUILD_DIR) && $(MAKE) -j$(shell nproc) vebtree
 
 # Compile module source files
 %.o: %.c

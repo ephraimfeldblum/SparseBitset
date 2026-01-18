@@ -63,9 +63,9 @@ for opts in "${RUNS[@]}"; do
 
   # Run RLTest (this will create logs under this directory)
   if [ "$ACTIVATED" -eq 1 ]; then
-    "$VENV_PY" -m RLTest --clear-logs --module "$PROJECT_DIR/bitset.so" --enable-module-command --enable-debug-command --no-progress $opts "$@"
+    "$VENV_PY" -m RLTest --clear-logs --randomize-ports --module "$PROJECT_DIR/bitset.so" --enable-module-command --enable-debug-command --no-progress $opts "$@"
   else
-    "$PYTHON_BIN" -m RLTest --clear-logs --module "$PROJECT_DIR/bitset.so" --enable-module-command --enable-debug-command --no-progress $opts "$@"
+    "$PYTHON_BIN" -m RLTest --clear-logs --randomize-ports --module "$PROJECT_DIR/bitset.so" --enable-module-command --enable-debug-command --no-progress $opts "$@"
   fi
 
   # Determine newly created/modified files
