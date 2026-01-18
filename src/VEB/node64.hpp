@@ -24,27 +24,30 @@ public:
 
 private:
     struct cluster_data_t {
-        using hash_t = std::hash<subindex_t>;
-        using key_equal_t = std::equal_to<subindex_t>;
-        using value_type = std::pair<const subindex_t, subnode_t>;
+        using key_type = subindex_t;
+        using hash_t = std::hash<key_type>;
+        using key_equal_t = std::equal_to<key_type>;
+        using value_type = std::pair<const key_type, subnode_t>;
         using allocator_t = tracking_allocator<value_type>;
-        using cluster_map_t = std::unordered_map<subindex_t, subnode_t, hash_t, key_equal_t, allocator_t>;
+        using cluster_map_t = std::unordered_map<key_type, subnode_t, hash_t, key_equal_t, allocator_t>;
 
         cluster_map_t clusters;
         subnode_t summary;
 
         cluster_data_t(subindex_t x, std::size_t& alloc)
             : clusters{allocator_t{alloc}},
-              summary{x} {}
+              summary{x} {
+        }
 
         auto values() const { return std::views::values(clusters); }
         auto values() { return std::views::values(clusters); }
     };
+    using allocator_t = tracking_allocator<cluster_data_t>;
+
     cluster_data_t* cluster_data_{};
     index_t min_{};
     index_t max_{};
 
-    using allocator_t = tracking_allocator<cluster_data_t>;
     static constexpr std::pair<subindex_t, subindex_t> decompose(index_t x) {
         return {static_cast<subindex_t>(x >> 32), static_cast<subindex_t>(x)};
     }

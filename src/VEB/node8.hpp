@@ -12,6 +12,14 @@
 
 #include "VebCommon.hpp"
 
+/* Node8:
+ * Represents a van Emde Boas tree node for universe size up to 2^8.
+ *
+ * The layout of this node is as follows:
+ *   - An array of 4 uint64_t words (256 bits) to represent the presence of elements in the universe.
+ *
+ * The purpose of this design is to optimize memory usage while maintaining fast operations on the underlying nodes.
+ */
 class Node8 {
     friend class VebTree;
 public:
@@ -19,19 +27,21 @@ public:
     using index_t = std::uint8_t;
 
 private:
+    static constexpr int bits_per_word{std::numeric_limits<std::uint64_t>::digits};
+
     std::array<std::uint64_t, 4> bits_ = {};
 
     static constexpr std::pair<subindex_t, subindex_t> decompose(index_t x) {
-        return {x >> 6, x & 63};
+        return {x / bits_per_word, x % bits_per_word};
     }
 
     static constexpr index_t index(subindex_t word, subindex_t bit) {
-        return static_cast<index_t>(word * 64 + bit);
+        return static_cast<index_t>(word * bits_per_word + bit);
     }
-
+    
 public:
     constexpr inline index_t get_cluster_index(index_t key) const {
-        const auto [target_word, target_bit] = decompose(key);
+        const auto [target_word, target_bit] {decompose(key)};
 
         index_t count{0};
 
@@ -46,16 +56,19 @@ public:
     }
 
     constexpr inline explicit Node8(index_t x) {
-        const auto [word_idx, bit_idx] = decompose(x);
+        const auto [word_idx, bit_idx] {decompose(x)};
         bits_[word_idx] |= (1ULL << bit_idx);
     }
 
-    static constexpr std::size_t universe_size() { return std::numeric_limits<index_t>::max(); }
+    static constexpr inline std::size_t universe_size() {
+        return std::numeric_limits<index_t>::max();
+    }
 
     constexpr inline index_t min() const {
         for (subindex_t word = 0; word < 4; ++word) {
             if (bits_[word] != 0) {
-                return index(word, static_cast<subindex_t>(std::countr_zero(bits_[word])));
+                auto bit_idx{std::countr_zero(bits_[word])};
+                return index(word, static_cast<subindex_t>(bit_idx));
             }
         }
         std::unreachable();
@@ -64,19 +77,20 @@ public:
     constexpr inline index_t max() const {
         for (subindex_t word = 4; word > 0; --word) {
             if (bits_[word - 1] != 0) {
-                return index(word - 1, static_cast<subindex_t>(63 - std::countl_zero(bits_[word - 1])));
+                auto bit_idx{bits_per_word - 1 - std::countl_zero(bits_[word - 1])};
+                return index(word - 1, static_cast<subindex_t>(bit_idx));
             }
         }
         std::unreachable();
     }
 
     constexpr inline void insert(index_t x) {
-        const auto [word_idx, bit_idx] = decompose(x);
+        const auto [word_idx, bit_idx] {decompose(x)};
         bits_[word_idx] |= (1ULL << bit_idx);
     }
 
     constexpr inline bool remove(index_t x) {
-        const auto [word_idx, bit_idx] = decompose(x);
+        const auto [word_idx, bit_idx] {decompose(x)};
 
         if (!(bits_[word_idx] & (1ULL << bit_idx))) {
             return false;
@@ -88,24 +102,26 @@ public:
     }
 
     constexpr inline bool contains(index_t x) const {
-        const auto [word_idx, bit_idx] = decompose(x);
+        const auto [word_idx, bit_idx] {decompose(x)};
         return (bits_[word_idx] & (1ULL << bit_idx)) != 0;
     }
 
     constexpr inline std::optional<index_t> successor(index_t x) const {
-        const auto [start_word, start_bit] = decompose(x);
+        const auto [start_word, start_bit] {decompose(x)};
 
         std::uint64_t word{0};
-        if (start_bit + 1 < 64) {
+        if (start_bit + 1 < bits_per_word) {
             word = bits_[start_word] & (~0ULL << (start_bit + 1));
         }
         if (word != 0) {
-            return index(start_word, static_cast<subindex_t>(std::countr_zero(word)));
+            auto bit_idx{std::countr_zero(word)};
+            return index(start_word, static_cast<subindex_t>(bit_idx));
         }
 
         for (subindex_t word_idx = start_word + 1; word_idx < 4; ++word_idx) {
             if (bits_[word_idx] != 0) {
-                return index(word_idx, static_cast<subindex_t>(std::countr_zero(bits_[word_idx])));
+                auto bit_idx{std::countr_zero(bits_[word_idx])};
+                return index(word_idx, static_cast<subindex_t>(bit_idx));
             }
         }
 
@@ -113,16 +129,18 @@ public:
     }
 
     constexpr inline std::optional<index_t> predecessor(index_t x) const {
-        const auto [start_word, start_bit] = decompose(x - 1);
+        const auto [start_word, start_bit] {decompose(x - 1)};
 
-        std::uint64_t word = bits_[start_word] & (start_bit == 63 ? -1ULL : ((1ULL << (start_bit + 1)) - 1));
-        if (word != 0) {
-            return index(start_word, static_cast<subindex_t>(63 - std::countl_zero(word)));
+        std::uint64_t mask{start_bit == bits_per_word - 1 ? -1ULL : ((1ULL << (start_bit + 1)) - 1)};
+        if (std::uint64_t word{bits_[start_word] & mask}; word != 0) {
+            auto bit_idx{bits_per_word - 1 - std::countl_zero(word)};
+            return index(start_word, static_cast<subindex_t>(bit_idx));
         }
 
         for (subindex_t word_idx = start_word; word_idx > 0; --word_idx) {
             if (bits_[word_idx - 1] != 0) {
-                return index(word_idx - 1, static_cast<subindex_t>(63 - std::countl_zero(bits_[word_idx - 1])));
+                auto bit_idx{bits_per_word - 1 - std::countl_zero(bits_[word_idx - 1])};
+                return index(word_idx - 1, static_cast<subindex_t>(bit_idx));
             }
         }
 
