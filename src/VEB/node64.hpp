@@ -73,7 +73,7 @@ public:
 
         if (old_storage.size() > 0) {
             allocator_t a{alloc};
-            cluster_data_ = {a.allocate(1)};
+            cluster_data_ = a.allocate(1);
             a.construct(cluster_data_, 0, alloc);
             cluster_data_->clusters.emplace(0, std::move(old_storage));
         }
