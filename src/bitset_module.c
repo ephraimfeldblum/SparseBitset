@@ -26,10 +26,10 @@ typedef struct {
 } Bitset;
 
 static Bitset *bitset_create() {
-    Bitset *bitset = RedisModule_Alloc(sizeof(Bitset));
+    Bitset *bitset = malloc(sizeof *bitset);
     bitset->handle = vebtree_create();
     if (!bitset->handle) {
-        RedisModule_Free(bitset);
+        free(bitset);
         return NULL;
     }
     bitset->api = vebtree_get_api();
@@ -41,7 +41,7 @@ static void bitset_free(Bitset *bitset) {
         if (bitset->handle) {
             bitset->api->destroy(bitset->handle);
         }
-        RedisModule_Free(bitset);
+        free(bitset);
     }
 }
 
@@ -232,17 +232,16 @@ static int bits_set_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_ReplyWithError(ctx, "ERR failed to create or access bitset");
     }
 
-    bool previous_bit_set = bitset->api->contains(bitset->handle, (size_t)offset);
-    long long previous_value = previous_bit_set ? 1 : 0;
+    bool previous_value = bitset->api->contains(bitset->handle, (size_t)offset);
 
-    if (value == 1) {
-        bitset->api->insert(bitset->handle, (size_t)offset);
-    } else {
+    if (previous_value && value == 0) {
         bitset->api->remove(bitset->handle, (size_t)offset);
+    } else if (!previous_value && value == 1) {
+        bitset->api->insert(bitset->handle, (size_t)offset);
     }
 
     RedisModule_ReplicateVerbatim(ctx);
-    return RedisModule_ReplyWithLongLong(ctx, previous_value);
+    return RedisModule_ReplyWithLongLong(ctx, (long long)previous_value);
 }
 
 static long long count_elements_in_range(Bitset *bitset, long long start, long long end, bool is_bit_range) {

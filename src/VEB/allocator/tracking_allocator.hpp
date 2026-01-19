@@ -2,17 +2,18 @@
  * @file tracking_allocator.hpp
  * @brief A custom allocator that tracks memory usage
  *
- * This allocator wraps around std::malloc and maintains a running count
+ * This allocator wraps around malloc and maintains a running count
  * of allocated and deallocated bytes through a reference to an external counter.
  */
 
 #ifndef TRACKING_ALLOCATOR_HPP
 #define TRACKING_ALLOCATOR_HPP
 
-#include <memory>
-#include <cstddef>
-#include <cstdlib>
-#include <limits>
+#include <cstddef> // std::size_t, std::ptrdiff_t
+#include <cstdlib> // malloc, free
+#include <limits>  // std::numeric_limits
+#include <memory>  // std::construct_at, std::destroy_at
+#include <utility> // std::forward
 
 /**
  * @brief A tracking allocator that monitors memory usage
@@ -23,7 +24,7 @@
  * 
  * @tparam T The type of objects to allocate
  */
-template<typename T>
+template <typename T>
 class tracking_allocator {
 public:
     using value_type = T;
@@ -91,9 +92,9 @@ public:
         }
 
         const size_type bytes = n * sizeof(T);
-        void* ptr = std::malloc(bytes);
+        void* ptr = malloc(bytes);
 
-        if (!ptr) {
+        if (ptr == nullptr) {
             return nullptr;
         }
 
@@ -113,7 +114,7 @@ public:
         const size_type bytes = n * sizeof(T);
         bytes_allocated_ -= bytes;
 
-        std::free(ptr);
+        free(ptr);
     }
 
     /**
@@ -162,15 +163,5 @@ public:
         return !(*this == other);
     }
 };
-
-/**
- * @brief Helper function to create a tracking allocator
- * @param bytes_allocated Reference to the counter
- * @return A tracking allocator for type T
- */
-template<typename T>
-tracking_allocator<T> make_tracking_allocator(std::size_t& bytes_allocated) {
-    return tracking_allocator<T>(bytes_allocated);
-}
 
 #endif // TRACKING_ALLOCATOR_HPP
