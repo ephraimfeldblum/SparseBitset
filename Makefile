@@ -115,7 +115,7 @@ help:
 
 # Run flow tests locally (uses run_flow_tests.sh)
 test:
-	tr -d '\r' < ./run_flow_tests.sh | bash -s --
+	./run_flow_tests.sh
 
 .PHONY: docker-build-image docker-test
 
