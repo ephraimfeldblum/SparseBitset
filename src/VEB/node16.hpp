@@ -498,13 +498,13 @@ public:
 
     constexpr inline decltype(auto) and_inplace(this auto&& self, const Node16& other, std::size_t& alloc) {
         if (self.cluster_data_ == nullptr || other.cluster_data_ == nullptr) {
-            return self.empty_clusters_or_tombstone(std::nullopt, std::nullopt, alloc);
+            return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(std::nullopt, std::nullopt, alloc);
         }
 
-        const index_t potential_min{std::max(self.min_, other.min_)};
-        const index_t potential_max{std::min(self.max_, other.max_)};
+        const auto potential_min{std::max(self.min_, other.min_)};
+        const auto potential_max{std::min(self.max_, other.max_)};
         if (potential_min >= potential_max) {
-            return self.empty_clusters_or_tombstone(std::nullopt, std::nullopt, alloc);
+            return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(std::nullopt, std::nullopt, alloc);
         }
 
         auto& this_summary{self.cluster_data_->summary_};
@@ -517,13 +517,13 @@ public:
 
         auto summary_intersection{auto{this_summary}.and_inplace(other_summary)};
         if (summary_intersection.is_tombstone()) {
-            return self.empty_clusters_or_tombstone(new_min, new_max, alloc);
+            return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(new_min, new_max, alloc);
         }
 
         std::size_t write_idx{};
         for (auto cluster_idx{std::make_optional(summary_intersection.min())}; cluster_idx.has_value(); cluster_idx = summary_intersection.successor(*cluster_idx)) {
-            const subindex_t this_cluster_pos{self.cluster_data_->index_of(*cluster_idx)};
-            const subindex_t other_cluster_pos{other.cluster_data_->index_of(*cluster_idx)};
+            const auto this_cluster_pos{self.cluster_data_->index_of(*cluster_idx)};
+            const auto other_cluster_pos{other.cluster_data_->index_of(*cluster_idx)};
             auto& this_cluster{this_clusters[this_cluster_pos]};
             const auto& other_cluster{other_clusters[other_cluster_pos]};
 
@@ -533,7 +533,7 @@ public:
                 }
                 write_idx++;
             } else if (summary_intersection.remove(*cluster_idx)) {
-                return self.empty_clusters_or_tombstone(new_min, new_max, alloc);
+                return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(new_min, new_max, alloc);
             }
         }
         this_summary = summary_intersection;
@@ -550,7 +550,7 @@ public:
             std::move(begin, end, begin - 1);
         }
         if (this_summary.size() == 0) {
-            return self.empty_clusters_or_tombstone(self.min_, self.max_, alloc);
+            return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(self.min_, self.max_, alloc);
         }
 
         return std::forward<decltype(self)>(self);

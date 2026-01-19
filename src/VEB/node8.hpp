@@ -45,7 +45,7 @@ public:
         const auto [target_word, target_bit] {decompose(key)};
         const std::uint64_t mask{(1ULL << target_bit) - 1};
 
-        index_t count{0};
+        index_t count{};
         for (subindex_t word{}; word < target_word; ++word) {
             count += static_cast<index_t>(std::popcount(bits_[word]));
         }
@@ -110,7 +110,7 @@ public:
         const auto [start_word, start_bit] {decompose(x)};
         const std::uint64_t mask{~0ULL << (start_bit + 1)};
 
-        std::uint64_t word{0};
+        std::uint64_t word{};
         if (start_bit + 1 < bits_per_word) {
             word = bits_[start_word] & mask;
         }
