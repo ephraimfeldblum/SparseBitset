@@ -98,11 +98,11 @@ public:
     Node32& operator=(const Node32&) = delete;
 
     Node32 clone(std::size_t& alloc) const {
-        Node32 result(min_);
+        Node32 result{min_};
         result.min_ = min_;
         result.max_ = max_;
 
-        if (cluster_data_) {
+        if (cluster_data_ != nullptr) {
             allocator_t a{alloc};
             result.cluster_data_ = a.allocate(1);
             a.construct(result.cluster_data_, 0, alloc);
@@ -121,6 +121,9 @@ public:
     }
     Node32& operator=(Node32&& other) noexcept {
         if (this != &other) {
+            if (cluster_data_ != nullptr) {
+                assert(false && "Node32 must be destructed via `.destroy(alloc)` before being assigned to.");
+            }
             cluster_data_ = std::exchange(other.cluster_data_, nullptr);
             min_ = other.min_;
             max_ = other.max_;

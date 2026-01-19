@@ -79,6 +79,48 @@ public:
         }
     }
 
+    // Node64 is non-copyable. Copying would require deep copies of potentially large structures.
+    // If you need to make a copy, use `.clone(alloc)` instead.
+    Node64(const Node64& other) = delete;
+    Node64& operator=(const Node64&) = delete;
+
+    Node64 clone(std::size_t& alloc) const {
+        Node64 result{min_};
+        result.min_ = min_;
+        result.max_ = max_;
+
+        if (cluster_data_ != nullptr) {
+            allocator_t a{alloc};
+            result.cluster_data_ = a.allocate(1);
+            a.construct(result.cluster_data_, 0, alloc);
+            result.cluster_data_->summary = cluster_data_->summary.clone(alloc);
+            for (const auto& [key, cluster] : cluster_data_->clusters) {
+                result.cluster_data_->clusters.emplace(key, cluster.clone(alloc));
+            }
+        }
+        return result;
+    }
+
+    Node64(Node64&& other) noexcept
+        : cluster_data_(std::exchange(other.cluster_data_, nullptr))
+        , min_(other.min_)
+        , max_(other.max_) {
+    }
+    Node64& operator=(Node64&& other) noexcept {
+        if (this != &other) {
+            if (cluster_data_ != nullptr) {
+                assert(false && "Node64 must be destructed via `.destroy(alloc)` before being assigned to.");
+            }
+            cluster_data_ = std::exchange(other.cluster_data_, nullptr);
+            min_ = other.min_;
+            max_ = other.max_;
+        }
+        return *this;
+    }
+
+    // Node64 must be destructed via `.destroy(alloc)`. Failure to do so will result in UB.
+    // ~Node64() noexcept = default;
+
     void destroy(std::size_t& alloc) {
         if (cluster_data_) {
             cluster_data_->summary.destroy(alloc);
@@ -293,23 +335,6 @@ public:
                 return acc;
             }
         );
-    }
-
-    Node64 clone(std::size_t& alloc) const {
-        Node64 result{min_};
-        result.min_ = min_;
-        result.max_ = max_;
-
-        if (cluster_data_ != nullptr) {
-            allocator_t a{alloc};
-            result.cluster_data_ = a.allocate(1);
-            a.construct(result.cluster_data_, 0, alloc);
-            result.cluster_data_->summary = cluster_data_->summary.clone(alloc);
-            for (const auto& [key, cluster] : cluster_data_->clusters) {
-                result.cluster_data_->clusters.emplace(key, cluster.clone(alloc));
-            }
-        }
-        return result;
     }
 
     Node64& or_inplace(const Node64& other, std::size_t& alloc) {

@@ -207,6 +207,9 @@ public:
 
     constexpr inline Node16& operator=(Node16&& other) noexcept {
         if (this != &other) {
+            if (cluster_data_ != nullptr) {
+                assert(false && "Node16 must be destructed via `.destroy()` before being assigned to.");
+            }
             cluster_data_ = std::exchange(other.cluster_data_, nullptr);
             capacity_ = std::exchange(other.capacity_, 0);
             key_ = other.key_;
