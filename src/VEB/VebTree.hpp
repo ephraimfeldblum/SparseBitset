@@ -51,13 +51,10 @@
 #include "node32.hpp"
 #include "node64.hpp"
 
-template<typename... Fs>
-struct overload : Fs... {
-    using Fs::operator()...;
-};
-
-template<typename... Fs>
-overload(Fs...) -> overload<Fs...>;
+static_assert(sizeof(Node8) == 32, "Node8 size is incorrect");
+static_assert(sizeof(Node16) == 16, "Node16 size is incorrect");
+static_assert(sizeof(Node32) == 16, "Node32 size is incorrect");
+static_assert(sizeof(Node64) == 24, "Node64 size is incorrect");
 
 /**
  * @brief van Emde Boas Tree with size-specific node implementations
@@ -110,9 +107,7 @@ private:
         std::visit(
             overload{
                 [](std::monostate) {},
-                [&](Node8& s) {
-                    s.destroy();
-                },
+                [](Node8) {},
                 [&](auto& s) {
                     s.destroy(allocated_);
                 },
@@ -178,14 +173,14 @@ public:
     /**
      * @brief Constructs an empty VEB tree
      */
-    inline explicit VebTree() : storage_{std::monostate{}}, allocated_{sizeof(*this)} {}
+    inline explicit VebTree() : storage_{std::monostate{}}, allocated_{sizeof *this} {}
 
-    inline explicit VebTree(const VebTree& other) : storage_{std::monostate{}}, allocated_{sizeof(*this)} {
+    inline explicit VebTree(const VebTree& other) : storage_{std::monostate{}}, allocated_{sizeof *this} {
         std::visit(
             overload{
                 [](std::monostate) {},
                 [&](const Node8& s) {
-                    storage_ = s.clone();
+                    storage_ = s;
                 },
                 [&](const auto& s) {
                     storage_ = s.clone(allocated_);
@@ -250,7 +245,6 @@ public:
                 [](std::monostate) {},
                 [&](Node8& s) {
                     if (x <= universe_size() && s.remove(static_cast<Node8::index_t>(x))) {
-                        s.destroy();
                         storage_ = std::monostate{};
                     }
                 },
@@ -511,7 +505,7 @@ public:
 
         std::visit(
             overload{
-                [&](Node8& a, const Node8& b) -> void {
+                [](Node8& a, const Node8& b) -> void {
                     a.and_inplace(b);
                 },
                 [&](Node16& a, const Node16& b) -> void {
@@ -529,7 +523,7 @@ public:
                     storage_ = std::move(a16);
                 },
                 [&](Node16& a, const Node8& b) -> void {
-                    auto b16{Node16{b.clone(), allocated_}};
+                    auto b16{Node16{b, allocated_}};
                     a.and_inplace(b16, allocated_);
                     b16.destroy(allocated_);
                 },
@@ -539,7 +533,7 @@ public:
                     storage_ = std::move(a32);
                 },
                 [&](Node32& a, const Node8& b) -> void {
-                    auto b32{Node32{Node16{b.clone(), allocated_}, allocated_}};
+                    auto b32{Node32{Node16{b, allocated_}, allocated_}};
                     a.and_inplace(b32, allocated_);
                     b32.destroy(allocated_);
                 },
@@ -559,7 +553,7 @@ public:
                     storage_ = std::move(a64);
                 },
                 [&](Node64& a, const Node8& b) -> void {
-                    auto b64{Node64{Node32{Node16{b.clone(), allocated_}, allocated_}, allocated_}};
+                    auto b64{Node64{Node32{Node16{b, allocated_}, allocated_}, allocated_}};
                     a.and_inplace(b64, allocated_);
                     b64.destroy(allocated_);
                 },
@@ -617,7 +611,7 @@ public:
         if (empty()) {
             storage_ = std::visit(overload{
                 [](std::monostate) -> StorageType { return std::monostate{}; },
-                [&](const Node8& node) -> StorageType { return node.clone(); },
+                [](const Node8& node) -> StorageType { return node; },
                 [&](const auto& node) -> StorageType { return node.clone(allocated_); },
             }, other.storage_);
             return *this;
@@ -625,7 +619,7 @@ public:
 
         std::visit(
             overload{
-                [&](Node8& a, const Node8& b) -> void {
+                [](Node8& a, const Node8& b) -> void {
                     a.or_inplace(b);
                 },
                 [&](Node16& a, const Node16& b) -> void {
@@ -643,7 +637,7 @@ public:
                     storage_ = std::move(a16);
                 },
                 [&](Node16& a, const Node8& b) -> void {
-                    auto b16{Node16{b.clone(), allocated_}};
+                    auto b16{Node16{b, allocated_}};
                     a.or_inplace(b16, allocated_);
                     b16.destroy(allocated_);
                 },
@@ -653,7 +647,7 @@ public:
                     storage_ = std::move(a32);
                 },
                 [&](Node32& a, const Node8& b) -> void {
-                    auto b32{Node32{Node16{b.clone(), allocated_}, allocated_}};
+                    auto b32{Node32{Node16{b, allocated_}, allocated_}};
                     a.or_inplace(b32, allocated_);
                     b32.destroy(allocated_);
                 },
@@ -673,7 +667,7 @@ public:
                     storage_ = std::move(a64);
                 },
                 [&](Node64& a, const Node8& b) -> void {
-                    auto b64{Node64{Node32{Node16{b.clone(), allocated_}, allocated_}, allocated_}};
+                    auto b64{Node64{Node32{Node16{b, allocated_}, allocated_}, allocated_}};
                     a.or_inplace(b64, allocated_);
                     b64.destroy(allocated_);
                 },
@@ -725,9 +719,13 @@ public:
      * @brief Equality comparison operator
      */
     inline bool operator==(const VebTree& other) const {
-        if (size() != other.size()) return false;
+        if (size() != other.size()) {
+            return false;
+        }
         for (std::size_t element : *this) {
-            if (!other.contains(element)) return false;
+            if (!other.contains(element)) {
+                return false;
+            }
         }
         return true;
     }

@@ -98,12 +98,12 @@ private:
         const std::uint16_t new_capacity{static_cast<std::uint16_t>(std::min(256, capacity_ + (capacity_ / 4) + 1))};
         allocator_t a{alloc};
         auto* new_data{reinterpret_cast<cluster_data_t*>(a.allocate(new_capacity + 1))};
-        new_data->summary_ = std::move(cluster_data_->summary_);
+        new_data->summary_ = cluster_data_->summary_;
         std::copy_n(
 #ifdef __cpp_lib_execution
             std::execution::unseq,
 #endif
-            std::make_move_iterator(cluster_data_->clusters_), cluster_data_->size(), new_data->clusters_
+            cluster_data_->clusters_, cluster_data_->size(), new_data->clusters_
         );
         destroy(alloc);
         cluster_data_ = new_data;
@@ -131,9 +131,9 @@ private:
 
         grow_capacity_if_needed(alloc);
         if (const std::size_t size{cluster_data_->size()}; idx < size) {
-            const auto begin{std::make_move_iterator(clusters + idx)};
-            const auto end{std::make_move_iterator(clusters + size)};
-            std::copy_backward(begin, end, clusters + size);
+            const auto begin{clusters + idx};
+            const auto end{clusters + size};
+            std::move_backward(begin, end, end);
         }
         clusters[idx] = subnode_t{lo};
         summary.insert(hi);
@@ -162,8 +162,8 @@ public:
         if (old_storage.size() > 0) {
             allocator_t a{alloc};
             cluster_data_ = reinterpret_cast<cluster_data_t*>(a.allocate(2));
-            cluster_data_->summary_ = Node8{0};
-            cluster_data_->clusters_[0] = std::move(old_storage);
+            cluster_data_->summary_ = subnode_t{0};
+            cluster_data_->clusters_[0] = old_storage;
             capacity_ = 1;
         }
     }
@@ -183,14 +183,14 @@ public:
 
         if (cluster_data_ != nullptr) {
             allocator_t a{alloc};
-            const std::size_t size = cluster_data_->size();
+            const auto size{cluster_data_->size()};
             result.cluster_data_ = reinterpret_cast<cluster_data_t*>(a.allocate(size + 1));
-            result.cluster_data_->summary_ = std::move(cluster_data_->summary_);
+            result.cluster_data_->summary_ = cluster_data_->summary_;
             std::copy_n(
 #ifdef __cpp_lib_execution
                 std::execution::unseq,
 #endif
-                std::make_move_iterator(cluster_data_->clusters_), size, result.cluster_data_->clusters_
+                cluster_data_->clusters_, size, result.cluster_data_->clusters_
             );
             result.capacity_ = static_cast<std::uint16_t>(size);
         }
@@ -273,15 +273,15 @@ public:
             }
         }
 
-        const auto [h, l] = decompose(x);
+        const auto [h, l] {decompose(x)};
 
-        if (auto* cluster = find(h); cluster != nullptr) {
+        if (auto* cluster{find(h)}; cluster != nullptr) {
             if (cluster->remove(l)) {
                 const std::uint8_t idx{cluster_data_->index_of(h)};
                 const std::size_t size{cluster_data_->size()};
-                const auto begin{std::make_move_iterator(cluster_data_->clusters_ + idx + 1)};
-                const auto end{std::make_move_iterator(cluster_data_->clusters_ + size)};
-                std::copy(begin, end, cluster_data_->clusters_ + idx);
+                const auto begin{cluster_data_->clusters_ + idx + 1};
+                const auto end{cluster_data_->clusters_ + size};
+                std::move(begin, end, begin - 1);
 
                 if (cluster_data_->summary_.remove(h) && cluster_data_->size() == 0) {
                     destroy(alloc);
@@ -297,8 +297,8 @@ public:
             return true;
         }
 
-        const auto [h, l] = decompose(x);
-        if (const auto* cluster = find(h); cluster != nullptr) {
+        const auto [h, l] {decompose(x)};
+        if (const auto* cluster{find(h)}; cluster != nullptr) {
             return cluster->contains(l);
         }
         return false;
@@ -316,9 +316,9 @@ public:
             return std::make_optional(max_);
         }
 
-        const auto [h, l] = decompose(x);
+        const auto [h, l] {decompose(x)};
 
-        if (const auto* cluster = find(h); cluster != nullptr) {
+        if (const auto* cluster{find(h)}; cluster != nullptr) {
             if (l < cluster->max()) {
                 if (auto succ{cluster->successor(l)}; succ.has_value()) {
                     return index(h, *succ);
@@ -344,9 +344,9 @@ public:
 
         if (cluster_data_ == nullptr) return min_;
 
-        const auto [h, l] = decompose(x);
+        const auto [h, l] {decompose(x)};
 
-        if (const auto* cluster = find(h); cluster != nullptr) {
+        if (const auto* cluster{find(h)}; cluster != nullptr) {
             if (l > cluster->min()) {
                 if (auto pred{cluster->predecessor(l)}; pred.has_value()) {
                     return index(h, *pred);
@@ -368,13 +368,13 @@ public:
             return base_count;
         }
 
-        const auto* const data = &cluster_data_->clusters_[0];
-        const std::size_t count = cluster_data_->size();
+        const auto* const data {cluster_data_->clusters_};
+        const auto count{cluster_data_->size()};
         return std::transform_reduce(
 #ifdef __cpp_lib_execution
             std::execution::unseq,
 #endif
-            data, data + count, base_count, std::plus<>(),
+            data, data + count, base_count, std::plus<>{},
             [](const auto& cluster) { return cluster.size(); }
         );
     }
@@ -433,12 +433,12 @@ public:
         if (self.cluster_data_ == nullptr) {
             const std::size_t size = other.cluster_data_->size();
             self.cluster_data_ = reinterpret_cast<cluster_data_t*>(a.allocate(size + 1));
-            self.cluster_data_->summary_ = other.cluster_data_->summary_.clone();
+            self.cluster_data_->summary_ = other.cluster_data_->summary_;
             std::copy_n(
 #ifdef __cpp_lib_execution
                 std::execution::unseq,
 #endif
-                std::make_move_iterator(other.cluster_data_->clusters_), size, self.cluster_data_->clusters_
+                other.cluster_data_->clusters_, size, self.cluster_data_->clusters_
             );
             self.capacity_ = static_cast<std::uint16_t>(size);
 
@@ -450,7 +450,7 @@ public:
         const auto& other_summary{other.cluster_data_->summary_};
         const auto* other_clusters{other.cluster_data_->clusters_};
 
-        if (auto merge_summary{this_summary.clone().or_inplace(other_summary)};
+        if (auto merge_summary{auto{this_summary}.or_inplace(other_summary)};
             merge_summary.size() != self.cluster_data_->size()
         ) {
             auto new_cluster_data{reinterpret_cast<cluster_data_t*>(a.allocate(merge_summary.size() + 1))};
@@ -466,11 +466,11 @@ public:
                 const bool in_this = this_summary.contains(*idx);
                 const bool in_other = other_summary.contains(*idx);
                 if (in_this && in_other) {
-                    new_clusters[k++] = std::move(this_clusters[i++].or_inplace(other_clusters[j++])); 
+                    new_clusters[k++] = this_clusters[i++].or_inplace(other_clusters[j++]); 
                 } else if (in_this) {
-                    new_clusters[k++] = std::move(this_clusters[i++]);
+                    new_clusters[k++] = this_clusters[i++];
                 } else if (in_other) {
-                    new_clusters[k++] = other_clusters[j++].clone();
+                    new_clusters[k++] = other_clusters[j++];
                 } else {
                     std::unreachable();
                 }
@@ -512,7 +512,7 @@ public:
         const auto new_min{self.contains(potential_min) && other.contains(potential_min) ? std::make_optional(potential_min) : std::nullopt};
         const auto new_max{self.contains(potential_max) && other.contains(potential_max) ? std::make_optional(potential_max) : std::nullopt};
 
-        subnode_t summary_intersection{this_summary.clone().and_inplace(other_summary)};
+        auto summary_intersection{auto{this_summary}.and_inplace(other_summary)};
         if (summary_intersection.is_tombstone()) {
             return self.empty_clusters_or_tombstone(new_min, new_max, alloc);
         }
@@ -526,14 +526,14 @@ public:
 
             if (!this_cluster.and_inplace(other_cluster).is_tombstone()) {
                 if (write_idx != this_cluster_pos) {
-                    this_clusters[write_idx] = std::move(this_cluster);
+                    this_clusters[write_idx] = this_cluster;
                 }
                 write_idx++;
             } else if (summary_intersection.remove(*cluster_idx)) {
                 return self.empty_clusters_or_tombstone(new_min, new_max, alloc);
             }
         }
-        this_summary = std::move(summary_intersection);
+        this_summary = summary_intersection;
 
         self.max_ = new_max.has_value() ? *new_max : index(this_summary.max(), this_clusters[this_summary.size() - 1].max());
         if (self.max_ != potential_max && this_clusters[this_summary.size() - 1].remove(static_cast<subindex_t>(self.max_))) {
@@ -542,9 +542,9 @@ public:
         self.min_ = new_min.has_value() ? *new_min : index(this_summary.min(), this_clusters[0].min());
         if (self.min_ != potential_min && this_clusters[0].remove(static_cast<subindex_t>(self.min_))) {
             this_summary.remove(this_summary.min());
-            const auto begin{std::make_move_iterator(this_clusters + 1)};
-            const auto end{std::make_move_iterator(this_clusters + write_idx)};
-            std::copy(begin, end, this_clusters);
+            const auto begin{this_clusters + 1};
+            const auto end{this_clusters + write_idx};
+            std::move(begin, end, begin - 1);
         }
         if (this_summary.size() == 0) {
             return self.empty_clusters_or_tombstone(self.min_, self.max_, alloc);

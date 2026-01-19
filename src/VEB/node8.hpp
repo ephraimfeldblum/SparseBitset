@@ -61,12 +61,6 @@ public:
         : bits_{bits} {
     }
 
-    constexpr inline Node8(const Node8& other) = delete;
-    constexpr inline Node8(Node8&& other) noexcept = default;
-    constexpr inline Node8& operator=(const Node8&) = delete;
-    constexpr inline Node8& operator=(Node8&&) noexcept = default;
-    constexpr inline ~Node8() = default;
-
     static constexpr inline std::size_t universe_size() {
         return std::numeric_limits<index_t>::max();
     }
@@ -168,12 +162,6 @@ public:
         return {0, 0, 1};
     }
 
-    constexpr inline Node8 clone() const {
-        return Node8{bits_};
-    }
-
-    constexpr inline void destroy() {}
-
     constexpr inline bool is_tombstone() const {
         return size() == 0;
     }
@@ -215,15 +203,5 @@ public:
         return std::forward<decltype(self)>(self);
     }
 };
-
-static_assert(sizeof(Node8) == 32, "Node8 size is incorrect");
-static_assert(std::is_standard_layout_v<Node8>, "Node8 must be standard layout");
-static_assert(std::is_trivially_destructible_v<Node8>, "Node8 must be trivially destructible");
-static_assert(std::is_move_constructible_v<Node8>, "Node8 must be move constructible");
-static_assert(std::is_trivially_move_constructible_v<Node8>, "Node8 must be trivially move constructible");
-static_assert(std::is_nothrow_move_constructible_v<Node8>, "Node8 must be no throw move constructible");
-static_assert(std::is_move_assignable_v<Node8>, "Node8 must be move assignable");
-static_assert(std::is_trivially_move_assignable_v<Node8>, "Node8 must be trivially move assignable");
-static_assert(std::is_nothrow_move_assignable_v<Node8>, "Node8 must be no throw move assignable");
 
 #endif // NODE8_HPP

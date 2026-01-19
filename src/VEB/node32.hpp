@@ -159,7 +159,7 @@ public:
             return;
         }
 
-        const auto [h, l] = decompose(x);
+        const auto [h, l] {decompose(x)};
 
         if (cluster_data_ == nullptr) {
             allocator_t a{alloc};
@@ -427,12 +427,12 @@ public:
 
         if (max_ != potential_max) {
             auto it{this_clusters.find(this_summary.max())};
-            auto& cluster = const_cast<Node16&>(*it);
+            auto& cluster{const_cast<Node16&>(*it)};
             cluster.remove(static_cast<subindex_t>(max_), alloc) && this_summary.remove(this_summary.max(), alloc);
         }
         if (min_ != potential_min) {
             auto it{this_clusters.find(this_summary.min())};
-            auto& cluster = const_cast<Node16&>(*it);
+            auto& cluster{const_cast<Node16&>(*it)};
             cluster.remove(static_cast<subindex_t>(min_), alloc) && this_summary.remove(this_summary.min(), alloc);
         }
 
