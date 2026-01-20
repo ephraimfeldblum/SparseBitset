@@ -131,6 +131,12 @@ static void vebtree_symmetric_difference(VebTree_Handle_t handle1, VebTree_Handl
     *handle1 ^= *handle2;
 }
 
+static void vebtree_move(VebTree_Handle_t dst, VebTree_Handle_t src) {
+    assert(dst && src);
+    // Move-assign the VebTree: *dst = std::move(*src)
+    *dst = std::move(*src);
+}
+
 static void vebtree_destroy(VebTree_Handle_t handle) {
     if (handle != nullptr) {
         handle->~VebTree();
@@ -157,6 +163,7 @@ static constexpr VebTree_API_t vebtree_api = {
     .intersection = vebtree_intersection,
     .union_op = vebtree_union_op,
     .symmetric_difference = vebtree_symmetric_difference,
+    .move = vebtree_move,
     .destroy = vebtree_destroy,
 };
 

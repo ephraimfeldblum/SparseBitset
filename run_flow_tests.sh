@@ -50,6 +50,10 @@ fi
 
 # Run test matrix and save RLTest logs for auditing
 RUNS=("" "--use-aof" "--use-slaves" "--use-slaves --use-aof")
+# If QUICK=1 was provided to `make test QUICK=1`, only use the first RUN option
+if [ "${QUICK:-0}" = "1" ]; then
+  RUNS=("${RUNS[0]}")
+fi
 LOG_DIR="$PROJECT_DIR/tests/flow/rltest_logs"
 mkdir -p "$LOG_DIR"
 
@@ -62,10 +66,24 @@ for opts in "${RUNS[@]}"; do
   find . -maxdepth 1 -mindepth 1 -printf "%P\n" > "$SNAPSHOT_DIR/before.txt"
 
   # Run RLTest (this will create logs under this directory)
+  # Prepare test filter if provided via TEST environment variable or positional arg
+  RLTEST_TEST_ARG=""
+  if [ -n "${TEST:-}" ]; then
+    RLTEST_TEST_ARG="-t ${TEST}"
+  fi
+
   if [ "$ACTIVATED" -eq 1 ]; then
-    "$VENV_PY" -m RLTest --clear-logs --randomize-ports --module "$PROJECT_DIR/bitset.so" --enable-module-command --enable-debug-command --no-progress $opts "$@"
+    if [ -n "${TEST:-}" ]; then
+      $VENV_PY -m RLTest --clear-logs --randomize-ports --module "$PROJECT_DIR/bitset.so" --enable-module-command --enable-debug-command --no-progress $opts -t "$TEST" "$@"
+    else
+      $VENV_PY -m RLTest --clear-logs --randomize-ports --module "$PROJECT_DIR/bitset.so" --enable-module-command --enable-debug-command --no-progress $opts "$@"
+    fi
   else
-    "$PYTHON_BIN" -m RLTest --clear-logs --randomize-ports --module "$PROJECT_DIR/bitset.so" --enable-module-command --enable-debug-command --no-progress $opts "$@"
+    if [ -n "${TEST:-}" ]; then
+      $PYTHON_BIN -m RLTest --clear-logs --randomize-ports --module "$PROJECT_DIR/bitset.so" --enable-module-command --enable-debug-command --no-progress $opts -t "$TEST" "$@"
+    else
+      $PYTHON_BIN -m RLTest --clear-logs --randomize-ports --module "$PROJECT_DIR/bitset.so" --enable-module-command --enable-debug-command --no-progress $opts "$@"
+    fi
   fi
 
   # Determine newly created/modified files

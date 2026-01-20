@@ -369,14 +369,13 @@ public:
     }
 
     constexpr inline Node64& and_inplace(const Node64& other, std::size_t& alloc) {
-        if (cluster_data_ == nullptr || other.cluster_data_ == nullptr) {
-            return empty_clusters_or_tombstone(std::nullopt, std::nullopt, alloc);
-        }
-
         const auto potential_min{std::max(min_, other.min_)};
         const auto potential_max{std::min(max_, other.max_)};
-        if (potential_min >= potential_max) {
-            return empty_clusters_or_tombstone(std::nullopt, std::nullopt, alloc);
+        const auto new_min{contains(potential_min) && other.contains(potential_min) ? std::make_optional(potential_min) : std::nullopt};
+        const auto new_max{contains(potential_max) && other.contains(potential_max) ? std::make_optional(potential_max) : std::nullopt};
+
+        if (potential_min >= potential_max || cluster_data_ == nullptr || other.cluster_data_ == nullptr) {
+            return empty_clusters_or_tombstone(new_min, new_max, alloc);
         }
 
         auto& this_summary{cluster_data_->summary};
@@ -384,8 +383,6 @@ public:
         const auto& other_summary{other.cluster_data_->summary};
         const auto& other_clusters{other.cluster_data_->clusters};
 
-        const auto new_min{contains(potential_min) && other.contains(potential_min) ? std::make_optional(potential_min) : std::nullopt};
-        const auto new_max{contains(potential_max) && other.contains(potential_max) ? std::make_optional(potential_max) : std::nullopt};
         if (this_summary.and_inplace(other_summary, alloc).is_tombstone()) {
             return empty_clusters_or_tombstone(new_min, new_max, alloc);
         }

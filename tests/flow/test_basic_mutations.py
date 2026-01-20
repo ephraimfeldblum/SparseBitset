@@ -25,4 +25,15 @@ def test_remove(env: Env):
 def test_clear(env: Env):
     env.cmd("BITS.INSERT", "clr", 100, 200)
     env.assertEqual(env.cmd("BITS.CLEAR", "clr"), b"OK")
-    env.assertEqual(env.cmd("BITS.COUNT", "clr"), 0) 
+    env.assertEqual(env.cmd("BITS.COUNT", "clr"), 0)
+
+
+def test_set(env: Env):
+    key = "set_key"
+    env.assertEqual(env.cmd("BITS.SET", key, 10, 1), 0)
+    env.assertEqual(env.cmd("BITS.GET", key, 10), 1)
+    env.assertEqual(env.cmd("BITS.SET", key, 10, 1), 1)
+    env.assertEqual(env.cmd("BITS.SET", key, 10, 0), 1)
+    env.assertEqual(env.cmd("BITS.GET", key, 10), 0)
+    env.assertEqual(env.cmd("BITS.COUNT", key), 0)
+ 

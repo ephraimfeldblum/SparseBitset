@@ -115,7 +115,7 @@ help:
 
 # Run flow tests locally (uses run_flow_tests.sh)
 test:
-	./run_flow_tests.sh
+	TEST=$(TEST) QUICK=$(QUICK) ./run_flow_tests.sh
 
 .PHONY: docker-build-image docker-test
 

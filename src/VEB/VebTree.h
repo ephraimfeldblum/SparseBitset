@@ -114,6 +114,9 @@ typedef struct VebTree_API {
     /* Create symmetric difference of two trees (elements in exactly one) */
     void (*symmetric_difference)(VebTree_Handle_t handle1, VebTree_Handle_t handle2);
 
+    /* Move contents from src to dst: *dst = std::move(*src) */
+    void (*move)(VebTree_Handle_t dst, VebTree_Handle_t src);
+
     /* Destroy the handle */
     void (*destroy)(VebTree_Handle_t handle);
 } VebTree_API_t;

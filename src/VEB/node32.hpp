@@ -387,23 +387,19 @@ public:
     }
 
     constexpr inline decltype(auto) and_inplace(this auto&& self, const Node32& other, std::size_t& alloc) {
-        if (self.cluster_data_ == nullptr || other.cluster_data_ == nullptr) {
-            return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(std::nullopt, std::nullopt, alloc);
-        }
-
         const auto potential_min{std::max(self.min_, other.min_)};
         const auto potential_max{std::min(self.max_, other.max_)};
-        if (potential_min >= potential_max) {
-            return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(std::nullopt, std::nullopt, alloc);
+        auto new_min{self.contains(potential_min) && other.contains(potential_min) ? std::make_optional(potential_min) : std::nullopt};
+        auto new_max{self.contains(potential_max) && other.contains(potential_max) ? std::make_optional(potential_max) : std::nullopt};
+
+        if (potential_min >= potential_max || self.cluster_data_ == nullptr || other.cluster_data_ == nullptr) {
+            return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(new_min, new_max, alloc);
         }
 
         auto& this_summary{self.cluster_data_->summary};
         auto& this_clusters{self.cluster_data_->clusters};
         const auto& other_summary{other.cluster_data_->summary};
         const auto& other_clusters{other.cluster_data_->clusters};
-
-        auto new_min{self.contains(potential_min) && other.contains(potential_min) ? std::make_optional(potential_min) : std::nullopt};
-        auto new_max{self.contains(potential_max) && other.contains(potential_max) ? std::make_optional(potential_max) : std::nullopt};
 
         if (this_summary.and_inplace(other_summary, alloc).is_tombstone()) {
             return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(new_min, new_max, alloc);

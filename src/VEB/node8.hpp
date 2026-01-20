@@ -149,12 +149,12 @@ public:
     }
 
     constexpr inline std::size_t size() const {
-        return std::reduce(
+        return std::transform_reduce(
 #if __cpp_lib_execution
             std::execution::unseq,
 #endif
-            bits_.cbegin(), bits_.cend(), 0uz,
-            [](std::size_t acc, std::uint64_t word) { return acc + std::popcount(word); }
+            bits_.cbegin(), bits_.cend(), 0uz, std::plus<>{},
+            [](std::uint64_t word) { return std::popcount(word); }
         );
     }
 

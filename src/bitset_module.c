@@ -477,75 +477,70 @@ static int bits_op_command(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         return RedisModule_ReplyWithError(ctx, "ERR syntax error, expected AND, OR, or XOR");
     }
 
-    // Get destination key
+    // Get destination key (ensure it exists or create it)
     Bitset *dest = get_bitset_key(ctx, argv[2], REDISMODULE_WRITE);
     if (!dest) {
         return RedisModule_ReplyWithError(ctx, "ERR failed to create or access destination bitset");
     }
 
-    // Clear destination
-    dest->api->clear(dest->handle);
+    // Use a temporary tree to avoid issues if destination is also a source
+    VebTree_Handle_t result_handle = vebtree_create();
+    if (!result_handle) {
+        return RedisModule_ReplyWithError(ctx, "ERR out of memory");
+    }
+    const VebTree_API_t *api = vebtree_get_api();
 
     if (op_type == 1) { // OR operation
-        // For OR, union all source bitsets
         for (int i = 3; i < argc; i++) {
             Bitset *src = get_bitset_key(ctx, argv[i], REDISMODULE_READ);
             if (src) {
-                dest->api->union_op(dest->handle, src->handle);
+                api->union_op(result_handle, src->handle);
             }
-            // Non-existent keys are treated as empty (all zeros), so we skip them
         }
     } else if (op_type == 0) { // AND operation
-        // For AND, start with first source and intersect with others
         Bitset *first_src = get_bitset_key(ctx, argv[3], REDISMODULE_READ);
-        if (!first_src) {
-            // If first source doesn't exist, result is empty
-            RedisModule_ReplicateVerbatim(ctx);
-            return RedisModule_ReplyWithLongLong(ctx, 0);
-        }
-
-        // Copy first source to destination
-        dest->api->union_op(dest->handle, first_src->handle);
-
-        // Intersect with remaining sources
-        for (int i = 4; i < argc; i++) {
-            Bitset *src = get_bitset_key(ctx, argv[i], REDISMODULE_READ);
-            if (src) {
-                dest->api->intersection(dest->handle, src->handle);
-            } else {
-                // Non-existent key means all zeros, so result becomes empty
-                dest->api->clear(dest->handle);
-                break;
+        if (first_src) {
+            api->union_op(result_handle, first_src->handle);
+            for (int i = 4; i < argc; i++) {
+                Bitset *src = get_bitset_key(ctx, argv[i], REDISMODULE_READ);
+                if (src) {
+                    api->intersection(result_handle, src->handle);
+                } else {
+                    api->clear(result_handle);
+                    break;
+                }
             }
         }
     } else if (op_type == 2) { // XOR operation
-        // For XOR, start with first source and XOR with others
         Bitset *first_src = get_bitset_key(ctx, argv[3], REDISMODULE_READ);
         if (first_src) {
-            dest->api->union_op(dest->handle, first_src->handle);
+            api->union_op(result_handle, first_src->handle);
         }
-        // Non-existent first source is treated as empty (all zeros)
-
-        // XOR with remaining sources
         for (int i = 4; i < argc; i++) {
             Bitset *src = get_bitset_key(ctx, argv[i], REDISMODULE_READ);
             if (src) {
-                dest->api->symmetric_difference(dest->handle, src->handle);
+                api->symmetric_difference(result_handle, src->handle);
             }
-            // Non-existent keys are treated as empty (all zeros), so XOR with them has no effect
         }
     }
 
-    // Calculate result size in bytes (like Redis BITOP)
+    // Calculate result size in bytes (like Redis BITOP) BEFORE moving/destroying
     size_t result_bytes = 0;
-    VebTree_OptionalSize_t max_elem = dest->api->max(dest->handle);
+    VebTree_OptionalSize_t max_elem = api->max(result_handle);
     if (max_elem.has_value) {
         result_bytes = (max_elem.value / 8) + 1;
     }
 
+    // Move result into destination (avoid clone/union edge-cases)
+    api->move(dest->handle, result_handle);
+
+    // Destroy the now-empty source handle
+    api->destroy(result_handle);
+
     RedisModule_ReplicateVerbatim(ctx);
     return RedisModule_ReplyWithLongLong(ctx, (long long)result_bytes);
 }
+
 
 static long long find_bit_position(Bitset *bitset, int bit_value, long long start, long long end, bool is_bit_range) {
     if (!bitset) {
