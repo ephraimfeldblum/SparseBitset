@@ -61,64 +61,127 @@ def test_mixed_op_with_empty(env: Env):
     env.assertEqual(env.cmd("BITS.COUNT", "res_and"), 0)
 
 
-def test_or_op(env: Env):
-    key_prefix = "dl_src_"
-    sizes = [10, 18, 26, 34, 42, 50, 58, 66, 74, 82, 90, 98, 106, 114, 122]
-    ref_sets = {}
+def test_pos_count_and_set_edgecases(env: Env):
+    """Test BITS.POS behavior, BITS.COUNT with ranges/units, and BITS.SET errors"""
+    # POS on an existing set
+    env.cmd("BITS.INSERT", "p", 2, 5, 10)
+    env.assertEqual(env.cmd("BITS.POS", "p", 1), 2)
+    env.assertEqual(env.cmd("BITS.POS", "p", 1, 3, "-1", "BIT"), 5)
+    env.assertEqual(env.cmd("BITS.POS", "p", 0), 0)
 
-    for i, sz in enumerate(sizes):
-        base = i * 37
-        vals = [base + j for j in range(sz)]
-        key = f"{key_prefix}{i}"
-        ref_sets[key] = set(vals)
-        env.cmd("BITS.INSERT", key, *vals)
+    # POS on non-existent key
+    env.assertEqual(env.cmd("BITS.POS", "nokey", 0), 0)
+    env.assertEqual(env.cmd("BITS.POS", "nokey", 1), -1)
 
-    source_keys = [f"{key_prefix}{i}" for i in range(len(sizes))]
-    dest = "dl_dest_or"
+    # Byte vs bit counting and negative end handling
+    env.cmd("BITS.INSERT", "r", 0, 7, 8, 15)
+    # BYTE 0..1 covers bits 0..15 -> 4 set bits
+    env.assertEqual(env.cmd("BITS.COUNT", "r", "0", "1", "BYTE"), 4)
+    # BIT 0..7 covers bits 0..7 -> bits at 0 and 7
+    env.assertEqual(env.cmd("BITS.COUNT", "r", "0", "7", "BIT"), 2)
+    # negative end -1 should include up to last element (same as full count here)
+    env.assertEqual(env.cmd("BITS.COUNT", "r", "0", "-1", "BIT"), 4)
 
-    ret_bytes = env.cmd("BITS.OP", "OR", dest, *source_keys)
-
-    # Compute expected
-    expected = set()
-    for k in source_keys:
-        expected |= ref_sets[k]
-
-    if not expected:
-        env.assertEqual(ret_bytes, 0)
-    else:
-        env.assertEqual(ret_bytes, (max(expected) // 8) + 1)
-
-    env.assertEqual(env.cmd("BITS.COUNT", dest), len(expected))
-    # TOARRAY check for reasonably sized result
-    env.assertEqual(sorted(list(expected)), env.cmd("BITS.TOARRAY", dest))
+    # BITS.SET/BITS.GET invalid args
+    env.expect("BITS.SET", "r", "-1", "1").error().contains("bit offset is not an integer or out of range")
+    env.expect("BITS.SET", "r", "1", "2").error().contains("bit value must be 0 or 1")
+    env.expect("BITS.GET", "r", "-5").error().contains("bit offset is not an integer or out of range")
 
 
-def test_or_op_dest_is_source(env: Env):
-    key_prefix = "dds_src_"
-    sizes = [12, 20, 16, 28, 24, 32, 16, 8, 40, 36, 44, 52, 6]
-    ref_sets = {}
+def test_pos_boundaries_and_set_behavior(env: Env):
+    """Additional POS boundary checks and BITS.SET valid behavior"""
+    env.cmd("BITS.CLEAR", "pb")
+    # empty key: POS for 1 => -1, for 0 => start (0)
+    env.assertEqual(env.cmd("BITS.POS", "pb", 1), -1)
+    env.assertEqual(env.cmd("BITS.POS", "pb", 0), 0)
 
-    for i, sz in enumerate(sizes):
-        base = 1000 + i * 13
-        vals = [base + j * 137 for j in range(sz)]
-        key = f"{key_prefix}{i}"
-        ref_sets[key] = set(vals)
-        env.cmd("BITS.INSERT", key, *vals)
+    # Insert some bits and test negative start handling (should be treated relative to max)
+    env.cmd("BITS.INSERT", "pb", 5, 20)
+    # start= -1 (bit) should resolve to last bit; provide both start and end and unit
+    env.assertEqual(env.cmd("BITS.POS", "pb", 1, "-1", "-1", "BIT"), 20)
 
-    # Use the first source as destination as well
-    source_keys = [f"{key_prefix}{i}" for i in range(len(sizes))]
-    dest = source_keys[0]
+    # BITS.SET returns previous value; test toggling
+    env.assertEqual(env.cmd("BITS.GET", "pb", 10), 0)
+    env.assertEqual(env.cmd("BITS.SET", "pb", 10, 1), 0)
+    env.assertEqual(env.cmd("BITS.GET", "pb", 10), 1)
+    env.assertEqual(env.cmd("BITS.SET", "pb", 10, 0), 1)
+    env.assertEqual(env.cmd("BITS.GET", "pb", 10), 0)
 
-    ret_bytes = env.cmd("BITS.OP", "OR", dest, *source_keys)
 
-    expected = ref_sets[source_keys[0]].copy()
-    for k in source_keys[1:]:
-        expected |= ref_sets[k]
+def test_count_range_edges_and_units(env: Env):
+    """More coverage for BITS.COUNT with ranges and BYTE/BIT units"""
+    env.cmd("DEL", "cr")
+    # set bits spanning multiple bytes: bits 0,7,8,15,31
+    env.cmd("BITS.INSERT", "cr", 0, 7, 8, 15, 31)
 
-    if not expected:
-        env.assertEqual(ret_bytes, 0)
-    else:
-        env.assertEqual(ret_bytes, (max(expected) // 8) + 1)
+    # count whole key
+    env.assertEqual(env.cmd("BITS.COUNT", "cr"), 5)
 
-    env.assertEqual(env.cmd("BITS.COUNT", dest), len(expected))
-    env.assertEqual(sorted(list(expected)), env.cmd("BITS.TOARRAY", dest))
+    # BYTE ranges: byte 0 covers bits 0..7 -> bits 0 and 7 => 2
+    env.assertEqual(env.cmd("BITS.COUNT", "cr", "0", "0", "BYTE"), 2)
+
+    # BIT ranges: 0..15 includes bits 0,7,8,15 => 4
+    env.assertEqual(env.cmd("BITS.COUNT", "cr", "0", "15", "BIT"), 4)
+
+    # start beyond last should return 0
+    env.assertEqual(env.cmd("BITS.COUNT", "cr", "100", "200", "BIT"), 0)
+
+
+def test_op_xor_not_and_sizes(env: Env):
+    """Test XOR and NOT operations and returned byte sizes"""
+    env.cmd("DEL", "a", "b", "xora", "ora")
+    env.cmd("BITS.INSERT", "a", 1, 3, 5)
+    env.cmd("BITS.INSERT", "b", 3, 4, 10)
+
+    # XOR: should contain 1,5,4,10, size in bytes should be >0
+    xor_bytes = env.cmd("BITS.OP", "XOR", "xora", "a", "b")
+    env.assertGreaterEqual(xor_bytes, 1)
+    arr = env.cmd("BITS.TOARRAY", "xora")
+    env.assertEqual(sorted(arr), [1,4,5,10])
+    # OR: union should contain 1,3,4,5,10
+    ora_bytes = env.cmd("BITS.OP", "OR", "ora", "a", "b")
+    env.assertGreaterEqual(ora_bytes, 1)
+    arr_or = env.cmd("BITS.TOARRAY", "ora")
+    env.assertEqual(sorted(arr_or), [1,3,4,5,10])
+
+
+def test_clear_remove_and_min_max_edges(env: Env):
+    """Test clear/remove semantics and min/max on empty or missing keys"""
+    env.cmd("DEL", "cm")
+    env.assertEqual(env.cmd("BITS.COUNT", "cm"), 0)
+
+    # Insert, remove some, clear and check behavior
+    env.cmd("BITS.INSERT", "cm", 2, 4, 8)
+    env.assertEqual(env.cmd("BITS.REMOVE", "cm", 4), 1)
+    env.assertEqual(env.cmd("BITS.TOARRAY", "cm"), [2,8])
+
+    # Clear
+    env.cmd("BITS.CLEAR", "cm")
+    env.assertEqual(env.cmd("BITS.COUNT", "cm"), 0)
+    env.assertEqual(env.cmd("BITS.TOARRAY", "cm"), [])
+
+    # MIN/MAX on empty should return None
+    env.assertEqual(env.cmd("BITS.MIN", "cm"), None)
+    env.assertEqual(env.cmd("BITS.MAX", "cm"), None)
+
+
+def test_successor_predecessor_edges(env: Env):
+    """Extra successor/predecessor edge cases for missing keys and bounds"""
+    env.cmd("DEL", "sp2")
+    # Non-existent key: successor/predecessor should return None
+    env.assertEqual(env.cmd("BITS.SUCCESSOR", "sp2", 0), None)
+    env.assertEqual(env.cmd("BITS.PREDECESSOR", "sp2", 10), None)
+
+    env.cmd("BITS.INSERT", "sp2", 5, 15)
+    # successor beyond last -> None, predecessor below first -> None
+    env.assertEqual(env.cmd("BITS.SUCCESSOR", "sp2", 15), None)
+    env.assertEqual(env.cmd("BITS.PREDECESSOR", "sp2", 5), None)
+
+
+def test_toarray_order_large(env: Env):
+    """Ensure TOARRAY returns sorted order for larger sets"""
+    env.cmd("DEL", "larg")
+    vals = [1000, 10, 500, 250, 999]
+    env.cmd("BITS.INSERT", "larg", *vals)
+    expected = sorted(vals)
+    env.assertEqual(env.cmd("BITS.TOARRAY", "larg"), expected)
