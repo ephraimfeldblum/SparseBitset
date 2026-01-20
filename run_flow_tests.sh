@@ -67,10 +67,6 @@ for opts in "${RUNS[@]}"; do
 
   # Run RLTest (this will create logs under this directory)
   # Prepare test filter if provided via TEST environment variable or positional arg
-  RLTEST_TEST_ARG=""
-  if [ -n "${TEST:-}" ]; then
-    RLTEST_TEST_ARG="-t ${TEST}"
-  fi
 
   if [ "$ACTIVATED" -eq 1 ]; then
     if [ -n "${TEST:-}" ]; then
