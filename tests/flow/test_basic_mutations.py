@@ -36,4 +36,3 @@ def test_set(env: Env):
     env.assertEqual(env.cmd("BITS.SET", key, 10, 0), 1)
     env.assertEqual(env.cmd("BITS.GET", key, 10), 0)
     env.assertEqual(env.cmd("BITS.COUNT", key), 0)
- 
