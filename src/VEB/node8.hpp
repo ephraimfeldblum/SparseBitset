@@ -130,6 +130,10 @@ public:
     }
 
     constexpr inline std::optional<index_t> predecessor(index_t x) const {
+        if (x == 0) {
+            return std::nullopt;
+        }
+
         const auto [start_word, start_bit] {decompose(x - 1)};
         const auto mask{start_bit == bits_per_word - 1 ? -1ULL : ((1ULL << (start_bit + 1)) - 1)};
 

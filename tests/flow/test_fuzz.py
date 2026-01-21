@@ -1,8 +1,12 @@
+import os
 import random
 from RLTest import Env
 
 def test_fuzz_basic_ops(env: Env):
     """Randomized testing for basic bitset operations"""
+    seed = int(os.environ.get('FUZZ_SEED', '42'))
+    iterations = int(os.environ.get('FUZZ_ITER', '200'))
+    random.seed(seed)
     ref_sets = {}
     key_prefix = "fuzz_set_"
     num_sets = 5
@@ -79,6 +83,9 @@ def test_fuzz_basic_ops(env: Env):
 
 def test_fuzz_set_ops(env: Env):
     """Randomized testing for set operations (AND, OR, XOR)"""
+    seed = int(os.environ.get('FUZZ_SEED', '42'))
+    iterations = int(os.environ.get('FUZZ_ITER', '200'))
+    random.seed(seed)
     ref_sets = {}
     key_prefix = "fuzz_op_set_"
     num_sets = 5
@@ -123,3 +130,45 @@ def test_fuzz_set_ops(env: Env):
         env.assertEqual(env.cmd("BITS.COUNT", dest_key), len(expected))
         if len(expected) < 100: # Don't check TOARRAY for very large sets to keep it fast
             env.assertEqual(sorted(list(expected)), env.cmd("BITS.TOARRAY", dest_key))
+
+
+def test_fuzz_extended(env: Env):
+    """Extended reproducible fuzz test. Controlled by FUZZ_ITER and FUZZ_SEED env vars.
+
+    Keep default iterations small to avoid long CI runs; can be increased locally.
+    """
+    seed = int(os.environ.get('FUZZ_SEED', '42'))
+    iterations = int(os.environ.get('FUZZ_ITER', '200'))
+    random.seed(seed)
+
+    ref = set()
+    key = 'fuzz_ext'
+
+    for i in range(iterations):
+        op = random.choice(['INS', 'REM', 'GET', 'COUNT'])
+        if op == 'INS':
+            vals = [random.randint(0, 2000) for _ in range(random.randint(1, 10))]
+            added = 0
+            for v in set(vals):
+                if v not in ref:
+                    ref.add(v)
+                    added += 1
+            env.assertEqual(env.cmd('BITS.INSERT', key, *vals), added)
+        elif op == 'REM':
+            vals = [random.randint(0, 2000) for _ in range(random.randint(1, 10))]
+            removed = 0
+            for v in set(vals):
+                if v in ref:
+                    ref.remove(v)
+                    removed += 1
+            env.assertEqual(env.cmd('BITS.REMOVE', key, *vals), removed)
+        elif op == 'GET':
+            v = random.randint(0, 2000)
+            env.assertEqual(env.cmd('BITS.GET', key, v), 1 if v in ref else 0)
+        elif op == 'COUNT':
+            env.assertEqual(env.cmd('BITS.COUNT', key), len(ref))
+
+    # final sanity checks
+    env.assertEqual(env.cmd('BITS.COUNT', key), len(ref))
+    if len(ref) < 1000:
+        env.assertEqual(sorted(list(ref)), env.cmd('BITS.TOARRAY', key))
