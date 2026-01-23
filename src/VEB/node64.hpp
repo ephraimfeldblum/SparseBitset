@@ -134,9 +134,15 @@ public:
         }
     }
 
-    static constexpr inline std::uint64_t universe_size() { return std::numeric_limits<index_t>::max(); }
-    constexpr inline index_t min() const { return min_; }
-    constexpr inline index_t max() const { return max_; }
+    static constexpr inline std::uint64_t universe_size() {
+        return std::numeric_limits<index_t>::max();
+    }
+    constexpr inline index_t min() const {
+        return min_;
+    }
+    constexpr inline index_t max() const {
+        return max_;
+    }
 
     constexpr inline void insert(index_t x, std::size_t& alloc) {
         if (x < min_) {
@@ -415,7 +421,7 @@ public:
         if (max_ != potential_max && this_clusters.at(this_summary.max()).remove(static_cast<subindex_t>(max_), alloc)) {
             this_summary.remove(this_summary.max(), alloc);
         }
-        if (min_ != potential_min && this_clusters.at(this_summary.min()).remove(static_cast<subindex_t>(min_), alloc)) {
+        if (min_ != potential_min && !this_clusters.empty() && this_clusters.at(this_summary.min()).remove(static_cast<subindex_t>(min_), alloc)) {
             this_summary.remove(this_summary.min(), alloc);
         }
 

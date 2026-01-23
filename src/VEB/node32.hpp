@@ -147,9 +147,15 @@ public:
         cluster_data_ = nullptr;
     }
 
-    static constexpr inline std::size_t universe_size() { return std::numeric_limits<index_t>::max(); }
-    constexpr inline index_t min() const { return min_; }
-    constexpr inline index_t max() const { return max_; }
+    static constexpr inline std::size_t universe_size() {
+        return std::numeric_limits<index_t>::max();
+    }
+    constexpr inline index_t min() const {
+        return min_;
+    }
+    constexpr inline index_t max() const {
+        return max_;
+    }
 
     constexpr inline void insert(index_t x, std::size_t& alloc) {
         if (x < min_) {
@@ -419,13 +425,14 @@ public:
         }
 
         self.max_ = new_max.has_value() ? *new_max : index(this_summary.max(), this_clusters.find(this_summary.max())->max());
+        self.min_ = new_min.has_value() ? *new_min : index(this_summary.min(), this_clusters.find(this_summary.min())->min());
+
         if (self.max_ != potential_max) {
             const auto it{this_clusters.find(this_summary.max())};
             auto& cluster{const_cast<Node16&>(*it)};
             cluster.remove(static_cast<subindex_t>(self.max_), alloc) && this_summary.remove(this_summary.max(), alloc);
         }
-        self.min_ = new_min.has_value() ? *new_min : index(this_summary.min(), this_clusters.find(this_summary.min())->min());
-        if (self.min_ != potential_min) {
+        if (self.min_ != potential_min && !this_clusters.empty()) {
             const auto it{this_clusters.find(this_summary.min())};
             auto& cluster{const_cast<Node16&>(*it)};
             cluster.remove(static_cast<subindex_t>(self.min_), alloc) && this_summary.remove(this_summary.min(), alloc);

@@ -25,7 +25,7 @@ static VebTree_OptionalSize_t to_c_optional(std::optional<std::size_t> opt) {
 
 VebTree_Handle_t vebtree_create() {
     VebTree_Handle_t p = static_cast<VebTree_Handle_t>(malloc(sizeof *p));
-    new (p) VebTree;
+    std::construct_at(p);
     return p;
 }
 
@@ -39,36 +39,36 @@ static void vebtree_remove(VebTree_Handle_t handle, size_t x) {
     handle->remove(x);
 }
 
-static bool vebtree_contains(VebTree_Handle_t handle, size_t x) {
+static bool vebtree_contains(const_VebTree_Handle_t handle, size_t x) {
     assert(handle);
     return handle->contains(x);
 }
 
-static VebTree_OptionalSize_t vebtree_successor(VebTree_Handle_t handle, size_t x) {
+static VebTree_OptionalSize_t vebtree_successor(const_VebTree_Handle_t handle, size_t x) {
     assert(handle);
     auto result{handle->successor(x)};
     return to_c_optional(result);
 }
 
-static VebTree_OptionalSize_t vebtree_predecessor(VebTree_Handle_t handle, size_t x) {
+static VebTree_OptionalSize_t vebtree_predecessor(const_VebTree_Handle_t handle, size_t x) {
     assert(handle);
     auto result{handle->predecessor(x)};
     return to_c_optional(result);
 }
 
-static VebTree_OptionalSize_t vebtree_min(VebTree_Handle_t handle) {
+static VebTree_OptionalSize_t vebtree_min(const_VebTree_Handle_t handle) {
     assert(handle);
     auto result{handle->min()};
     return to_c_optional(result);
 }
 
-static VebTree_OptionalSize_t vebtree_max(VebTree_Handle_t handle) {
+static VebTree_OptionalSize_t vebtree_max(const_VebTree_Handle_t handle) {
     assert(handle);
     auto result{handle->max()};
     return to_c_optional(result);
 }
 
-static bool vebtree_empty(VebTree_Handle_t handle) {
+static bool vebtree_empty(const_VebTree_Handle_t handle) {
     assert(handle);
     return handle->empty();
 }
@@ -78,20 +78,22 @@ static void vebtree_clear(VebTree_Handle_t handle) {
     handle->clear();
 }
 
-static std::size_t vebtree_size(VebTree_Handle_t handle) {
+static std::size_t vebtree_size(const_VebTree_Handle_t handle) {
     assert(handle);
     return handle->size();
 }
 
-static std::size_t* vebtree_to_array(VebTree_Handle_t handle) {
+static std::size_t* vebtree_to_array(const_VebTree_Handle_t handle) {
     assert(handle);
-    auto vec{handle->to_vector()};
-    std::size_t* array = static_cast<std::size_t*>(malloc(vec.size() * sizeof *array));
-    std::ranges::copy(vec, array);
+    std::size_t* array = static_cast<std::size_t*>(malloc(handle->size() * sizeof *array));
+    std::size_t idx = 0;
+    for (auto v : *handle) {
+        array[idx++] = v;
+    }
     return array;
 }
 
-static VebTree_MemoryStats_t vebtree_get_memory_stats(VebTree_Handle_t handle) {
+static VebTree_MemoryStats_t vebtree_get_memory_stats(const_VebTree_Handle_t handle) {
     assert(handle);
     auto cpp_stats{handle->get_memory_stats()};
     return VebTree_MemoryStats_t{          
@@ -101,32 +103,32 @@ static VebTree_MemoryStats_t vebtree_get_memory_stats(VebTree_Handle_t handle) {
     };
 }
 
-static std::size_t vebtree_get_allocated_memory(VebTree_Handle_t handle) {
+static std::size_t vebtree_get_allocated_memory(const_VebTree_Handle_t handle) {
     assert(handle);
     return handle->get_allocated_bytes();
 }
 
-static std::size_t vebtree_universe_size(VebTree_Handle_t handle) {
+static std::size_t vebtree_universe_size(const_VebTree_Handle_t handle) {
     assert(handle);
     return handle->universe_size();
 }
 
-static bool vebtree_equals(VebTree_Handle_t handle1, VebTree_Handle_t handle2) {
+static bool vebtree_equals(const_VebTree_Handle_t handle1, const_VebTree_Handle_t handle2) {
     assert(handle1 && handle2);
     return *handle1 == *handle2;
 }
 
-static void vebtree_intersection(VebTree_Handle_t handle1, VebTree_Handle_t handle2) {
+static void vebtree_intersection(VebTree_Handle_t handle1, const_VebTree_Handle_t handle2) {
     assert(handle1 && handle2);
     *handle1 &= *handle2;
 }
 
-static void vebtree_union_op(VebTree_Handle_t handle1, VebTree_Handle_t handle2) {
+static void vebtree_union_op(VebTree_Handle_t handle1, const_VebTree_Handle_t handle2) {
     assert(handle1 && handle2);
     *handle1 |= *handle2;
 }
 
-static void vebtree_symmetric_difference(VebTree_Handle_t handle1, VebTree_Handle_t handle2) {
+static void vebtree_symmetric_difference(VebTree_Handle_t handle1, const_VebTree_Handle_t handle2) {
     assert(handle1 && handle2);
     *handle1 ^= *handle2;
 }

@@ -9,11 +9,9 @@
 void* malloc(size_t size) {
     return RedisModule_Alloc(size);
 }
-
 void* realloc(void* ptr, size_t size) {
     return RedisModule_Realloc(ptr, size);
 }
-
 void free(void* ptr) {
     RedisModule_Free(ptr);
 }
@@ -73,7 +71,7 @@ static void bitset_free_wrapper(void *value) {
 }
 
 static size_t bitset_mem_usage(const void *value) {
-    VebTree_Handle_t handle = value;
+    const_VebTree_Handle_t handle = value;
     return veb_api->get_allocated_memory(handle);
 }
 
@@ -684,7 +682,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx, BITSET_TYPE_NAME, 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    
+
     veb_api = vebtree_get_api();
     
     if (RedisModule_CreateCommand(ctx, "bits.insert", bits_add_command, "write deny-oom", 1, 1, 1) == REDISMODULE_ERR) {

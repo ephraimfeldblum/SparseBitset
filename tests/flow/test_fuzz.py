@@ -116,7 +116,7 @@ def test_fuzz_set_ops(env: Env):
                 expected |= s
             elif op_type == "XOR":
                 expected ^= s
-        
+
         ref_sets[dest_key] = expected
         
         # Check return value (byte size)
