@@ -1,4 +1,4 @@
-# Dockerfile to build and run SparseBitset tests
+# Dockerfile to build and run vEBitset tests
 FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 

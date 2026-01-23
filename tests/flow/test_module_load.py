@@ -9,7 +9,7 @@ def test_module_load(env: Env):
 
     # Confirm our module is listed
     modules = env.cmd("MODULE", "LIST")
-    env.assertTrue(any(mod[1] == b"sparsebit" for mod in modules), message="bitset module missing in MODULE LIST")
+    env.assertTrue(any(mod[1] == b"vebbitset" for mod in modules), message="bitset module missing in MODULE LIST")
 
     # Basic operation: insert and size
     env.assertEqual(env.cmd("BITS.INSERT", "myset", 1, 2, 3), 3)

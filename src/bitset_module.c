@@ -4,46 +4,20 @@
 #include <string.h>
 #include <strings.h>
 
-#define BITSET_TYPE_NAME "sparsebit"
+#define BITSET_TYPE_NAME "vebbitset"
 
 void* malloc(size_t size) {
     return RedisModule_Alloc(size);
 }
-
 void* realloc(void* ptr, size_t size) {
     return RedisModule_Realloc(ptr, size);
 }
-
 void free(void* ptr) {
     RedisModule_Free(ptr);
 }
 
 static RedisModuleType *BitsetType;
-
-typedef struct {
-    VebTree_Handle_t handle;
-    const VebTree_API_t *api;
-} Bitset;
-
-static Bitset *bitset_create() {
-    Bitset *bitset = malloc(sizeof *bitset);
-    bitset->handle = vebtree_create();
-    if (!bitset->handle) {
-        free(bitset);
-        return NULL;
-    }
-    bitset->api = vebtree_get_api();
-    return bitset;
-}
-
-static void bitset_free(Bitset *bitset) {
-    if (bitset) {
-        if (bitset->handle) {
-            bitset->api->destroy(bitset->handle);
-        }
-        free(bitset);
-    }
-}
+static const VebTree_API_t *veb_api;
 
 static void *bitset_rdb_load(RedisModuleIO *rdb, int encver) {
     if (encver != 0) {
@@ -52,26 +26,26 @@ static void *bitset_rdb_load(RedisModuleIO *rdb, int encver) {
     
     size_t count = RedisModule_LoadUnsigned(rdb);
     
-    Bitset *bitset = bitset_create();
-    if (!bitset) {
+    VebTree_Handle_t handle = vebtree_create();
+    if (!handle) {
         return NULL;
     }
-    
+
     for (size_t i = 0; i < count; i++) {
         size_t value = RedisModule_LoadUnsigned(rdb);
-        bitset->api->insert(bitset->handle, value);
+        veb_api->insert(handle, value);
     }
-    
-    return bitset;
+
+    return handle;
 }
 
 static void bitset_rdb_save(RedisModuleIO *rdb, void *value) {
-    Bitset *bitset = value;
+    VebTree_Handle_t handle = value;
 
-    size_t size = bitset->api->size(bitset->handle);
+    size_t size = veb_api->size(handle);
     RedisModule_SaveUnsigned(rdb, size);
 
-    size_t *array = bitset->api->to_array(bitset->handle);
+    size_t *array = veb_api->to_array(handle);
     for (size_t i = 0; i < size; i++) {
         RedisModule_SaveUnsigned(rdb, array[i]);
     }
@@ -79,11 +53,11 @@ static void bitset_rdb_save(RedisModuleIO *rdb, void *value) {
 }
 
 static void bitset_aof_rewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
-    Bitset *bitset = value;
-    size_t size = bitset->api->size(bitset->handle);
+    VebTree_Handle_t handle = value;
+    size_t size = veb_api->size(handle);
 
     if (size > 0) {
-        size_t *array = bitset->api->to_array(bitset->handle);
+        size_t *array = veb_api->to_array(handle);
         for (size_t i = 0; i < size; i++) {
             RedisModule_EmitAOF(aof, "bits.insert", "sl", key, array[i]);
         }
@@ -92,12 +66,13 @@ static void bitset_aof_rewrite(RedisModuleIO *aof, RedisModuleString *key, void 
 }
 
 static void bitset_free_wrapper(void *value) {
-    bitset_free((Bitset*)value);
+    VebTree_Handle_t handle = value;
+    VEBTREE_DESTROY(handle);
 }
 
 static size_t bitset_mem_usage(const void *value) {
-    const Bitset *bitset = value;
-    return bitset->api->get_allocated_memory(bitset->handle);
+    const_VebTree_Handle_t handle = value;
+    return veb_api->get_allocated_memory(handle);
 }
 
 static int bitset_defrag(RedisModuleDefragCtx *ctx, RedisModuleString *key, void **value) {
@@ -107,20 +82,20 @@ static int bitset_defrag(RedisModuleDefragCtx *ctx, RedisModuleString *key, void
     return 0;
 }
 
-static Bitset *get_bitset_key(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode) {
+static VebTree_Handle_t get_bitset_key(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode) {
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyname, mode);
     int type = RedisModule_KeyType(key);
-    
+
     if (type == REDISMODULE_KEYTYPE_EMPTY) {
         if (mode == REDISMODULE_WRITE) {
-            Bitset *bitset = bitset_create();
-            if (!bitset) {
+            VebTree_Handle_t handle = vebtree_create();
+            if (!handle) {
                 RedisModule_CloseKey(key);
                 return NULL;
             }
-            RedisModule_ModuleTypeSetValue(key, BitsetType, bitset);
+            RedisModule_ModuleTypeSetValue(key, BitsetType, handle);
             RedisModule_CloseKey(key);
-            return bitset;
+            return handle;
         } else {
             RedisModule_CloseKey(key);
             return NULL;
@@ -129,10 +104,10 @@ static Bitset *get_bitset_key(RedisModuleCtx *ctx, RedisModuleString *keyname, i
         RedisModule_CloseKey(key);
         return NULL;
     }
-    
-    Bitset *bitset = RedisModule_ModuleTypeGetValue(key);
+
+    VebTree_Handle_t handle = RedisModule_ModuleTypeGetValue(key);
     RedisModule_CloseKey(key);
-    return bitset;
+    return handle;
 }
 
 // bits.INSERT key element [element ...]
@@ -141,8 +116,8 @@ static int bits_add_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_WrongArity(ctx);
     }
     
-    Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
-    if (!bitset) {
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
+    if (!handle) {
         return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
     }
     
@@ -153,8 +128,8 @@ static int bits_add_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
             return RedisModule_ReplyWithError(ctx, "ERR invalid element value");
         }
         
-        if (!bitset->api->contains(bitset->handle, (size_t)element)) {
-            bitset->api->insert(bitset->handle, (size_t)element);
+        if (!veb_api->contains(handle, (size_t)element)) {
+            veb_api->insert(handle, (size_t)element);
             added++;
         }
     }
@@ -169,8 +144,8 @@ static int bits_rem_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_WrongArity(ctx);
     }
     
-    Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
-    if (!bitset) {
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
+    if (!handle) {
         return RedisModule_ReplyWithLongLong(ctx, 0);
     }
     
@@ -181,8 +156,8 @@ static int bits_rem_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
             return RedisModule_ReplyWithError(ctx, "ERR invalid element value");
         }
         
-        if (bitset->api->contains(bitset->handle, (size_t)element)) {
-            bitset->api->remove(bitset->handle, (size_t)element);
+        if (veb_api->contains(handle, (size_t)element)) {
+            veb_api->remove(handle, (size_t)element);
             removed++;
         }
     }
@@ -202,12 +177,12 @@ static int bits_get_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_ReplyWithError(ctx, "ERR bit offset is not an integer or out of range");
     }
 
-    Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
-    if (!bitset) {
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    if (!handle) {
         return RedisModule_ReplyWithLongLong(ctx, 0);
     }
 
-    bool bit_set = bitset->api->contains(bitset->handle, (size_t)offset);
+    bool bit_set = veb_api->contains(handle, (size_t)offset);
     return RedisModule_ReplyWithLongLong(ctx, bit_set ? 1 : 0);
 }
 
@@ -227,25 +202,25 @@ static int bits_set_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_ReplyWithError(ctx, "ERR bit value must be 0 or 1");
     }
 
-    Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
-    if (!bitset) {
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
+    if (!handle) {
         return RedisModule_ReplyWithError(ctx, "ERR failed to create or access bitset");
     }
 
-    bool previous_value = bitset->api->contains(bitset->handle, (size_t)offset);
+    bool previous_value = veb_api->contains(handle, (size_t)offset);
 
     if (previous_value && value == 0) {
-        bitset->api->remove(bitset->handle, (size_t)offset);
+        veb_api->remove(handle, (size_t)offset);
     } else if (!previous_value && value == 1) {
-        bitset->api->insert(bitset->handle, (size_t)offset);
+        veb_api->insert(handle, (size_t)offset);
     }
 
     RedisModule_ReplicateVerbatim(ctx);
     return RedisModule_ReplyWithLongLong(ctx, (long long)previous_value);
 }
 
-static long long count_elements_in_range(Bitset *bitset, long long start, long long end, bool is_bit_range) {
-    if (!bitset || start > end) {
+static long long count_elements_in_range(VebTree_Handle_t handle, long long start, long long end, bool is_bit_range) {
+    if (!handle || start > end) {
         return 0;
     }
 
@@ -259,14 +234,14 @@ static long long count_elements_in_range(Bitset *bitset, long long start, long l
 
     VebTree_OptionalSize_t current;
     if (bit_start == 0) {
-        current = bitset->api->min(bitset->handle);
+        current = veb_api->min(handle);
     } else {
-        current = bitset->api->successor(bitset->handle, (size_t)(bit_start - 1));
+        current = veb_api->successor(handle, (size_t)(bit_start - 1));
     }
 
     while (current.has_value && (long long)current.value <= bit_end) {
         count++;
-        current = bitset->api->successor(bitset->handle, current.value);
+        current = veb_api->successor(handle, current.value);
     }
 
     return count;
@@ -278,13 +253,13 @@ static int bits_count_command(RedisModuleCtx *ctx, RedisModuleString **argv, int
         return RedisModule_WrongArity(ctx);
     }
 
-    Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
-    if (!bitset) {
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    if (!handle) {
         return RedisModule_ReplyWithLongLong(ctx, 0);
     }
 
     if (argc == 2) {
-        size_t size = bitset->api->size(bitset->handle);
+        size_t size = veb_api->size(handle);
         return RedisModule_ReplyWithLongLong(ctx, (long long)size);
     }
 
@@ -309,7 +284,7 @@ static int bits_count_command(RedisModuleCtx *ctx, RedisModuleString **argv, int
     }
 
     if (end < 0) {
-        VebTree_OptionalSize_t max_elem = bitset->api->max(bitset->handle);
+        VebTree_OptionalSize_t max_elem = veb_api->max(handle);
         if (!max_elem.has_value) {
             return RedisModule_ReplyWithLongLong(ctx, 0);
         }
@@ -321,7 +296,7 @@ static int bits_count_command(RedisModuleCtx *ctx, RedisModuleString **argv, int
         }
     }
 
-    long long count = count_elements_in_range(bitset, start, end, is_bit_range);
+    long long count = count_elements_in_range(handle, start, end, is_bit_range);
     return RedisModule_ReplyWithLongLong(ctx, count);
 }
 
@@ -331,12 +306,12 @@ static int bits_clear_command(RedisModuleCtx *ctx, RedisModuleString **argv, int
         return RedisModule_WrongArity(ctx);
     }
     
-    Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
-    if (!bitset) {
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
+    if (!handle) {
         return RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
     
-    bitset->api->clear(bitset->handle);
+    veb_api->clear(handle);
     RedisModule_ReplicateVerbatim(ctx);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -347,12 +322,12 @@ static int bits_min_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_WrongArity(ctx);
     }
     
-    Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
-    if (!bitset) {
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    if (!handle) {
         return RedisModule_ReplyWithNull(ctx);
     }
     
-    VebTree_OptionalSize_t result = bitset->api->min(bitset->handle);
+    VebTree_OptionalSize_t result = veb_api->min(handle);
     if (result.has_value) {
         return RedisModule_ReplyWithLongLong(ctx, (long long)result.value);
     } else {
@@ -366,12 +341,12 @@ static int bits_max_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_WrongArity(ctx);
     }
 
-    Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
-    if (!bitset) {
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    if (!handle) {
         return RedisModule_ReplyWithNull(ctx);
     }
 
-    VebTree_OptionalSize_t result = bitset->api->max(bitset->handle);
+    VebTree_OptionalSize_t result = veb_api->max(handle);
     if (result.has_value) {
         return RedisModule_ReplyWithLongLong(ctx, (long long)result.value);
     } else {
@@ -385,8 +360,8 @@ static int bits_successor_command(RedisModuleCtx *ctx, RedisModuleString **argv,
         return RedisModule_WrongArity(ctx);
     }
 
-    Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
-    if (!bitset) {
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    if (!handle) {
         return RedisModule_ReplyWithNull(ctx);
     }
 
@@ -395,7 +370,7 @@ static int bits_successor_command(RedisModuleCtx *ctx, RedisModuleString **argv,
         return RedisModule_ReplyWithError(ctx, "ERR invalid element value");
     }
 
-    VebTree_OptionalSize_t result = bitset->api->successor(bitset->handle, (size_t)element);
+    VebTree_OptionalSize_t result = veb_api->successor(handle, (size_t)element);
     if (result.has_value) {
         return RedisModule_ReplyWithLongLong(ctx, (long long)result.value);
     } else {
@@ -409,8 +384,8 @@ static int bits_predecessor_command(RedisModuleCtx *ctx, RedisModuleString **arg
         return RedisModule_WrongArity(ctx);
     }
 
-    Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
-    if (!bitset) {
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    if (!handle) {
         return RedisModule_ReplyWithNull(ctx);
     }
 
@@ -419,7 +394,7 @@ static int bits_predecessor_command(RedisModuleCtx *ctx, RedisModuleString **arg
         return RedisModule_ReplyWithError(ctx, "ERR invalid element value");
     }
 
-    VebTree_OptionalSize_t result = bitset->api->predecessor(bitset->handle, (size_t)element);
+    VebTree_OptionalSize_t result = veb_api->predecessor(handle, (size_t)element);
     if (result.has_value) {
         return RedisModule_ReplyWithLongLong(ctx, (long long)result.value);
     } else {
@@ -433,17 +408,17 @@ static int bits_toarray_command(RedisModuleCtx *ctx, RedisModuleString **argv, i
         return RedisModule_WrongArity(ctx);
     }
 
-    Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
-    if (!bitset) {
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    if (!handle) {
         return RedisModule_ReplyWithArray(ctx, 0);
     }
 
-    size_t size = bitset->api->size(bitset->handle);
+    size_t size = veb_api->size(handle);
     if (size == 0) {
         return RedisModule_ReplyWithArray(ctx, 0);
     }
 
-    size_t *array = bitset->api->to_array(bitset->handle);
+    size_t *array = veb_api->to_array(handle);
     RedisModule_ReplyWithArray(ctx, size);
     for (size_t i = 0; i < size; i++) {
         RedisModule_ReplyWithLongLong(ctx, (long long)array[i]);
@@ -477,78 +452,73 @@ static int bits_op_command(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         return RedisModule_ReplyWithError(ctx, "ERR syntax error, expected AND, OR, or XOR");
     }
 
-    // Get destination key
-    Bitset *dest = get_bitset_key(ctx, argv[2], REDISMODULE_WRITE);
+    // Get destination key (ensure it exists or create it)
+    VebTree_Handle_t dest = get_bitset_key(ctx, argv[2], REDISMODULE_WRITE);
     if (!dest) {
         return RedisModule_ReplyWithError(ctx, "ERR failed to create or access destination bitset");
     }
 
-    // Clear destination
-    dest->api->clear(dest->handle);
+    // Use a temporary tree to avoid issues if destination is also a source
+    VebTree_Handle_t result_handle = vebtree_create();
+    if (!result_handle) {
+        return RedisModule_ReplyWithError(ctx, "ERR out of memory");
+    }
+    const VebTree_API_t *api = veb_api;
 
     if (op_type == 1) { // OR operation
-        // For OR, union all source bitsets
         for (int i = 3; i < argc; i++) {
-            Bitset *src = get_bitset_key(ctx, argv[i], REDISMODULE_READ);
+            VebTree_Handle_t src = get_bitset_key(ctx, argv[i], REDISMODULE_READ);
             if (src) {
-                dest->api->union_op(dest->handle, src->handle);
+                api->union_op(result_handle, src);
             }
-            // Non-existent keys are treated as empty (all zeros), so we skip them
         }
     } else if (op_type == 0) { // AND operation
-        // For AND, start with first source and intersect with others
-        Bitset *first_src = get_bitset_key(ctx, argv[3], REDISMODULE_READ);
-        if (!first_src) {
-            // If first source doesn't exist, result is empty
-            RedisModule_ReplicateVerbatim(ctx);
-            return RedisModule_ReplyWithLongLong(ctx, 0);
-        }
-
-        // Copy first source to destination
-        dest->api->union_op(dest->handle, first_src->handle);
-
-        // Intersect with remaining sources
-        for (int i = 4; i < argc; i++) {
-            Bitset *src = get_bitset_key(ctx, argv[i], REDISMODULE_READ);
-            if (src) {
-                dest->api->intersection(dest->handle, src->handle);
-            } else {
-                // Non-existent key means all zeros, so result becomes empty
-                dest->api->clear(dest->handle);
-                break;
+        VebTree_Handle_t first_src = get_bitset_key(ctx, argv[3], REDISMODULE_READ);
+        if (first_src) {
+            api->union_op(result_handle, first_src);
+            for (int i = 4; i < argc; i++) {
+                VebTree_Handle_t src = get_bitset_key(ctx, argv[i], REDISMODULE_READ);
+                if (src) {
+                    api->intersection(result_handle, src);
+                } else {
+                    api->clear(result_handle);
+                    break;
+                }
             }
         }
     } else if (op_type == 2) { // XOR operation
-        // For XOR, start with first source and XOR with others
-        Bitset *first_src = get_bitset_key(ctx, argv[3], REDISMODULE_READ);
+        VebTree_Handle_t first_src = get_bitset_key(ctx, argv[3], REDISMODULE_READ);
         if (first_src) {
-            dest->api->union_op(dest->handle, first_src->handle);
+            api->union_op(result_handle, first_src);
         }
-        // Non-existent first source is treated as empty (all zeros)
-
-        // XOR with remaining sources
         for (int i = 4; i < argc; i++) {
-            Bitset *src = get_bitset_key(ctx, argv[i], REDISMODULE_READ);
+            VebTree_Handle_t src = get_bitset_key(ctx, argv[i], REDISMODULE_READ);
             if (src) {
-                dest->api->symmetric_difference(dest->handle, src->handle);
+                api->symmetric_difference(result_handle, src);
             }
-            // Non-existent keys are treated as empty (all zeros), so XOR with them has no effect
         }
     }
 
-    // Calculate result size in bytes (like Redis BITOP)
+    // Calculate result size in bytes (like Redis BITOP) BEFORE moving/destroying
     size_t result_bytes = 0;
-    VebTree_OptionalSize_t max_elem = dest->api->max(dest->handle);
+    VebTree_OptionalSize_t max_elem = api->max(result_handle);
     if (max_elem.has_value) {
         result_bytes = (max_elem.value / 8) + 1;
     }
+
+    // Move result into destination (avoid clone/union edge-cases)
+    api->move(dest, result_handle);
+
+    // Destroy the now-empty source handle
+    api->destroy(result_handle);
 
     RedisModule_ReplicateVerbatim(ctx);
     return RedisModule_ReplyWithLongLong(ctx, (long long)result_bytes);
 }
 
-static long long find_bit_position(Bitset *bitset, int bit_value, long long start, long long end, bool is_bit_range) {
-    if (!bitset) {
+
+static long long find_bit_position(VebTree_Handle_t handle, int bit_value, long long start, long long end, bool is_bit_range) {
+    if (!handle) {
         return -1;
     }
 
@@ -561,9 +531,9 @@ static long long find_bit_position(Bitset *bitset, int bit_value, long long star
     if (bit_value == 1) {
         VebTree_OptionalSize_t current;
         if (bit_start == 0) {
-            current = bitset->api->min(bitset->handle);
+            current = veb_api->min(handle);
         } else {
-            current = bitset->api->successor(bitset->handle, (size_t)(bit_start - 1));
+            current = veb_api->successor(handle, (size_t)(bit_start - 1));
         }
 
         if (current.has_value && (long long)current.value <= bit_end) {
@@ -571,7 +541,7 @@ static long long find_bit_position(Bitset *bitset, int bit_value, long long star
         }
     } else {
         for (long long pos = bit_start; pos <= bit_end; pos++) {
-            if (!bitset->api->contains(bitset->handle, (size_t)pos)) {
+            if (!veb_api->contains(handle, (size_t)pos)) {
                 return pos;
             }
         }
@@ -586,7 +556,7 @@ static int bits_pos_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_WrongArity(ctx);
     }
 
-    Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
 
     long long bit_value;
     if (RedisModule_StringToLongLong(argv[2], &bit_value) != REDISMODULE_OK ||
@@ -621,7 +591,7 @@ static int bits_pos_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         }
     }
 
-    if (!bitset) {
+    if (!handle) {
         if (bit_value == 0) {
             return RedisModule_ReplyWithLongLong(ctx, start >= 0 ? start : 0);
         } else {
@@ -630,7 +600,7 @@ static int bits_pos_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     }
 
     if (end < 0 && argc >= 5) {
-        VebTree_OptionalSize_t max_elem = bitset->api->max(bitset->handle);
+        VebTree_OptionalSize_t max_elem = veb_api->max(handle);
         if (max_elem.has_value) {
             long long max_index = is_bit_range ? (long long)max_elem.value : ((long long)max_elem.value / 8);
             end = max_index + end + 1;
@@ -645,7 +615,7 @@ static int bits_pos_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
             }
         }
     } else if (end < 0) {
-        VebTree_OptionalSize_t max_elem = bitset->api->max(bitset->handle);
+        VebTree_OptionalSize_t max_elem = veb_api->max(handle);
         if (max_elem.has_value) {
             end = is_bit_range ? (long long)max_elem.value : ((long long)max_elem.value / 8);
         } else {
@@ -658,7 +628,7 @@ static int bits_pos_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     }
 
     if (start < 0) {
-        VebTree_OptionalSize_t max_elem = bitset->api->max(bitset->handle);
+        VebTree_OptionalSize_t max_elem = veb_api->max(handle);
         if (max_elem.has_value) {
             long long max_index = is_bit_range ? (long long)max_elem.value : ((long long)max_elem.value / 8);
             start = max_index + start + 1;
@@ -670,7 +640,7 @@ static int bits_pos_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         }
     }
 
-    long long position = find_bit_position(bitset, (int)bit_value, start, end, is_bit_range);
+    long long position = find_bit_position(handle, (int)bit_value, start, end, is_bit_range);
     return RedisModule_ReplyWithLongLong(ctx, position);
 }
 
@@ -680,15 +650,15 @@ static int bits_info_command(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         return RedisModule_WrongArity(ctx);
     }
 
-    Bitset *bitset = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
-    if (!bitset) {
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    if (!handle) {
         return RedisModule_ReplyWithError(ctx, "ERR key does not exist or is not a bitset");
     }
 
-    VebTree_MemoryStats_t stats = bitset->api->get_memory_stats(bitset->handle);
-    size_t allocated_memory = bitset->api->get_allocated_memory(bitset->handle);
-    size_t universe_size = bitset->api->universe_size(bitset->handle);
-    size_t size = bitset->api->size(bitset->handle);
+    VebTree_MemoryStats_t stats = veb_api->get_memory_stats(handle);
+    size_t allocated_memory = veb_api->get_allocated_memory(handle);
+    size_t universe_size = veb_api->universe_size(handle);
+    size_t size = veb_api->size(handle);
 
     RedisModule_ReplyWithArray(ctx, 10);
     RedisModule_ReplyWithSimpleString(ctx, "size");
@@ -709,9 +679,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     (void)argv;
     (void)argc;
 
-    if (RedisModule_Init(ctx, "sparsebit", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
+    if (RedisModule_Init(ctx, BITSET_TYPE_NAME, 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
+
+    veb_api = vebtree_get_api();
     
     if (RedisModule_CreateCommand(ctx, "bits.insert", bits_add_command, "write deny-oom", 1, 1, 1) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 PROJECT_DIR="$(pwd)"
-IMAGE_NAME="sparsebitset:test"
+IMAGE_NAME="vebitset:test"
 
 # Build docker image
 docker build -t "$IMAGE_NAME" .

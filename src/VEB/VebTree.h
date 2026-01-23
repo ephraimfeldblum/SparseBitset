@@ -20,6 +20,7 @@ extern "C" {
  * @brief Opaque handle to a VebTree instance
  */
 typedef struct VebTree* VebTree_Handle_t;
+typedef const struct VebTree* const_VebTree_Handle_t;
 
 /**
  * @brief Result structure for operations that return an optional size_t
@@ -67,52 +68,55 @@ typedef struct VebTree_API {
     void (*remove)(VebTree_Handle_t handle, size_t x);
 
     /* Check if an element exists */
-    bool (*contains)(VebTree_Handle_t handle, size_t x);
+    bool (*contains)(const_VebTree_Handle_t handle, size_t x);
 
     /* Find the smallest element greater than x */
-    VebTree_OptionalSize_t (*successor)(VebTree_Handle_t handle, size_t x);
+    VebTree_OptionalSize_t (*successor)(const_VebTree_Handle_t handle, size_t x);
 
     /* Find the largest element smaller than x */
-    VebTree_OptionalSize_t (*predecessor)(VebTree_Handle_t handle, size_t x);
+    VebTree_OptionalSize_t (*predecessor)(const_VebTree_Handle_t handle, size_t x);
 
     /* Get the minimum element */
-    VebTree_OptionalSize_t (*min)(VebTree_Handle_t handle);
+    VebTree_OptionalSize_t (*min)(const_VebTree_Handle_t handle);
 
     /* Get the maximum element */
-    VebTree_OptionalSize_t (*max)(VebTree_Handle_t handle);
+    VebTree_OptionalSize_t (*max)(const_VebTree_Handle_t handle);
 
     /* Check if the tree is empty */
-    bool (*empty)(VebTree_Handle_t handle);
+    bool (*empty)(const_VebTree_Handle_t handle);
 
     /* Clear all elements */
     void (*clear)(VebTree_Handle_t handle);
 
     /* Get the number of elements */
-    size_t (*size)(VebTree_Handle_t handle);
+    size_t (*size)(const_VebTree_Handle_t handle);
 
     /* Convert to array */
-    size_t* (*to_array)(VebTree_Handle_t handle);
+    size_t* (*to_array)(const_VebTree_Handle_t handle);
 
     /* Get memory usage statistics */
-    VebTree_MemoryStats_t (*get_memory_stats)(VebTree_Handle_t handle);
+    VebTree_MemoryStats_t (*get_memory_stats)(const_VebTree_Handle_t handle);
 
     /* Get the amount of currently allocated bytes */
-    size_t (*get_allocated_memory)(VebTree_Handle_t handle);
+    size_t (*get_allocated_memory)(const_VebTree_Handle_t handle);
 
     /* Get the current universe size */
-    size_t (*universe_size)(VebTree_Handle_t handle);
+    size_t (*universe_size)(const_VebTree_Handle_t handle);
 
     /* Set operations */
-    bool (*equals)(VebTree_Handle_t handle1, VebTree_Handle_t handle2);
+    bool (*equals)(const_VebTree_Handle_t handle1, const_VebTree_Handle_t handle2);
 
     /* Create intersection of two trees (elements in both) */
-    void (*intersection)(VebTree_Handle_t handle1, VebTree_Handle_t handle2);
+    void (*intersection)(VebTree_Handle_t handle1, const_VebTree_Handle_t handle2);
 
     /* Create union of two trees (elements in either) */
-    void (*union_op)(VebTree_Handle_t handle1, VebTree_Handle_t handle2);
+    void (*union_op)(VebTree_Handle_t handle1, const_VebTree_Handle_t handle2);
 
     /* Create symmetric difference of two trees (elements in exactly one) */
-    void (*symmetric_difference)(VebTree_Handle_t handle1, VebTree_Handle_t handle2);
+    void (*symmetric_difference)(VebTree_Handle_t handle1, const_VebTree_Handle_t handle2);
+
+    /* Move contents from src to dst: *dst = std::move(*src) */
+    void (*move)(VebTree_Handle_t dst, VebTree_Handle_t src);
 
     /* Destroy the handle */
     void (*destroy)(VebTree_Handle_t handle);
@@ -164,7 +168,7 @@ const VebTree_API_t* vebtree_get_api();
  * VebTree_Handle_t veb = vebtree_create(VEBTREE_STD, 100);
  * if (veb) {
  *     // Use the VEB...
- *     vebtree_get_api(veb)->insert(veb, 42);
+ *     vebtree_get_api()->insert(veb, 42);
  * }
  * // Safe cleanup - veb will be NULL after this
  * VEBTREE_DESTROY(veb);
@@ -175,12 +179,12 @@ const VebTree_API_t* vebtree_get_api();
  *
  * @param handle_ptr Pointer to the VebTree handle (will be set to NULL after destruction)
  */
-#define VEBTREE_DESTROY(handle_ptr)                           \
-    do {                                                      \
-        if ((handle_ptr) != NULL) {                           \
-            vebtree_get_api(handle_ptr)->destroy(handle_ptr); \
-            (handle_ptr) = NULL;                              \
-        }                                                     \
+#define VEBTREE_DESTROY(handle_ptr)                 \
+    do {                                            \
+        if ((handle_ptr) != NULL) {                 \
+            vebtree_get_api()->destroy(handle_ptr); \
+            (handle_ptr) = NULL;                    \
+        }                                           \
     } while (0)
 
 #ifdef __cplusplus

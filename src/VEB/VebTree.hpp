@@ -1,5 +1,5 @@
 /**
- * @brief van Emde Boas Tree implementation for sparse bitsets
+ * @brief van Emde Boas Tree implementation for dynamic bitsets
  * reference: https://en.wikipedia.org/wiki/Van_Emde_Boas_tree
  *
  * This implementation uses a recursive node cluster structure to store the elements.
@@ -69,8 +69,8 @@ static_assert(sizeof(Node64) == 24, "Node64 size is incorrect");
 class VebTree {
 private:
     using StorageType = std::variant<std::monostate, Node8, Node16, Node32, Node64>;
-    StorageType storage_;
-    mutable std::size_t allocated_{};
+    std::size_t allocated_{sizeof *this};
+    StorageType storage_{std::monostate{}};
 
     static inline StorageType create_storage(std::size_t x) {
         if (x <= Node8::universe_size()) {
@@ -126,17 +126,18 @@ public:
         std::size_t current_;
 
     public:
+        using iterator_concept = std::bidirectional_iterator_tag;
         using iterator_category = std::bidirectional_iterator_tag;
         using value_type = std::size_t;
         using difference_type = std::ptrdiff_t;
-        using pointer = std::size_t*;
-        using reference = std::size_t&;
+        using pointer = const std::size_t*;
+        using reference = const std::size_t&;
 
         inline explicit Iterator(const VebTree* tree, std::size_t current)
-            : tree_(tree), current_(current) {}
+            : tree_{tree}, current_{current} {}
 
         inline Iterator& operator++() {
-            current_ = tree_ ? tree_->successor(current_).value_or(SIZE_MAX) : SIZE_MAX;
+            current_ = tree_ != nullptr ? tree_->successor(current_).value_or(SIZE_MAX) : SIZE_MAX;
             return *this;
         }
 
@@ -147,7 +148,7 @@ public:
         }
 
         inline Iterator& operator--() {
-            current_ = tree_ ? tree_->predecessor(current_).value_or(SIZE_MAX) : SIZE_MAX;
+            current_ = tree_ != nullptr ? tree_->predecessor(current_).value_or(SIZE_MAX) : SIZE_MAX;
             return *this;
         }
 
@@ -165,7 +166,7 @@ public:
             return !(*this == other);
         }
 
-        constexpr std::size_t operator*() const {
+        constexpr reference operator*() const {
             return current_;
         }
     };
@@ -173,26 +174,21 @@ public:
     /**
      * @brief Constructs an empty VEB tree
      */
-    inline explicit VebTree() : storage_{std::monostate{}}, allocated_{sizeof *this} {}
+    inline explicit VebTree() {}
 
-    inline explicit VebTree(const VebTree& other) : storage_{std::monostate{}}, allocated_{sizeof *this} {
-        std::visit(
-            overload{
-                [](std::monostate) {},
-                [&](const Node8& s) {
-                    storage_ = s;
-                },
-                [&](const auto& s) {
-                    storage_ = s.clone(allocated_);
-                },
-            },
-            other.storage_
-        );
+    inline explicit VebTree(const VebTree& other)
+        : storage_{
+            std::visit(overload{
+                [](std::monostate) { return StorageType{std::monostate{}}; },
+                [](const Node8& s) { return StorageType{s}; },
+                [&](const auto& s) { return StorageType{s.clone(allocated_)}; },
+            }, other.storage_)
+        } {
     }
 
     inline VebTree(VebTree&& other) noexcept
-        : storage_(std::exchange(other.storage_, std::monostate{}))
-        , allocated_(std::exchange(other.allocated_, 0)) {
+        : allocated_{std::exchange(other.allocated_, 0)}
+        , storage_{std::exchange(other.storage_, std::monostate{})} {
     }
 
     inline VebTree& operator=(VebTree&& other) noexcept {
@@ -217,14 +213,14 @@ public:
                     storage_ = create_storage(x);
                 },
                 [&](Node8& s) {
-                    if (x > universe_size()) {
+                    if (x > s.universe_size()) {
                         grow_storage(x, allocated_);
                     } else {
                         s.insert(static_cast<Node8::index_t>(x));
                     }
                 },
                 [&](auto& s) {
-                    if (x > universe_size()) {
+                    if (x > s.universe_size()) {
                         grow_storage(x, allocated_);
                     } else {
                         s.insert(static_cast<index_t<decltype(s)>>(x), allocated_);
@@ -244,12 +240,12 @@ public:
             overload{
                 [](std::monostate) {},
                 [&](Node8& s) {
-                    if (x <= universe_size() && s.remove(static_cast<Node8::index_t>(x))) {
+                    if (x <= s.universe_size() && s.remove(static_cast<Node8::index_t>(x))) {
                         storage_ = std::monostate{};
                     }
                 },
                 [&](auto& s) {
-                    if (x <= universe_size() && s.remove(static_cast<index_t<decltype(s)>>(x), allocated_)) {
+                    if (x <= s.universe_size() && s.remove(static_cast<index_t<decltype(s)>>(x), allocated_)) {
                         s.destroy(allocated_);
                         storage_ = std::monostate{};
                     }
@@ -270,7 +266,7 @@ public:
             overload{
                 [](std::monostate) { return false; },
                 [&](const auto& s) {
-                    return x <= universe_size() && s.contains(static_cast<index_t<decltype(s)>>(x));
+                    return x <= s.universe_size() && s.contains(static_cast<index_t<decltype(s)>>(x));
                 },
             },
             storage_);
@@ -284,13 +280,16 @@ public:
      * Time complexity: O(log log U)
      */
     inline std::optional<std::size_t> successor(std::size_t x) const {
-        if (x >= universe_size()) {
-            return std::nullopt;
-        }
         return std::visit(
             overload{
                 [](std::monostate) -> std::optional<std::size_t> { return std::nullopt; },
                 [&](const auto& s) -> std::optional<std::size_t> {
+                    if (x >= s.universe_size()) {
+                        return std::nullopt;
+                    }
+                    if (x < s.min()) {
+                        return std::make_optional(static_cast<std::size_t>(s.min()));
+                    }
                     return s.successor(static_cast<index_t<decltype(s)>>(x))
                         .transform([](auto x) { return static_cast<std::size_t>(x); });
                 },
@@ -306,13 +305,16 @@ public:
      * Time complexity: O(log log U)
      */
     inline std::optional<std::size_t> predecessor(std::size_t x) const {
-        if (x > universe_size()) {
-            return max();
-        }
         return std::visit(
             overload{
                 [](std::monostate) -> std::optional<std::size_t> { return std::nullopt; },
                 [&](const auto& s) -> std::optional<std::size_t> {
+                    if (x == 0) {
+                        return std::nullopt;
+                    }
+                    if (x > s.universe_size()) {
+                        return s.max();
+                    }
                     return s.predecessor(static_cast<index_t<decltype(s)>>(x))
                         .transform([](auto x) { return static_cast<std::size_t>(x); });
                 },
@@ -396,8 +398,7 @@ public:
      * Time complexity: O(n)
      */
     inline std::vector<std::size_t> to_vector() const {
-        std::vector<std::size_t> v(begin(), end());
-        return v;
+        return {begin(), end()};
     }
 
     /**
@@ -459,7 +460,7 @@ public:
      * Time complexity: O(log log U) per node
      */
     inline VebTree operator&(const VebTree& other) const {
-        VebTree result(*this);
+        VebTree result{*this};
         result &= other;
         return result;
     }
@@ -472,7 +473,7 @@ public:
      * Time complexity: O(log log U) per node
      */
     inline VebTree operator|(const VebTree& other) const {
-        VebTree result(*this);
+        VebTree result{*this};
         result |= other;
         return result;
     }
@@ -485,7 +486,7 @@ public:
      * Time complexity: O((|this| + |other|) * log log U)
      */
     inline VebTree operator^(const VebTree& other) const {
-        VebTree result;
+        VebTree result{*this};
         result ^= other;
         return result;
     }
@@ -498,100 +499,179 @@ public:
      * Time complexity: O(log log U) per node
      */
     inline VebTree& operator&=(const VebTree& other) {
-        if (empty() || other.empty()) {
-            storage_ = std::monostate{};
-            return *this;
-        }
-
         std::visit(
             overload{
-                [](Node8& a, const Node8& b) -> void {
+                [](std::monostate, std::monostate) -> void {
+                },
+                [](std::monostate, const Node8&) -> void {
+                },
+                [](std::monostate, const Node16&) -> void {
+                },
+                [](std::monostate, const Node32&) -> void {
+                },
+                [](std::monostate, const Node64&) -> void {
+                },
+                [&](Node8&, std::monostate) -> void {
+                    storage_ = std::monostate{};
+                },
+                [&](Node16& a, std::monostate) -> void {
+                    a.destroy(allocated_);
+                    storage_ = std::monostate{};
+                },
+                [&](Node32& a, std::monostate) -> void {
+                    a.destroy(allocated_);
+                    storage_ = std::monostate{};
+                },
+                [&](Node64& a, std::monostate) -> void {
+                    a.destroy(allocated_);
+                    storage_ = std::monostate{};
+                },
+                [&](Node8& a, const Node8& b) -> void {
                     a.and_inplace(b);
+                    if (a.is_tombstone()) {
+                        storage_ = std::monostate{};
+                    }
                 },
                 [&](Node16& a, const Node16& b) -> void {
                     a.and_inplace(b, allocated_);
+                    if (a.is_tombstone()) {
+                        a.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    }
                 },
                 [&](Node32& a, const Node32& b) -> void {
                     a.and_inplace(b, allocated_);
+                    if (a.is_tombstone()) {
+                        a.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    }
                 },
                 [&](Node64& a, const Node64& b) -> void {
                     a.and_inplace(b, allocated_);
+                    if (a.is_tombstone()) {
+                        a.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    }
                 },
                 [&](Node8& a, const Node16& b) -> void {
                     auto a16{Node16{std::move(a), allocated_}};
                     a16.and_inplace(b, allocated_);
-                    storage_ = std::move(a16);
+                    if (a16.is_tombstone()) {
+                        a16.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    } else {
+                        storage_ = std::move(a16);
+                    }
                 },
                 [&](Node16& a, const Node8& b) -> void {
                     auto b16{Node16{b, allocated_}};
                     a.and_inplace(b16, allocated_);
+                    if (a.is_tombstone()) {
+                        a.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    }
                     b16.destroy(allocated_);
                 },
                 [&](Node8& a, const Node32& b) -> void {
                     auto a32{Node32{Node16{std::move(a), allocated_}, allocated_}};
                     a32.and_inplace(b, allocated_);
-                    storage_ = std::move(a32);
+                    if (a32.is_tombstone()) {
+                        a32.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    } else {
+                        storage_ = std::move(a32);
+                    }
                 },
                 [&](Node32& a, const Node8& b) -> void {
                     auto b32{Node32{Node16{b, allocated_}, allocated_}};
                     a.and_inplace(b32, allocated_);
+                    if (a.is_tombstone()) {
+                        a.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    }
                     b32.destroy(allocated_);
                 },
                 [&](Node16& a, const Node32& b) -> void {
                     auto a32{Node32{std::move(a), allocated_}};
                     a32.and_inplace(b, allocated_);
-                    storage_ = std::move(a32);
+                    if (a32.is_tombstone()) {
+                        a32.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    } else {
+                        storage_ = std::move(a32);
+                    }
                 },
                 [&](Node32& a, const Node16& b) -> void {
                     auto b32{Node32{b.clone(allocated_), allocated_}};
                     a.and_inplace(b32, allocated_);
+                    if (a.is_tombstone()) {
+                        a.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    }
                     b32.destroy(allocated_);
                 },
                 [&](Node8& a, const Node64& b) -> void {
                     auto a64{Node64{Node32{Node16{std::move(a), allocated_}, allocated_}, allocated_}};
                     a64.and_inplace(b, allocated_);
-                    storage_ = std::move(a64);
+                    if (a64.is_tombstone()) {
+                        a64.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    } else {
+                        storage_ = std::move(a64);
+                    }
                 },
                 [&](Node64& a, const Node8& b) -> void {
                     auto b64{Node64{Node32{Node16{b, allocated_}, allocated_}, allocated_}};
                     a.and_inplace(b64, allocated_);
+                    if (a.is_tombstone()) {
+                        a.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    }
                     b64.destroy(allocated_);
                 },
                 [&](Node16& a, const Node64& b) -> void {
                     auto a64{Node64{Node32{std::move(a), allocated_}, allocated_}};
                     a64.and_inplace(b, allocated_);
-                    storage_ = std::move(a64);
+                    if (a64.is_tombstone()) {
+                        a64.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    } else {
+                        storage_ = std::move(a64);
+                    }
                 },
                 [&](Node64& a, const Node16& b) -> void {
                     auto b64{Node64{Node32{b.clone(allocated_), allocated_}, allocated_}};
                     a.and_inplace(b64, allocated_);
+                    if (a.is_tombstone()) {
+                        a.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    }
                     b64.destroy(allocated_);
                 },
                 [&](Node32& a, const Node64& b) -> void {
                     auto a64{Node64{std::move(a), allocated_}};
                     a64.and_inplace(b, allocated_);
-                    storage_ = std::move(a64);
+                    if (a64.is_tombstone()) {
+                        a64.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    } else {
+                        storage_ = std::move(a64);
+                    }
                 },
                 [&](Node64& a, const Node32& b) -> void {
                     auto b64{Node64{b.clone(allocated_), allocated_}};
                     a.and_inplace(b64, allocated_);
-                    b64.destroy(allocated_);
-                },
-                [](auto&&, auto&&) {}
-            },
-            storage_, other.storage_
-        );
-
-        std::visit(
-            overload{
-                [](std::monostate) {},
-                [&](auto& node) {
-                    if (node.is_tombstone()) {
+                    if (a.is_tombstone()) {
+                        a.destroy(allocated_);
                         storage_ = std::monostate{};
                     }
+                    b64.destroy(allocated_);
                 },
+                [](auto&&, auto&&) -> void {
+                    std::unreachable();
+                }
             },
-            storage_
+            storage_, other.storage_
         );
 
         return *this;
