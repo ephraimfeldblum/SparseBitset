@@ -35,7 +35,7 @@ def generate_benchmark_data(filename, count, universe):
     print(f"Data generated in {filename}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate benchmark data for sparse bitsets.")
+    parser = argparse.ArgumentParser(description="Generate benchmark data for veb bitsets.")
     parser.add_argument('--count', type=int, default=1_000_000, help='Number of elements to generate.')
     args = parser.parse_args()
 

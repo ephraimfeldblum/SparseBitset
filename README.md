@@ -1,10 +1,10 @@
 # Redis Bitset Module
 
-A Redis module that provides efficient sparse bitset operations using van Emde Boas (VEB) trees. This module allows you to store and manipulate large sparse bitsets with excellent performance characteristics.
+A Redis module that provides efficient bitset operations using van Emde Boas (VEB) trees. This module allows you to store and manipulate large bitsets with excellent performance characteristics.
 
 ## Features
 
-- **Sparse bitset operations**: Efficiently handle bitsets with large gaps between set bits
+- **Dynamic bitset operations**: Efficiently handle bitsets with large gaps between set bits
 - **VEB tree backend**: O(log log U) time complexity, where U is the universe size
 - **Set operations**: Union, intersection, symmetric difference (XOR)
 - **Range queries**: Find all set bits in a given range
@@ -229,7 +229,7 @@ redis-cli BITS.POS postest 0 2 8 BIT
 
 ## Implementation Details
 
-The module uses van Emde Boas trees as the underlying data structure, which provides excellent performance for sparse bitsets. The VEB tree recursively divides the universe into clusters, allowing for very fast operations even with large universe sizes.
+The module uses van Emde Boas trees as the underlying data structure, which provides excellent performance for dynamic bitsets. The VEB tree recursively divides the universe into clusters, allowing for very fast operations even with large universe sizes.
 
 ## License
 

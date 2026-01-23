@@ -133,7 +133,6 @@ static void vebtree_symmetric_difference(VebTree_Handle_t handle1, VebTree_Handl
 
 static void vebtree_move(VebTree_Handle_t dst, VebTree_Handle_t src) {
     assert(dst && src);
-    // Move-assign the VebTree: *dst = std::move(*src)
     *dst = std::move(*src);
 }
 

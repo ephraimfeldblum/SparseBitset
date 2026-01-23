@@ -167,7 +167,7 @@ const VebTree_API_t* vebtree_get_api();
  * VebTree_Handle_t veb = vebtree_create(VEBTREE_STD, 100);
  * if (veb) {
  *     // Use the VEB...
- *     vebtree_get_api(veb)->insert(veb, 42);
+ *     vebtree_get_api()->insert(veb, 42);
  * }
  * // Safe cleanup - veb will be NULL after this
  * VEBTREE_DESTROY(veb);
@@ -178,12 +178,12 @@ const VebTree_API_t* vebtree_get_api();
  *
  * @param handle_ptr Pointer to the VebTree handle (will be set to NULL after destruction)
  */
-#define VEBTREE_DESTROY(handle_ptr)                           \
-    do {                                                      \
-        if ((handle_ptr) != NULL) {                           \
-            vebtree_get_api(handle_ptr)->destroy(handle_ptr); \
-            (handle_ptr) = NULL;                              \
-        }                                                     \
+#define VEBTREE_DESTROY(handle_ptr)                 \
+    do {                                            \
+        if ((handle_ptr) != NULL) {                 \
+            vebtree_get_api()->destroy(handle_ptr); \
+            (handle_ptr) = NULL;                    \
+        }                                           \
     } while (0)
 
 #ifdef __cplusplus

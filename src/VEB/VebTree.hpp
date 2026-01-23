@@ -1,5 +1,5 @@
 /**
- * @brief van Emde Boas Tree implementation for sparse bitsets
+ * @brief van Emde Boas Tree implementation for dynamic bitsets
  * reference: https://en.wikipedia.org/wiki/Van_Emde_Boas_tree
  *
  * This implementation uses a recursive node cluster structure to store the elements.

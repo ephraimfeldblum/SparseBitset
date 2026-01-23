@@ -1,5 +1,5 @@
 # Makefile for Redis Bitset Module
-# This builds a Redis module that provides sparse bitset operations using VEB trees
+# This builds a Redis module that provides bitset operations using VEB trees
 
 # Module name and version
 MODULE_NAME = bitset
@@ -121,7 +121,7 @@ test:
 
 # Build the Docker image used for tests
 docker-build-image:
-	docker build -t sparsebitset:test .
+	docker build -t vebitset:test .
 
 # Run RLTest-based flow tests inside Docker and store logs inside the repo
 # Usage: make docker-test

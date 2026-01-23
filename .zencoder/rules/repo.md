@@ -3,10 +3,10 @@ description: Repository Information Overview
 alwaysApply: true
 ---
 
-# SparseBit Information
+# vEBitset Information
 
 ## Summary
-SparseBit is a Redis module that provides efficient sparse bitset operations using van Emde Boas (VEB) trees. It allows for high-performance manipulation of large bitsets with significant gaps between set bits, offering O(log log U) time complexity for most operations.
+vEBitset is a Redis module that provides efficient bitset operations using van Emde Boas (VEB) trees. It allows for high-performance manipulation of large bitsets with significant gaps between set bits, offering O(log log U) time complexity for most operations.
 
 ## Structure
 - **src/**: Contains the main Redis module implementation (`bitset_module.c`) and Redis module header.

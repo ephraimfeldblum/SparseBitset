@@ -8,7 +8,7 @@ if [ -n "${BASH_SOURCE[0]:-}" ]; then
 else
   PROJECT_DIR="$(pwd)"
 fi
-VENV_DIR="${VENV_DIR:-$HOME/.cache/sparsebitset_rltest_venv}"
+VENV_DIR="${VENV_DIR:-$HOME/.cache/vebitset_rltest_venv}"
 PYTHON_BIN="$(command -v python3 || command -v python || true)"
 
 # Create virtual environment if it does not exist

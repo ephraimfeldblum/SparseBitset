@@ -5,12 +5,11 @@ from RLTest import Env
 def test_fuzz_basic_ops(env: Env):
     """Randomized testing for basic bitset operations"""
     seed = int(os.environ.get('FUZZ_SEED', '42'))
-    iterations = int(os.environ.get('FUZZ_ITER', '200'))
+    num_iterations = int(os.environ.get('FUZZ_ITER', '200'))
     random.seed(seed)
     ref_sets = {}
     key_prefix = "fuzz_set_"
     num_sets = 5
-    num_iterations = 100
     max_val = 1000
 
     def get_ref(key):
@@ -84,12 +83,11 @@ def test_fuzz_basic_ops(env: Env):
 def test_fuzz_set_ops(env: Env):
     """Randomized testing for set operations (AND, OR, XOR)"""
     seed = int(os.environ.get('FUZZ_SEED', '42'))
-    iterations = int(os.environ.get('FUZZ_ITER', '200'))
+    num_iterations = int(os.environ.get('FUZZ_ITER', '200'))
     random.seed(seed)
     ref_sets = {}
     key_prefix = "fuzz_op_set_"
     num_sets = 5
-    num_iterations = 50
     max_val = 500
 
     for i in range(num_sets):
@@ -138,13 +136,13 @@ def test_fuzz_extended(env: Env):
     Keep default iterations small to avoid long CI runs; can be increased locally.
     """
     seed = int(os.environ.get('FUZZ_SEED', '42'))
-    iterations = int(os.environ.get('FUZZ_ITER', '200'))
+    num_iterations = int(os.environ.get('FUZZ_ITER', '200'))
     random.seed(seed)
 
     ref = set()
     key = 'fuzz_ext'
 
-    for i in range(iterations):
+    for i in range(num_iterations):
         op = random.choice(['INS', 'REM', 'GET', 'COUNT'])
         if op == 'INS':
             vals = [random.randint(0, 2000) for _ in range(random.randint(1, 10))]

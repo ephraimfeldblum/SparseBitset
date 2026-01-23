@@ -15,8 +15,8 @@ def test_replica_sync(env: Env):
         env.skip()
 
     # write on master
-    sparse_replica = [i for i in range(5000)]
-    env.cmd("BITS.INSERT", "repl", *sparse_replica)
+    veb_replica = [i for i in range(5000)]
+    env.cmd("BITS.INSERT", "repl", *veb_replica)
 
     # ask the master to wait until 1 replica has the write (5-second timeout)
     env.cmd("WAIT", 1, 10000)
