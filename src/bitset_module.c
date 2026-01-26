@@ -517,17 +517,32 @@ static int bits_op_command(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
     if (op_type == 1) { // OR operation
         for (int i = 3; i < argc; i++) {
-            VebTree_Handle_t src = get_bitset_key(ctx, argv[i], REDISMODULE_READ, NULL);
+            int src_err = 0;
+            VebTree_Handle_t src = get_bitset_key(ctx, argv[i], REDISMODULE_READ, &src_err);
+            if (src_err) {
+                api->destroy(result_handle);
+                return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+            }
             if (src) {
                 api->union_op(result_handle, src);
             }
         }
     } else if (op_type == 0) { // AND operation
-        VebTree_Handle_t first_src = get_bitset_key(ctx, argv[3], REDISMODULE_READ, NULL);
+        int src_err = 0;
+        VebTree_Handle_t first_src = get_bitset_key(ctx, argv[3], REDISMODULE_READ, &src_err);
+        if (src_err) {
+            api->destroy(result_handle);
+            return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+        }
         if (first_src) {
             api->union_op(result_handle, first_src);
             for (int i = 4; i < argc; i++) {
-                VebTree_Handle_t src = get_bitset_key(ctx, argv[i], REDISMODULE_READ, NULL);
+                src_err = 0;
+                VebTree_Handle_t src = get_bitset_key(ctx, argv[i], REDISMODULE_READ, &src_err);
+                if (src_err) {
+                    api->destroy(result_handle);
+                    return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+                }
                 if (src) {
                     api->intersection(result_handle, src);
                 } else {
@@ -537,12 +552,22 @@ static int bits_op_command(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
             }
         }
     } else if (op_type == 2) { // XOR operation
-        VebTree_Handle_t first_src = get_bitset_key(ctx, argv[3], REDISMODULE_READ, NULL);
+        int src_err = 0;
+        VebTree_Handle_t first_src = get_bitset_key(ctx, argv[3], REDISMODULE_READ, &src_err);
+        if (src_err) {
+            api->destroy(result_handle);
+            return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+        }
         if (first_src) {
             api->union_op(result_handle, first_src);
         }
         for (int i = 4; i < argc; i++) {
-            VebTree_Handle_t src = get_bitset_key(ctx, argv[i], REDISMODULE_READ, NULL);
+            src_err = 0;
+            VebTree_Handle_t src = get_bitset_key(ctx, argv[i], REDISMODULE_READ, &src_err);
+            if (src_err) {
+                api->destroy(result_handle);
+                return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+            }
             if (src) {
                 api->symmetric_difference(result_handle, src);
             }

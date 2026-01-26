@@ -25,6 +25,10 @@ def test_wrong_type(env: Env):
     env.expect('BITS.TOARRAY', 'strkey').error().contains('WRONGTYPE')
     env.expect('BITS.POS', 'strkey', 1).error().contains('WRONGTYPE')
     env.expect('BITS.INFO', 'strkey').error().contains('WRONGTYPE')
+    env.expect('BITS.OP', 'OR', 'dest', 'strkey').error().contains('WRONGTYPE')
+    env.expect('BITS.OP', 'AND', 'dest', 'strkey').error().contains('WRONGTYPE')
+    env.expect('BITS.OP', 'XOR', 'dest', 'strkey').error().contains('WRONGTYPE')
+    env.expect('BITS.OP', 'OR', 'strkey', 'bitset').error().contains('WRONGTYPE')
 
 
 def test_invalid_bits_set_value(env: Env):

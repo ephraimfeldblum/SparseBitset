@@ -223,3 +223,113 @@ def test_bitop_dest_is_source(env: Env):
     env.cmd("BITS.INSERT", "s4", 3, 5)
     env.assertEqual(env.cmd("BITS.OP", "XOR", "s1", "s1", "s4"), 1)
     env.assertEqual(env.cmd("BITS.TOARRAY", "s1"), [5])
+
+
+def test_set_ops_type_promotion(env: Env):
+    """Test set operations between different node types (Node8, Node16, Node32)"""
+    # Node8 (0-255)
+    env.cmd("BITS.INSERT", "s8", 1, 10, 200)
+    # Node16 (256-65535)
+    env.cmd("BITS.INSERT", "s16", 300, 1000, 60000)
+    # Node32 (> 65535)
+    env.cmd("BITS.INSERT", "s32", 70000, 100000, 1000000)
+
+    # OR s8 | s16 -> should promote to Node16
+    env.cmd("BITS.OP", "OR", "res8_16", "s8", "s16")
+    env.assertEqual(env.cmd("BITS.TOARRAY", "res8_16"), [1, 10, 200, 300, 1000, 60000])
+
+    # OR s16 | s32 -> should promote to Node32
+    env.cmd("BITS.OP", "OR", "res16_32", "s16", "s32")
+    env.assertEqual(env.cmd("BITS.TOARRAY", "res16_32"), [300, 1000, 60000, 70000, 100000, 1000000])
+
+    # AND s8 & s32 -> should be empty
+    env.assertEqual(env.cmd("BITS.OP", "AND", "res8_32", "s8", "s32"), 0)
+    env.assertEqual(env.cmd("BITS.TOARRAY", "res8_32"), [])
+
+    # XOR s8 ^ s32 -> should contain both
+    env.cmd("BITS.OP", "XOR", "res8_32_xor", "s8", "s32")
+    env.assertEqual(env.cmd("BITS.TOARRAY", "res8_32_xor"), [1, 10, 200, 70000, 100000, 1000000])
+
+
+def test_set_ops_boundary_overlaps(env: Env):
+    """Test set operations where min/max boundaries overlap in interesting ways"""
+    # Set A: [10, 20, 30]
+    env.cmd("BITS.INSERT", "A_overlap", 10, 20, 30)
+    # Set B: [5, 10, 25, 30, 35]
+    env.cmd("BITS.INSERT", "B_overlap", 5, 10, 25, 30, 35)
+
+    # Intersection: [10, 30] - notice these are min/max of A and middle values of B
+    env.cmd("BITS.OP", "AND", "inter_overlap", "A_overlap", "B_overlap")
+    env.assertEqual(env.cmd("BITS.TOARRAY", "inter_overlap"), [10, 30])
+
+    # XOR: [5, 20, 25, 35]
+    env.cmd("BITS.OP", "XOR", "xor_overlap", "A_overlap", "B_overlap")
+    env.assertEqual(env.cmd("BITS.TOARRAY", "xor_overlap"), [5, 20, 25, 35])
+
+
+def test_set_ops_identical_sets(env: Env):
+    """Test set operations between identical sets"""
+    vals = [1, 100, 10000, 1000000]
+    env.cmd("BITS.INSERT", "ident_s1", *vals)
+    env.cmd("BITS.INSERT", "ident_s2", *vals)
+
+    # AND identical -> same set
+    env.cmd("BITS.OP", "AND", "res_and_ident", "ident_s1", "ident_s2")
+    env.assertEqual(env.cmd("BITS.TOARRAY", "res_and_ident"), vals)
+
+    # OR identical -> same set
+    env.cmd("BITS.OP", "OR", "res_or_ident", "ident_s1", "ident_s2")
+    env.assertEqual(env.cmd("BITS.TOARRAY", "res_or_ident"), vals)
+
+    # XOR identical -> empty set
+    env.assertEqual(env.cmd("BITS.OP", "XOR", "res_xor_ident", "ident_s1", "ident_s2"), 0)
+    env.assertEqual(env.cmd("BITS.TOARRAY", "res_xor_ident"), [])
+
+
+def test_set_ops_subset_superset(env: Env):
+    """Test set operations where one is a subset of another"""
+    subset = [10, 20]
+    superset = [5, 10, 15, 20, 25]
+    env.cmd("BITS.INSERT", "sub_test", *subset)
+    env.cmd("BITS.INSERT", "super_test", *superset)
+
+    # AND -> subset
+    env.cmd("BITS.OP", "AND", "res_and_sub", "sub_test", "super_test")
+    env.assertEqual(env.cmd("BITS.TOARRAY", "res_and_sub"), subset)
+
+    # OR -> superset
+    env.cmd("BITS.OP", "OR", "res_or_sub", "sub_test", "super_test")
+    env.assertEqual(env.cmd("BITS.TOARRAY", "res_or_sub"), superset)
+
+    # XOR -> elements only in super
+    env.cmd("BITS.OP", "XOR", "res_xor_sub", "sub_test", "super_test")
+    env.assertEqual(env.cmd("BITS.TOARRAY", "res_xor_sub"), [5, 15, 25])
+
+
+def test_set_ops_many_large_values(env: Env):
+    """Test set operations with large number of values to trigger node growth/FAM logic"""
+    s1_vals = []
+    s2_vals = []
+    for i in range(100):
+        s1_vals.append(i * 256 + 1)
+        s2_vals.append(i * 256 + 1)
+        s1_vals.append(i * 256 + 2)
+        s2_vals.append(i * 256 + 3)
+
+    env.cmd("BITS.INSERT", "many_s1", *s1_vals)
+    env.cmd("BITS.INSERT", "many_s2", *s2_vals)
+
+    # AND
+    env.cmd("BITS.OP", "AND", "res_and_many", "many_s1", "many_s2")
+    expected_and = sorted(set(s1_vals) & set(s2_vals))
+    env.assertEqual(env.cmd("BITS.TOARRAY", "res_and_many"), expected_and)
+
+    # OR
+    env.cmd("BITS.OP", "OR", "res_or_many", "many_s1", "many_s2")
+    expected_or = sorted(set(s1_vals) | set(s2_vals))
+    env.assertEqual(env.cmd("BITS.TOARRAY", "res_or_many"), expected_or)
+
+    # XOR
+    env.cmd("BITS.OP", "XOR", "res_xor_many", "many_s1", "many_s2")
+    expected_xor = sorted(set(s1_vals) ^ set(s2_vals))
+    env.assertEqual(env.cmd("BITS.TOARRAY", "res_xor_many"), expected_xor)
