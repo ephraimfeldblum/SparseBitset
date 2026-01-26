@@ -773,28 +773,25 @@ public:
             overload{
                 [](std::monostate, std::monostate) -> void {
                 },
-                [](std::monostate, const Node8&) -> void {
+                [&](std::monostate, const Node8& b) -> void {
+                    storage_ = b;
                 },
-                [](std::monostate, const Node16&) -> void {
+                [&](std::monostate, const Node16& b) -> void {
+                    storage_ = b.clone(allocated_);
                 },
-                [](std::monostate, const Node32&) -> void {
+                [&](std::monostate, const Node32& b) -> void {
+                    storage_ = b.clone(allocated_);
                 },
-                [](std::monostate, const Node64&) -> void {
+                [&](std::monostate, const Node64& b) -> void {
+                    storage_ = b.clone(allocated_);
                 },
-                [&](Node8&, std::monostate) -> void {
-                    storage_ = std::monostate{};
+                [](Node8&, std::monostate) -> void {
                 },
-                [&](Node16& a, std::monostate) -> void {
-                    a.destroy(allocated_);
-                    storage_ = std::monostate{};
+                [](Node16&, std::monostate) -> void {
                 },
-                [&](Node32& a, std::monostate) -> void {
-                    a.destroy(allocated_);
-                    storage_ = std::monostate{};
+                [](Node32&, std::monostate) -> void {
                 },
-                [&](Node64& a, std::monostate) -> void {
-                    a.destroy(allocated_);
-                    storage_ = std::monostate{};
+                [](Node64&, std::monostate) -> void {
                 },
                 [&](Node8& a, const Node8& b) -> void {
                     if (a.xor_inplace(b)) {

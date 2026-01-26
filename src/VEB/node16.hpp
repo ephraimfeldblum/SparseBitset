@@ -657,7 +657,7 @@ public:
                     const bool in_s = s_summary.contains(*idx);
                     const bool in_o = o_summary.contains(*idx);
                     if (in_s && in_o) {
-                        if (auto& xor_cluster{s_clusters[i++]}; xor_cluster.xor_inplace(o_clusters[j])) {
+                        if (auto& xor_cluster{s_clusters[i++]}; xor_cluster.xor_inplace(o_clusters[j++])) {
                             if (new_summary.remove(*idx)) {
                                 a.deallocate(reinterpret_cast<subnode_t*>(new_data), max_size + 1);
                                 new_data = nullptr;
