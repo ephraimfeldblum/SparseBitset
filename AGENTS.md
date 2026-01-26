@@ -16,7 +16,7 @@
 - [tests/flow](tests/flow): python test suite (rltest) exercising module behavior and persistence.
 
 **How to Build & Test (quick reference)**
-- Build locally (WSL recommended on Windows): `make`
+- Build locally (using WSL or docker is required on Windows): `make`
 - Run full tests: `make test`
 - Run a single flow test quickly: `make test QUICK=1 TEST=test_set_operations`
 - Example Windows/WSL invocation used in this workspace:

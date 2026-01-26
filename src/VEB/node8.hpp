@@ -11,6 +11,14 @@
 #include <optional>  // std::nullopt, std::optional
 #include <utility>   // std::pair, std::unreachable
 
+#if defined(__AVX2__)
+#include "immintrin.h"
+#define NODE8_AVX2_ENABLED
+#define NODE8_ALIGNMENT alignas(32)
+#else
+#define NODE8_ALIGNMENT
+#endif
+
 #include "VebCommon.hpp"
 
 /* Node8:
@@ -31,7 +39,7 @@ private:
     static constexpr int bits_per_word{std::numeric_limits<std::uint64_t>::digits};
     static constexpr int num_words{256 / bits_per_word};
 
-    std::array<std::uint64_t, num_words> bits_ = {};
+    NODE8_ALIGNMENT std::array<std::uint64_t, num_words> bits_{};
 
     static constexpr std::pair<subindex_t, subindex_t> decompose(index_t x) {
         return {x / bits_per_word, x % bits_per_word};
@@ -40,8 +48,22 @@ private:
         return static_cast<index_t>(word * bits_per_word + bit);
     }
 
+#ifdef NODE8_AVX2_ENABLED
+    constexpr inline __m256i load() const {
+        return _mm256_load_si256(reinterpret_cast<const __m256i*>(bits_.data()));
+    }
+    constexpr inline void store(__m256i v) {
+        _mm256_store_si256(reinterpret_cast<__m256i*>(bits_.data()), v);
+    }
+#endif
+
     constexpr inline bool empty() const {
+#ifdef NODE8_AVX2_ENABLED
+        const __m256i v = load();
+        return _mm256_testz_si256(v, v);
+#else
         return std::ranges::all_of(bits_, [](std::uint64_t word) { return word == 0; });
+#endif
     }
     
 public:
@@ -167,40 +189,80 @@ public:
         return {0, 0, 1};
     }
 
+    // Truth table for set operations:
+    //
+    //  A | B | -A | A U B | A & B | A ^ B | A \ B 
+    // --------------------------------------------
+    //  0 | 0 |  1 |   0   |   0   |   1   |   0
+    //  0 | 1 |  1 |   1   |   0   |   0   |   0
+    //  1 | 0 |  0 |   1   |   0   |   1   |   1
+    //  1 | 1 |  0 |   1   |   1   |   0   |   0
+
     constexpr inline bool not_inplace() {
+#ifdef NODE8_AVX2_ENABLED
+        const __m256i v{load()};
+        const __m256i ones{_mm256_set1_epi64x(-1LL)};
+        const __m256i not_v{_mm256_xor_si256(v, ones)};
+        store(not_v);
+#else
         for (std::size_t i{}; i < num_words; ++i) {
             bits_[i] = ~bits_[i];
         }
-        return false;
+#endif
+        return empty();
     }
     constexpr inline bool or_inplace(const Node8& other) {
+#ifdef NODE8_AVX2_ENABLED
+        const __m256i v1{load()};
+        const __m256i v2{other.load()};
+        const __m256i or_v{_mm256_or_si256(v1, v2)};
+        store(or_v);
+#else
         for (std::size_t i{}; i < num_words; ++i) {
             bits_[i] |= other.bits_[i];
         }
+#endif
+        // no need to check for emptiness, oring can only ever grow a set
         return false;
     }
     constexpr inline bool xor_inplace(const Node8& other) {
+#ifdef NODE8_AVX2_ENABLED
+        const __m256i v1{load()};
+        const __m256i v2{other.load()};
+        const __m256i xor_v{_mm256_xor_si256(v1, v2)};
+        store(xor_v);
+#else
         for (std::size_t i{}; i < num_words; ++i) {
             bits_[i] ^= other.bits_[i];
         }
+#endif
         return empty();
     }
     constexpr inline bool and_inplace(const Node8& other) {
+#ifdef NODE8_AVX2_ENABLED
+        const __m256i v1{load()};
+        const __m256i v2{other.load()};
+        const __m256i and_v{_mm256_and_si256(v1, v2)};
+        store(and_v);
+#else
         for (std::size_t i{}; i < num_words; ++i) {
             bits_[i] &= other.bits_[i];
         }
+#endif
         return empty();
     }
+    // difference: A \ B
     constexpr inline bool and_not_inplace(const Node8& other) {
+#ifdef NODE8_AVX2_ENABLED
+        const __m256i v1{load()};
+        const __m256i v2{other.load()};
+        const __m256i andnot_v{_mm256_andnot_si256(v2, v1)};
+        store(andnot_v);
+#else
         for (std::size_t i{}; i < num_words; ++i) {
             bits_[i] &= ~other.bits_[i];
         }
-        return empty();
-    }
-    constexpr inline bool diff_inplace(const Node8& other) {
-        for (std::size_t i{}; i < num_words; ++i) {
-            bits_[i] = (bits_[i] | other.bits_[i]) & ~(bits_[i] & other.bits_[i]);
-        }
+#endif
         return empty();
     }
 };
