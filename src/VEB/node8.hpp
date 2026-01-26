@@ -39,6 +39,10 @@ private:
     static constexpr index_t index(subindex_t word, subindex_t bit) {
         return static_cast<index_t>(word * bits_per_word + bit);
     }
+
+    constexpr inline bool empty() const {
+        return std::ranges::all_of(bits_, [](std::uint64_t word) { return word == 0; });
+    }
     
 public:
     constexpr inline index_t get_cluster_index(index_t key) const {
@@ -56,9 +60,6 @@ public:
     constexpr inline explicit Node8(index_t x) {
         const auto [word_idx, bit_idx] {decompose(x)};
         bits_[word_idx] |= (1ULL << bit_idx);
-    }
-    constexpr inline explicit Node8(const std::array<std::uint64_t, num_words>& bits)
-        : bits_{bits} {
     }
 
     static constexpr inline std::size_t universe_size() {
@@ -98,7 +99,7 @@ public:
         }
         bits_[word_idx] &= ~(1ULL << bit_idx);
 
-        return std::ranges::all_of(bits_, [](std::uint64_t word) { return word == 0; });
+        return empty();
     }
 
     constexpr inline bool contains(index_t x) const {
@@ -166,45 +167,41 @@ public:
         return {0, 0, 1};
     }
 
-    constexpr inline bool is_tombstone() const {
-        return size() == 0;
-    }
-
-    constexpr inline decltype(auto) not_inplace(this auto&& self) {
+    constexpr inline bool not_inplace() {
         for (std::size_t i{}; i < num_words; ++i) {
-            self.bits_[i] = ~self.bits_[i];
+            bits_[i] = ~bits_[i];
         }
-        return std::forward<decltype(self)>(self);
+        return false;
     }
-    constexpr inline decltype(auto) and_inplace(this auto&& self, const Node8& other) {
+    constexpr inline bool or_inplace(const Node8& other) {
         for (std::size_t i{}; i < num_words; ++i) {
-            self.bits_[i] &= other.bits_[i];
+            bits_[i] |= other.bits_[i];
         }
-        return std::forward<decltype(self)>(self);
+        return false;
     }
-    constexpr inline decltype(auto) and_not_inplace(this auto&& self, const Node8& other) {
+    constexpr inline bool xor_inplace(const Node8& other) {
         for (std::size_t i{}; i < num_words; ++i) {
-            self.bits_[i] &= ~other.bits_[i];
+            bits_[i] ^= other.bits_[i];
         }
-        return std::forward<decltype(self)>(self);
+        return empty();
     }
-    constexpr inline decltype(auto) or_inplace(this auto&& self, const Node8& other) {
+    constexpr inline bool and_inplace(const Node8& other) {
         for (std::size_t i{}; i < num_words; ++i) {
-            self.bits_[i] |= other.bits_[i];
+            bits_[i] &= other.bits_[i];
         }
-        return std::forward<decltype(self)>(self);
+        return empty();
     }
-    constexpr inline decltype(auto) xor_inplace(this auto&& self, const Node8& other) {
+    constexpr inline bool and_not_inplace(const Node8& other) {
         for (std::size_t i{}; i < num_words; ++i) {
-            self.bits_[i] ^= other.bits_[i];
+            bits_[i] &= ~other.bits_[i];
         }
-        return std::forward<decltype(self)>(self);
+        return empty();
     }
-    constexpr inline decltype(auto) diff_inplace(this auto&& self, const Node8& other) {
+    constexpr inline bool diff_inplace(const Node8& other) {
         for (std::size_t i{}; i < num_words; ++i) {
-            self.bits_[i] = (self.bits_[i] | other.bits_[i]) & ~(self.bits_[i] & other.bits_[i]);
+            bits_[i] = (bits_[i] | other.bits_[i]) & ~(bits_[i] & other.bits_[i]);
         }
-        return std::forward<decltype(self)>(self);
+        return empty();
     }
 };
 
