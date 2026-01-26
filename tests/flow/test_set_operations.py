@@ -28,7 +28,7 @@ def test_n16_set_operations(env: Env):
     and_expected = sorted(set(src1).intersection(set(src2)))
     xor_expected = sorted(set(src1).symmetric_difference(set(src2)))
 
-    env_expected.cmd("BITS.OP", "OR", "n16_union", "n16_set1", "n16_set2")
+    env.cmd("BITS.OP", "OR", "n16_union", "n16_set1", "n16_set2")
     env.assertEqual(env.cmd("BITS.TOARRAY", "n16_union"), or_expected)
 
     env.cmd("BITS.OP", "AND", "n16_intersection", "n16_set1", "n16_set2")
@@ -48,7 +48,7 @@ def test_minmax(env: Env):
     and_expected = sorted(set(src1).intersection(set(src2)))
     xor_expected = sorted(set(src1).symmetric_difference(set(src2)))
 
-    env_expected.cmd("BITS.OP", "OR", "dest", "A", "B")
+    env.cmd("BITS.OP", "OR", "dest", "A", "B")
     env.assertEqual(env.cmd("BITS.TOARRAY", "dest"), or_expected)
 
     env.cmd("BITS.OP", "AND", "dest", "A", "B")

@@ -356,40 +356,70 @@ public:
     }
 
     constexpr inline bool and_inplace(const Node64& other, std::size_t& alloc) {
-        if (min_ >= other.max_ || max_ <= other.min_ || cluster_data_ == nullptr || other.cluster_data_ == nullptr) {
+        const auto i_min{std::max(min_, other.min_)};
+        const auto i_max{std::min(max_, other.max_)};
+        const auto new_min{contains(i_min) && other.contains(i_min) ? std::make_optional(i_min) : std::nullopt};
+        const auto new_max{contains(i_max) && other.contains(i_max) ? std::make_optional(i_max) : std::nullopt};
+
+        const auto update_minmax = [&] {
             destroy(alloc);
-        } else {
-            auto& s_summary{cluster_data_->summary};
-            auto& s_clusters{cluster_data_->clusters};
-            const auto& o_summary{other.cluster_data_->summary};
-            const auto& o_clusters{other.cluster_data_->clusters};
-            
-            // pre compute summary intersection. if empty, we are done
-            // makes iterating clusters easier as we only need to consider clusters in s_summary
-            // avoids cloning the summary unnecessarily
-            if (s_summary.and_inplace(o_summary, alloc)) {
-                destroy(alloc);
-            } else {       
-                for (auto s_it{s_clusters.begin()}; s_it != s_clusters.end(); ) {
-                    auto& [key, cluster] = *s_it;
-                    // if the summary no longer contains this cluster, it was removed during the intersection
-                    if (!s_summary.contains(key) || cluster.and_inplace(o_clusters.find(key)->second, alloc)) {
-                        cluster.destroy(alloc);
-                        s_it = s_clusters.erase(s_it);
-                        if (s_summary.remove(key, alloc)) {
-                            // early exit here. s_clusters still might contian nodes that will be removed unconditionally in destroy.
-                            destroy(alloc);
-                            break;
-                        }
-                    } else {
-                        ++s_it;
-                    }
+            if (new_min.has_value() && new_max.has_value()) {
+                min_ = new_min.value();
+                max_ = new_max.value();
+                return false;
+            }
+            if (new_min.has_value()) {
+                min_ = max_ = new_min.value();
+                return false;
+            }
+            if (new_max.has_value()) {
+                min_ = max_ = new_max.value();
+                return false;
+            }
+            return true;
+        };
+
+        // easy outs: no overlap aside from mins/maxs, or either node has no clusters
+        if (i_min >= i_max || cluster_data_ == nullptr || other.cluster_data_ == nullptr) {
+            return update_minmax();
+        }
+
+        auto& s_summary{cluster_data_->summary};
+        auto& s_clusters{cluster_data_->clusters};
+        const auto& o_summary{other.cluster_data_->summary};
+
+        // pre compute summary intersection. if empty, we are done
+        if (s_summary.and_inplace(o_summary, alloc)) {
+            return update_minmax();
+        }
+
+        // iterate only clusters surviving the summary intersection
+        for (auto s_it{s_clusters.begin()}; s_it != s_clusters.end(); ) {
+            auto& [key, cluster] = *s_it;
+            if (!s_summary.contains(key)) {
+                cluster.destroy(alloc);
+                s_it = s_clusters.erase(s_it);
+                if (s_summary.remove(key, alloc)) {
+                    return update_minmax();
                 }
+            } else {
+                ++s_it;
             }
         }
-        
-        return (!other.contains(min_) && remove(min_, alloc)) ||
-               (!other.contains(max_) && remove(max_, alloc));
+
+        min_ = new_min.has_value() ? new_min.value() : index(s_summary.min(), s_clusters.find(s_summary.min())->second.min());
+        max_ = new_max.has_value() ? new_max.value() : index(s_summary.max(), s_clusters.find(s_summary.max())->second.max());
+
+        if (max_ != i_max && s_clusters.find(s_summary.max())->second.remove(static_cast<subindex_t>(max_), alloc) && s_summary.remove(s_summary.max(), alloc)) {
+            destroy(alloc);
+            return false;
+        }
+        if (min_ != i_min && s_clusters.find(s_summary.min())->second.remove(static_cast<subindex_t>(min_), alloc) && s_summary.remove(s_summary.min(), alloc)) {
+            destroy(alloc);
+            return false;
+        }
+
+        return false;
     }
 
     constexpr inline bool xor_inplace(const Node64& other, std::size_t& alloc) {
