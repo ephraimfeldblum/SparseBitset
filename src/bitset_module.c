@@ -82,7 +82,8 @@ static int bitset_defrag(RedisModuleDefragCtx *ctx, RedisModuleString *key, void
     return 0;
 }
 
-static VebTree_Handle_t get_bitset_key(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode) {
+static VebTree_Handle_t get_bitset_key(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode, int *err) {
+    if (err) *err = 0;
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyname, mode);
     int type = RedisModule_KeyType(key);
 
@@ -102,6 +103,7 @@ static VebTree_Handle_t get_bitset_key(RedisModuleCtx *ctx, RedisModuleString *k
         }
     } else if (RedisModule_ModuleTypeGetType(key) != BitsetType) {
         RedisModule_CloseKey(key);
+        if (err) *err = 1;
         return NULL;
     }
 
@@ -116,9 +118,13 @@ static int bits_add_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_WrongArity(ctx);
     }
     
-    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
-    if (!handle) {
+    int err = 0;
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE, &err);
+    if (err) {
         return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
+    if (!handle) {
+        return RedisModule_ReplyWithError(ctx, "ERR failed to create bitset");
     }
     
     long long added = 0;
@@ -144,7 +150,11 @@ static int bits_rem_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_WrongArity(ctx);
     }
     
-    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
+    int err = 0;
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE, &err);
+    if (err) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
     if (!handle) {
         return RedisModule_ReplyWithLongLong(ctx, 0);
     }
@@ -177,7 +187,11 @@ static int bits_get_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_ReplyWithError(ctx, "ERR bit offset is not an integer or out of range");
     }
 
-    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    int err = 0;
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ, &err);
+    if (err) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
     if (!handle) {
         return RedisModule_ReplyWithLongLong(ctx, 0);
     }
@@ -202,7 +216,11 @@ static int bits_set_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_ReplyWithError(ctx, "ERR bit value must be 0 or 1");
     }
 
-    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
+    int err = 0;
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE, &err);
+    if (err) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
     if (!handle) {
         return RedisModule_ReplyWithError(ctx, "ERR failed to create or access bitset");
     }
@@ -253,7 +271,11 @@ static int bits_count_command(RedisModuleCtx *ctx, RedisModuleString **argv, int
         return RedisModule_WrongArity(ctx);
     }
 
-    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    int err = 0;
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ, &err);
+    if (err) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
     if (!handle) {
         return RedisModule_ReplyWithLongLong(ctx, 0);
     }
@@ -306,7 +328,11 @@ static int bits_clear_command(RedisModuleCtx *ctx, RedisModuleString **argv, int
         return RedisModule_WrongArity(ctx);
     }
     
-    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE);
+    int err = 0;
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_WRITE, &err);
+    if (err) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
     if (!handle) {
         return RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
@@ -322,7 +348,11 @@ static int bits_min_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_WrongArity(ctx);
     }
     
-    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    int err = 0;
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ, &err);
+    if (err) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
     if (!handle) {
         return RedisModule_ReplyWithNull(ctx);
     }
@@ -341,7 +371,11 @@ static int bits_max_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_WrongArity(ctx);
     }
 
-    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    int err = 0;
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ, &err);
+    if (err) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
     if (!handle) {
         return RedisModule_ReplyWithNull(ctx);
     }
@@ -360,7 +394,11 @@ static int bits_successor_command(RedisModuleCtx *ctx, RedisModuleString **argv,
         return RedisModule_WrongArity(ctx);
     }
 
-    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    int err = 0;
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ, &err);
+    if (err) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
     if (!handle) {
         return RedisModule_ReplyWithNull(ctx);
     }
@@ -384,7 +422,11 @@ static int bits_predecessor_command(RedisModuleCtx *ctx, RedisModuleString **arg
         return RedisModule_WrongArity(ctx);
     }
 
-    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    int err = 0;
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ, &err);
+    if (err) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
     if (!handle) {
         return RedisModule_ReplyWithNull(ctx);
     }
@@ -408,7 +450,11 @@ static int bits_toarray_command(RedisModuleCtx *ctx, RedisModuleString **argv, i
         return RedisModule_WrongArity(ctx);
     }
 
-    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    int err = 0;
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ, &err);
+    if (err) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
     if (!handle) {
         return RedisModule_ReplyWithArray(ctx, 0);
     }
@@ -453,7 +499,11 @@ static int bits_op_command(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     }
 
     // Get destination key (ensure it exists or create it)
-    VebTree_Handle_t dest = get_bitset_key(ctx, argv[2], REDISMODULE_WRITE);
+    int err = 0;
+    VebTree_Handle_t dest = get_bitset_key(ctx, argv[2], REDISMODULE_WRITE, &err);
+    if (err) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
     if (!dest) {
         return RedisModule_ReplyWithError(ctx, "ERR failed to create or access destination bitset");
     }
@@ -467,17 +517,17 @@ static int bits_op_command(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
     if (op_type == 1) { // OR operation
         for (int i = 3; i < argc; i++) {
-            VebTree_Handle_t src = get_bitset_key(ctx, argv[i], REDISMODULE_READ);
+            VebTree_Handle_t src = get_bitset_key(ctx, argv[i], REDISMODULE_READ, NULL);
             if (src) {
                 api->union_op(result_handle, src);
             }
         }
     } else if (op_type == 0) { // AND operation
-        VebTree_Handle_t first_src = get_bitset_key(ctx, argv[3], REDISMODULE_READ);
+        VebTree_Handle_t first_src = get_bitset_key(ctx, argv[3], REDISMODULE_READ, NULL);
         if (first_src) {
             api->union_op(result_handle, first_src);
             for (int i = 4; i < argc; i++) {
-                VebTree_Handle_t src = get_bitset_key(ctx, argv[i], REDISMODULE_READ);
+                VebTree_Handle_t src = get_bitset_key(ctx, argv[i], REDISMODULE_READ, NULL);
                 if (src) {
                     api->intersection(result_handle, src);
                 } else {
@@ -487,12 +537,12 @@ static int bits_op_command(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
             }
         }
     } else if (op_type == 2) { // XOR operation
-        VebTree_Handle_t first_src = get_bitset_key(ctx, argv[3], REDISMODULE_READ);
+        VebTree_Handle_t first_src = get_bitset_key(ctx, argv[3], REDISMODULE_READ, NULL);
         if (first_src) {
             api->union_op(result_handle, first_src);
         }
         for (int i = 4; i < argc; i++) {
-            VebTree_Handle_t src = get_bitset_key(ctx, argv[i], REDISMODULE_READ);
+            VebTree_Handle_t src = get_bitset_key(ctx, argv[i], REDISMODULE_READ, NULL);
             if (src) {
                 api->symmetric_difference(result_handle, src);
             }
@@ -556,7 +606,11 @@ static int bits_pos_command(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_WrongArity(ctx);
     }
 
-    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    int err = 0;
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ, &err);
+    if (err) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
 
     long long bit_value;
     if (RedisModule_StringToLongLong(argv[2], &bit_value) != REDISMODULE_OK ||
@@ -650,7 +704,11 @@ static int bits_info_command(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         return RedisModule_WrongArity(ctx);
     }
 
-    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ);
+    int err = 0;
+    VebTree_Handle_t handle = get_bitset_key(ctx, argv[1], REDISMODULE_READ, &err);
+    if (err) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
     if (!handle) {
         return RedisModule_ReplyWithError(ctx, "ERR key does not exist or is not a bitset");
     }

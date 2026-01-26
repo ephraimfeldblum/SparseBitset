@@ -203,3 +203,23 @@ def test_set_ops_overlapping_ranges_and_emptying(env: Env):
     # AND of empty and non-empty should be empty
     env.assertEqual(env.cmd("BITS.OP", "AND", "empty_and_high", "low", "high"), 0)
     env.assertEqual(env.cmd("BITS.TOARRAY", "empty_and_high"), [])
+
+
+def test_bitop_dest_is_source(env: Env):
+    """Test BITS.OP where destination is one of the sources"""
+    env.cmd("BITS.INSERT", "s1", 1, 2)
+    env.cmd("BITS.INSERT", "s2", 2, 3)
+
+    # OR into s1
+    env.assertEqual(env.cmd("BITS.OP", "OR", "s1", "s1", "s2"), 1)
+    env.assertEqual(env.cmd("BITS.TOARRAY", "s1"), [1, 2, 3])
+
+    # AND into s1
+    env.cmd("BITS.INSERT", "s3", 3, 4)
+    env.assertEqual(env.cmd("BITS.OP", "AND", "s1", "s1", "s3"), 1)
+    env.assertEqual(env.cmd("BITS.TOARRAY", "s1"), [3])
+
+    # XOR into s1
+    env.cmd("BITS.INSERT", "s4", 3, 5)
+    env.assertEqual(env.cmd("BITS.OP", "XOR", "s1", "s1", "s4"), 1)
+    env.assertEqual(env.cmd("BITS.TOARRAY", "s1"), [5])
