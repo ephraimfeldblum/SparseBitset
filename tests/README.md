@@ -8,7 +8,7 @@ The flow tests are designed to verify the correctness and functionality of the m
 
 ### Running the Flow Tests
 
-A convenience script, `run_flow_tests.sh`, is provided to automate the entire process. It will:
+For convenience, a make recipe `make test`, is provided to automate the entire process. It will:
 
 1.  Create a Python virtual environment (`.venv_rltest`) if it doesn't exist.
 2.  Install the necessary dependencies (`RLTest`, `redis`).
@@ -18,7 +18,7 @@ A convenience script, `run_flow_tests.sh`, is provided to automate the entire pr
 To run the flow tests, simply execute the script from the project's root directory:
 
 ```bash
-./run_flow_tests.sh
+make test
 ```
 
 ## Benchmark Tests

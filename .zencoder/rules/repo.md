@@ -50,12 +50,12 @@ redis-server --loadmodule ./bitset.so
 **Framework**: RLTest (Python)  
 **Test Location**: `tests/flow/`  
 **Naming Convention**: `test_*.py`  
-**Configuration**: Handled by `run_flow_tests.sh`
+**Configuration**: Handled by makefile `make test`
 
 **Run Command**:
 ```bash
 # Run all functional tests (creates venv and installs dependencies automatically)
-./run_flow_tests.sh
+make test
 
 # Run benchmarks (requires running Redis with module loaded)
 python3 tests/benchmarks/generate_data.py

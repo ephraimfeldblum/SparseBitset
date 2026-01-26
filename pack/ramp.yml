@@ -4,7 +4,7 @@ author: Ephraim Feldblum
 email: ephraim.feldblum@redis.com
 description: Bitset Data Type for Redis
 homepage: https://github.com/ephraimfeldblum/SparseBitset-Redis
-license: Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1) or the GNU Affero General Public License version 3 (AGPLv3)
+license: Server Side Public License v1 (SSPLv1) or GNU Affero General Public License version 3 (AGPLv3)
 command_line_args: ""
 compatible_redis_version: "8.2"
 min_redis_version: "8.2"

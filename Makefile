@@ -113,17 +113,13 @@ help:
 
 .PHONY: test
 
-# Run flow tests locally (uses run_flow_tests.sh)
 test:
 	TEST=$(TEST) QUICK=$(QUICK) ./run_flow_tests.sh
 
 .PHONY: docker-build-image docker-test
 
-# Build the Docker image used for tests
 docker-build-image:
 	docker build -t vebitset:test .
 
-# Run RLTest-based flow tests inside Docker and store logs inside the repo
-# Usage: make docker-test
 docker-test: docker-build-image
 	./run_in_docker.sh
