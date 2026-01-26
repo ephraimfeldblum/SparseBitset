@@ -411,13 +411,29 @@ public:
         min_ = new_min.has_value() ? new_min.value() : index(s_summary.min(), s_clusters.find(s_summary.min())->second.min());
         max_ = new_max.has_value() ? new_max.value() : index(s_summary.max(), s_clusters.find(s_summary.max())->second.max());
 
-        if (max_ != i_max && s_clusters.find(s_summary.max())->second.remove(static_cast<subindex_t>(max_), alloc) && s_summary.remove(s_summary.max(), alloc)) {
-            destroy(alloc);
-            return false;
+        if (max_ != i_max) {
+            const auto it{s_clusters.find(s_summary.max())};
+            auto& [_, cluster] = *it;
+            if (cluster.remove(static_cast<subindex_t>(max_), alloc)) {
+                cluster.destroy(alloc);
+                s_clusters.erase(it);
+                if (s_summary.remove(s_summary.max(), alloc)) {
+                    destroy(alloc);
+                    return true;
+                }
+            }
         }
-        if (min_ != i_min && s_clusters.find(s_summary.min())->second.remove(static_cast<subindex_t>(min_), alloc) && s_summary.remove(s_summary.min(), alloc)) {
-            destroy(alloc);
-            return false;
+        if (min_ != i_min) {
+            const auto it{s_clusters.find(s_summary.min())};
+            auto& [_, cluster] = *it;
+            if (cluster.remove(static_cast<subindex_t>(min_), alloc)) {
+                cluster.destroy(alloc);
+                s_clusters.erase(it);
+                if (s_summary.remove(s_summary.min(), alloc)) {
+                    destroy(alloc);
+                    return true;
+                }
+            }
         }
 
         return false;
