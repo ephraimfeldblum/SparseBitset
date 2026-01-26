@@ -387,6 +387,7 @@ public:
         auto& s_summary{cluster_data_->summary};
         auto& s_clusters{cluster_data_->clusters};
         const auto& o_summary{other.cluster_data_->summary};
+        const auto& o_clusters{other.cluster_data_->clusters};
 
         // pre compute summary intersection. if empty, we are done
         if (s_summary.and_inplace(o_summary, alloc)) {
@@ -396,7 +397,7 @@ public:
         // iterate only clusters surviving the summary intersection
         for (auto s_it{s_clusters.begin()}; s_it != s_clusters.end(); ) {
             auto& [key, cluster] = *s_it;
-            if (!s_summary.contains(key)) {
+            if (!s_summary.contains(key) || cluster.and_inplace(o_clusters.find(key)->second, alloc)) {
                 cluster.destroy(alloc);
                 s_it = s_clusters.erase(s_it);
                 if (s_summary.remove(key, alloc)) {

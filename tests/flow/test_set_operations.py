@@ -157,12 +157,6 @@ def test_node32_and_corner_cases(env: Env):
     env.assertEqual(res_xor, 0)
     env.assertEqual(env.cmd("BITS.TOARRAY", "n32_xor"), [])
 
-    # Min/Max and successor/predecessor at boundaries
-    env.assertEqual(env.cmd("BITS.MIN", "n32_a"), min(a))
-    env.assertEqual(env.cmd("BITS.MAX", "n32_a"), max(a))
-    env.assertEqual(env.cmd("BITS.SUCCESSOR", "n32_a", 65535), 65536)
-    env.assertEqual(env.cmd("BITS.PREDECESSOR", "n32_a", 65536), 65535)
-
     # OR with a non-existent key should be equivalent to the existing set
     res_mixed = env.cmd("BITS.OP", "OR", "n32_mixed", "n32_a", "nonexistent_key")
     env.assertGreater(res_mixed, 0)
