@@ -492,54 +492,86 @@ public:
     }
 
     constexpr inline bool and_inplace(const Node16& other, std::size_t& alloc) {
-        // easy outs: no overlap aside from mins/maxs, or either node has no clusters
-        if (min_ >= other.max_ || max_ <= other.min_ || cluster_data_ == nullptr || other.cluster_data_ == nullptr) {
+        const auto i_min{std::max(min_, other.min_)};
+        const auto i_max{std::min(max_, other.max_)};
+        const auto new_min{contains(i_min) && other.contains(i_min) ? std::make_optional(i_min) : std::nullopt};
+        const auto new_max{contains(i_max) && other.contains(i_max) ? std::make_optional(i_max) : std::nullopt};
+
+        const auto update_minmax = [&] {
             destroy(alloc);
-        } else {
-            auto& s_summary{cluster_data_->summary_};
-            auto* s_clusters{cluster_data_->clusters_};
-            const auto& o_summary{other.cluster_data_->summary_};
-            const auto* o_clusters{other.cluster_data_->clusters_};
-
-            // reduce future work by pre computing summary intersection. if empty, we are done
-            // makes iterating clusters easier as we only need to consider clusters that we know will survive intersection
-            // unfortunately, we need to clone s_summary here because iterating below requires preserving the original state to find correct indices
-            // cloning a node8 is cheap enough though
-            auto int_summary{s_summary};
-            if (int_summary.and_inplace(o_summary)) {
-                destroy(alloc);
-            } else {    
-                // iterate only clusters surviving the summary intersection
-                // writeback inplace from the start of the array, overwriting removed clusters
-                // avoids allocating a new array
-                std::size_t i{};
-                for (auto idx{std::make_optional(int_summary.min())}; idx.has_value(); idx = int_summary.successor(*idx)) {
-                    // unconditionally access these clusters here. we know they must both exist. otherwise idx would not be set in the summary intersection
-                    const auto s_i = cluster_data_->index_of(*idx);
-                    if (auto& int_cluster{s_clusters[s_i]}; int_cluster.and_inplace(o_clusters[other.cluster_data_->index_of(*idx)])) {
-                        // these removals could be batched (andnot) to avoid accessing the summary multiple times
-                        // that would require us to track which clusters are being removed and only remove them after the loop
-                        // in node16 this is less needful because removing from a node8 is essentially free
-                        if (int_summary.remove(*idx)) {
-                            // this early exit isn't real. it can only happen on the last idx. doesn't save us from iterating.
-                            destroy(alloc);
-                            break;
-                        }
-                    // could be faster to write back unconditionally? would never overwrite valid data with the new data since i <= s_i always
-                    } else if (i != s_i) {
-                        s_clusters[i++] = int_cluster;
-                    }
-                }
+            if (new_min.has_value() && new_max.has_value()) {
+                min_ = new_min.value();
+                max_ = new_max.value();
+                return false;
             }
+            if (new_min.has_value()) {
+                min_ = max_ = new_min.value();
+                return false;
+            }
+            if (new_max.has_value()) {
+                min_ = max_ = new_max.value();
+                return false;
+            }
+            return true;
+        };
+        // easy outs: no overlap aside from mins/maxs, or either node has no clusters
+        if (i_min >= i_max || cluster_data_ == nullptr || other.cluster_data_ == nullptr) {
+            return update_minmax();
+        }
+        auto& s_summary{cluster_data_->summary_};
+        auto* s_clusters{cluster_data_->clusters_};
+        const auto& o_summary{other.cluster_data_->summary_};
+        const auto* o_clusters{other.cluster_data_->clusters_};
 
-            // now that we're done iterating, we can finally update the summary to the intersection
-            if (cluster_data_ != nullptr) {
-                s_summary = int_summary;
+        // reduce future work by pre computing summary intersection. if empty, we are done
+        // makes iterating clusters easier as we only need to consider clusters that we know will survive intersection
+        // unfortunately, we need to clone s_summary here because iterating below requires preserving the original state to find correct indices
+        // cloning a node8 is cheap enough though
+        auto int_summary{s_summary};
+        if (int_summary.and_inplace(o_summary)) {
+            return update_minmax();
+        }
+        // iterate only clusters surviving the summary intersection
+        // writeback inplace from the start of the array, overwriting removed clusters
+        // avoids allocating a new array
+        std::size_t i{};
+        for (auto idx{std::make_optional(int_summary.min())}; idx.has_value(); idx = int_summary.successor(*idx)) {
+            // unconditionally access these clusters here. we know they must both exist. otherwise idx would not be set in the summary intersection
+            const auto s_i = cluster_data_->index_of(*idx);
+            if (auto& int_cluster{s_clusters[s_i]}; int_cluster.and_inplace(o_clusters[other.cluster_data_->index_of(*idx)])) {
+                // these removals could be batched (andnot) to avoid accessing the summary multiple times
+                // that would require us to track which clusters are being removed and only remove them after the loop
+                // in node16 this is less needful because removing from a node8 is essentially free
+                if (int_summary.remove(*idx)) {
+                    // this early exit isn't real. it can only happen on the last idx. doesn't save us from iterating.
+                    return update_minmax();
+                }
+            // could be faster to write back unconditionally? would never overwrite valid data with the new data since i <= s_i always
+            } else if (i++ != s_i) {
+                s_clusters[i - 1] = int_cluster;
             }
         }
-        // remove min and max if they weren't in other.
-        return (!other.contains(min_) && remove(min_, alloc)) ||
-               (!other.contains(max_) && remove(max_, alloc));
+
+        // now that we're done iterating, we can finally update the summary to the intersection
+        s_summary = int_summary;
+
+        min_ = new_min.has_value() ? new_min.value() : index(s_summary.min(), s_clusters[0].min());
+        max_ = new_max.has_value() ? new_max.value() : index(s_summary.max(), s_clusters[i - 1].max());
+
+        if (max_ != i_max && s_clusters[i - 1].remove(static_cast<subindex_t>(max_)) && s_summary.remove(s_summary.max())) {
+            destroy(alloc);
+            return false;
+        }
+        if (min_ != i_min && s_clusters[0].remove(static_cast<subindex_t>(min_))) {
+            if (s_summary.remove(s_summary.min())) {
+                destroy(alloc);
+                return false;
+            }
+            const auto begin{s_clusters + 1};
+            const auto end{s_clusters + i};
+            std::move(begin, end, begin - 1);
+        }
+        return false;
     }
 
     constexpr inline bool xor_inplace(const Node16& other, std::size_t& alloc) {

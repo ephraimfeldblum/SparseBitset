@@ -17,27 +17,46 @@ def test_set_operations(env: Env):
     env.assertEqual(env.cmd("BITS.OP", "XOR", "d", "s1", "s2"), 1)
     env.assertEqual(env.cmd("BITS.TOARRAY", "d"), [1, 2, 5, 6])
 
+
 def test_n16_set_operations(env: Env):
     src1 = [352, 194, 325, 327, 138, 236, 273, 83, 373, 125, 87, 473, 285, 311]
     src2 = [135, 395, 274, 148, 22, 150, 23, 282, 413, 35, 295, 40, 424, 309, 437, 441, 185, 443, 316, 63, 193, 321, 453, 338, 472, 98, 360, 235, 498, 116, 373, 119]
     env.cmd("BITS.INSERT", "n16_set1", *src1)
     env.cmd("BITS.INSERT", "n16_set2", *src2)
 
-    dest_or = sorted(set(src1).union(set(src2)))
-    dest_and = sorted(set(src1).intersection(set(src2)))
-    dest_xor = sorted(set(src1).symmetric_difference(set(src2)))
+    or_expected = sorted(set(src1).union(set(src2)))
+    and_expected = sorted(set(src1).intersection(set(src2)))
+    xor_expected = sorted(set(src1).symmetric_difference(set(src2)))
 
-    # union into dest
-    env.cmd("BITS.OP", "OR", "n16_union", "n16_set1", "n16_set2")
-    env.assertEqual(env.cmd("BITS.TOARRAY", "n16_union"), dest_or)
+    env_expected.cmd("BITS.OP", "OR", "n16_union", "n16_set1", "n16_set2")
+    env.assertEqual(env.cmd("BITS.TOARRAY", "n16_union"), or_expected)
 
-    # intersection
     env.cmd("BITS.OP", "AND", "n16_intersection", "n16_set1", "n16_set2")
-    env.assertEqual(env.cmd("BITS.TOARRAY", "n16_intersection"), dest_and)
+    env.assertEqual(env.cmd("BITS.TOARRAY", "n16_intersection"), and_expected)
 
-    # diff (xor)
     env.cmd("BITS.OP", "XOR", "n16_diff", "n16_set1", "n16_set2")
-    env.assertEqual(env.cmd("BITS.TOARRAY", "n16_diff"), dest_xor)     
+    env.assertEqual(env.cmd("BITS.TOARRAY", "n16_diff"), xor_expected)     
+
+
+def test_minmax(env: Env):
+    src1 = [3, 16, 412]
+    src2 = [16, 412]
+    env.cmd("BITS.INSERT", "A", *src1)
+    env.cmd("BITS.INSERT", "B", *src2)
+    
+    or_expected = sorted(set(src1).union(set(src2)))
+    and_expected = sorted(set(src1).intersection(set(src2)))
+    xor_expected = sorted(set(src1).symmetric_difference(set(src2)))
+
+    env_expected.cmd("BITS.OP", "OR", "dest", "A", "B")
+    env.assertEqual(env.cmd("BITS.TOARRAY", "dest"), or_expected)
+
+    env.cmd("BITS.OP", "AND", "dest", "A", "B")
+    env.assertEqual(env.cmd("BITS.TOARRAY", "dest"), and_expected)
+
+    env.cmd("BITS.OP", "XOR", "dest", "A", "B")
+    env.assertEqual(env.cmd("BITS.TOARRAY", "dest"), xor_expected)     
+
 
 def test_bitop_error_cases(env: Env):
     """Test error cases for BITS.OP command"""

@@ -370,17 +370,19 @@ public:
             if (s_summary.and_inplace(o_summary, alloc)) {
                 destroy(alloc);
             } else {       
-                for (auto s_it{s_clusters.begin()}; s_it != s_clusters.end(); ++s_it) {
+                for (auto s_it{s_clusters.begin()}; s_it != s_clusters.end(); ) {
                     auto& [key, cluster] = *s_it;
                     // if the summary no longer contains this cluster, it was removed during the intersection
                     if (!s_summary.contains(key) || cluster.and_inplace(o_clusters.find(key)->second, alloc)) {
                         cluster.destroy(alloc);
-                        s_clusters.erase(s_it);
+                        s_it = s_clusters.erase(s_it);
                         if (s_summary.remove(key, alloc)) {
                             // early exit here. s_clusters still might contian nodes that will be removed unconditionally in destroy.
                             destroy(alloc);
                             break;
                         }
+                    } else {
+                        ++s_it;
                     }
                 }
             }
