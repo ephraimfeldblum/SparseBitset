@@ -17,8 +17,8 @@ BUILD_DIR = build
 # Compiler and flags
 CC = gcc
 CXX = g++
-CFLAGS = -Wall -Wextra -O3 -fPIC -std=c11 -mavx2
-CXXFLAGS = -Wall -Wextra -O3 -fPIC -std=c++23 -mavx2
+CFLAGS = -Wall -Wextra -O3 -fPIC -std=c11 -mavx2 -mbmi2
+CXXFLAGS = -Wall -Wextra -O3 -fPIC -std=c++23 -mavx2 -mbmi2
 LDFLAGS = -shared
 
 # Include directories

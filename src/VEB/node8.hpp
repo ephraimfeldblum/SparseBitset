@@ -11,12 +11,16 @@
 #include <optional>  // std::nullopt, std::optional
 #include <utility>   // std::pair, std::unreachable
 
+
 #if defined(__AVX2__)
-#include "immintrin.h"
-#define NODE8_AVX2_ENABLED
-#define NODE8_ALIGNMENT alignas(32)
+    #include "immintrin.h"
+    #define NODE8_AVX2_ENABLED
+    #define NODE8_ALIGNMENT alignas(32)
+    #if defined(__BMI2__)
+        #define NODE8_BMI2_ENABLED
+    #endif
 #else
-#define NODE8_ALIGNMENT
+    #define NODE8_ALIGNMENT
 #endif
 
 #include "VebCommon.hpp"
@@ -130,6 +134,25 @@ public:
     }
 
     constexpr inline std::optional<index_t> successor(index_t x) const {
+#if defined(NODE8_BMI2_ENABLED)
+        const auto [w, b] {decompose(x)};
+
+        // Check current word
+        if (const auto word = bits_[w] ^ _bzhi_u64(bits_[w], b + 1); word != 0) {
+            return index(w, static_cast<subindex_t>(std::countr_zero(word)));
+        }
+
+        // Check subsequent words
+        if (w < num_words) {
+            const auto v{load()};
+            const auto zeros{_mm256_cmpeq_epi64(v, _mm256_setzero_si256())};
+            const auto mask{(~_mm256_movemask_pd(_mm256_castsi256_pd(zeros)) & 0xF) >> (w + 1)};
+            if (const auto v{static_cast<std::uint64_t>(mask)}; v != 0) {
+                const auto next{static_cast<subindex_t>(std::countr_zero(v) + w + 1)};
+                return index(next, static_cast<subindex_t>(std::countr_zero(bits_[next])));
+            }
+        }
+#else
         const auto [start_word, start_bit] {decompose(x)};
         const std::uint64_t mask{~0ULL << (start_bit + 1)};
 
@@ -148,11 +171,30 @@ public:
                 return index(static_cast<subindex_t>(word_idx), static_cast<subindex_t>(bit_idx));
             }
         }
-
+#endif
         return std::nullopt;
     }
 
     constexpr inline std::optional<index_t> predecessor(index_t x) const {
+#if defined(NODE8_BMI2_ENABLED)
+        const auto [w, b] {decompose(x)};
+
+        // Check current word
+        if (const auto word = _bzhi_u64(bits_[w], b); word != 0) {
+            return index(w, static_cast<subindex_t>(bits_per_word - 1 - std::countl_zero(word)));
+        }
+
+        // Check preceding words
+        if (w > 0) {
+            const auto v{load()};
+            const auto zeros{_mm256_cmpeq_epi64(v, _mm256_setzero_si256())};
+            const auto mask{(~_mm256_movemask_pd(_mm256_castsi256_pd(zeros)) & 0xF) & ((1 << w) - 1)};
+            if (const auto v{static_cast<std::uint64_t>(mask)}; v != 0) {
+                const auto prev{static_cast<subindex_t>(bits_per_word - 1 - std::countl_zero(v))};
+                return index(prev, static_cast<subindex_t>(bits_per_word - 1 - std::countl_zero(bits_[prev])));
+            }
+        }
+#else
         if (x == 0) {
             return std::nullopt;
         }
@@ -171,7 +213,7 @@ public:
                 return index(word_idx - 1, static_cast<subindex_t>(bit_idx));
             }
         }
-
+#endif
         return std::nullopt;
     }
 
