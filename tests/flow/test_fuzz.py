@@ -164,3 +164,86 @@ def test_fuzz_extended(env: Env):
     env.assertEqual(env.cmd('BITS.COUNT', key), len(ref))
     if len(ref) < 1000:
         env.assertEqual(sorted(list(ref)), env.cmd('BITS.TOARRAY', key))
+
+
+def test_fuzz_node32_small(env: Env):
+    seed = int(os.environ.get('FUZZ_SEED', '42'))
+    num_iterations = int(os.environ.get('FUZZ_ITER', '20000'))
+    random.seed(seed)
+    ref_sets = {}
+    key_prefix = "fuzz32_"
+    num_sets = 4
+    max_val = (1 << 20) + 5000
+
+    def get_ref(key):
+        if key not in ref_sets:
+            ref_sets[key] = set()
+        return ref_sets[key]
+
+    for _ in range(num_iterations):
+        op = _random.choice(["INSERT", "REMOVE", "GET", "COUNT", "MIN", "MAX", "SUCCESSOR", "PREDECESSOR"])
+        key_idx = _random.randint(0, num_sets - 1)
+        key = f"{key_prefix}{key_idx}"
+        ref = get_ref(key)
+
+        if op == "INSERT":
+            vals = [_random.randint(0, max_val) for _ in range(_random.randint(1, 4))]
+            added = 0
+            for v in set(vals):
+                if v not in ref:
+                    ref.add(v)
+                    added += 1
+            env.assertEqual(env.cmd("BITS.INSERT", key, *vals), added)
+
+        elif op == "REMOVE":
+            vals = [_random.randint(0, max_val) for _ in range(_random.randint(1, 4))]
+            removed = 0
+            for v in set(vals):
+                if v in ref:
+                    ref.remove(v)
+                    removed += 1
+            env.assertEqual(env.cmd("BITS.REMOVE", key, *vals), removed)
+
+        elif op == "GET":
+            val = _random.randint(0, max_val)
+            env.assertEqual(env.cmd("BITS.GET", key, val), 1 if val in ref else 0)
+
+        elif op == "COUNT":
+            env.assertEqual(env.cmd("BITS.COUNT", key), len(ref))
+
+        elif op == "MIN":
+            res = env.cmd("BITS.MIN", key)
+            if not ref:
+                env.assertEqual(res, None)
+            else:
+                env.assertEqual(res, min(ref))
+
+        elif op == "MAX":
+            res = env.cmd("BITS.MAX", key)
+            if not ref:
+                env.assertEqual(res, None)
+            else:
+                env.assertEqual(res, max(ref))
+
+        elif op == "SUCCESSOR":
+            val = _random.randint(0, max_val)
+            res = env.cmd("BITS.SUCCESSOR", key, val)
+            succs = [v for v in ref if v > val]
+            if not succs:
+                env.assertEqual(res, None)
+            else:
+                env.assertEqual(res, min(succs))
+
+        elif op == "PREDECESSOR":
+            val = _random.randint(0, max_val)
+            res = env.cmd("BITS.PREDECESSOR", key, val)
+            preds = [v for v in ref if v < val]
+            if not preds:
+                env.assertEqual(res, None)
+            else:
+                env.assertEqual(res, max(preds))
+
+    # quick final sanity check: sample a few keys and compare TOARRAY
+    for k, s in list(ref_sets.items())[:3]:
+        if len(s) < 1000:
+            env.assertEqual(sorted(list(s)), env.cmd("BITS.TOARRAY", k))

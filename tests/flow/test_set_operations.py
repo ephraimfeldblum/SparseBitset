@@ -124,3 +124,88 @@ def test_bitop_multiple_sources(env: Env):
     # XOR with multiple sources (1,2^2,3^3,4 = 1,4)
     env.assertEqual(env.cmd("BITS.OP", "XOR", "multi_xor", "set1", "set2", "set3"), 1)
     env.assertEqual(env.cmd("BITS.TOARRAY", "multi_xor"), [1, 4])
+
+
+def test_node32_and_corner_cases(env: Env):
+    """Exercise values >= 2^16 to force node32 and cover edge cases."""
+    # large values around 2^16 boundary and much larger values
+    a = [0, 1, 65535, 65536, 65537, 70000, 1 << 20]
+    b = [65535, 65536, 80000, (1 << 20) + 1]
+
+    env.cmd("BITS.INSERT", "n32_a", *a)
+    env.cmd("BITS.INSERT", "n32_b", *b)
+
+    # OR
+    env.assertGreater(env.cmd("BITS.OP", "OR", "n32_or", "n32_a", "n32_b"), 0)
+    expected_or = sorted(set(a).union(set(b)))
+    env.assertEqual(env.cmd("BITS.TOARRAY", "n32_or"), expected_or)
+    env.assertEqual(env.cmd("BITS.COUNT", "n32_or"), len(expected_or))
+
+    # AND
+    res_and = env.cmd("BITS.OP", "AND", "n32_and", "n32_a", "n32_b")
+    expected_and = sorted(set(a).intersection(set(b)))
+    if not expected_and:
+        env.assertEqual(res_and, 0)
+    else:
+        env.assertGreater(res_and, 0)
+    env.assertEqual(env.cmd("BITS.TOARRAY", "n32_and"), expected_and)
+
+    # XOR of identical large sets -> empty
+    env.cmd("BITS.INSERT", "n32_c1", 65536, 70000)
+    env.cmd("BITS.INSERT", "n32_c2", 65536, 70000)
+    res_xor = env.cmd("BITS.OP", "XOR", "n32_xor", "n32_c1", "n32_c2")
+    env.assertEqual(res_xor, 0)
+    env.assertEqual(env.cmd("BITS.TOARRAY", "n32_xor"), [])
+
+    # Min/Max and successor/predecessor at boundaries
+    env.assertEqual(env.cmd("BITS.MIN", "n32_a"), min(a))
+    env.assertEqual(env.cmd("BITS.MAX", "n32_a"), max(a))
+    env.assertEqual(env.cmd("BITS.SUCCESSOR", "n32_a", 65535), 65536)
+    env.assertEqual(env.cmd("BITS.PREDECESSOR", "n32_a", 65536), 65535)
+
+    # OR with a non-existent key should be equivalent to the existing set
+    res_mixed = env.cmd("BITS.OP", "OR", "n32_mixed", "n32_a", "nonexistent_key")
+    env.assertGreater(res_mixed, 0)
+    env.assertEqual(env.cmd("BITS.TOARRAY", "n32_mixed"), sorted(set(a)))
+
+    # AND with a non-existent key should produce empty
+    env.assertEqual(env.cmd("BITS.OP", "AND", "n32_and_empty", "n32_a", "nonexistent_key"), 0)
+    env.assertEqual(env.cmd("BITS.TOARRAY", "n32_and_empty"), [])
+
+
+def test_set_ops_overlapping_ranges_and_emptying(env: Env):
+    # overlapping ranges, disjoint ranges, and emptying via removes
+    low = list(range(10, 20))
+    mid = list(range(15, 30))
+    high = [100000, 100001, 200000]
+
+    env.cmd("BITS.INSERT", "low", *low)
+    env.cmd("BITS.INSERT", "mid", *mid)
+    env.cmd("BITS.INSERT", "high", *high)
+
+    # OR low and mid
+    env.assertGreater(env.cmd("BITS.OP", "OR", "low_mid_or", "low", "mid"), 0)
+    expected_low_mid_or = sorted(set(low).union(set(mid)))
+    env.assertEqual(env.cmd("BITS.TOARRAY", "low_mid_or"), expected_low_mid_or)
+
+    # AND low and mid
+    env.assertGreater(env.cmd("BITS.OP", "AND", "low_mid_and", "low", "mid"), 0)
+    expected_low_mid_and = sorted(set(low).intersection(set(mid)))
+    env.assertEqual(env.cmd("BITS.TOARRAY", "low_mid_and"), expected_low_mid_and)
+
+    # XOR low and mid
+    env.assertGreater(env.cmd("BITS.OP", "XOR", "low_mid_xor", "low", "mid"), 0)
+    expected_low_mid_xor = sorted(set(low).symmetric_difference(set(mid)))
+    env.assertEqual(env.cmd("BITS.TOARRAY", "low_mid_xor"), expected_low_mid_xor)
+
+    # OR with disjoint high
+    env.assertGreater(env.cmd("BITS.OP", "OR", "all_or", "low_mid_or", "high"), 0)
+    expected_all_or = sorted(set(expected_low_mid_or).union(set(high)))
+    env.assertEqual(env.cmd("BITS.TOARRAY", "all_or"), expected_all_or)
+
+    # Removing elements to empty a set
+    env.cmd("BITS.REMOVE", "low", *low)
+    env.assertEqual(env.cmd("BITS.COUNT", "low"), 0)
+    # AND of empty and non-empty should be empty
+    env.assertEqual(env.cmd("BITS.OP", "AND", "empty_and_high", "low", "high"), 0)
+    env.assertEqual(env.cmd("BITS.TOARRAY", "empty_and_high"), [])
