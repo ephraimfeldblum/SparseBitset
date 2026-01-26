@@ -181,13 +181,13 @@ def test_fuzz_node32_small(env: Env):
         return ref_sets[key]
 
     for _ in range(num_iterations):
-        op = _random.choice(["INSERT", "REMOVE", "GET", "COUNT", "MIN", "MAX", "SUCCESSOR", "PREDECESSOR"])
-        key_idx = _random.randint(0, num_sets - 1)
+        op = random.choice(["INSERT", "REMOVE", "GET", "COUNT", "MIN", "MAX", "SUCCESSOR", "PREDECESSOR"])
+        key_idx = random.randint(0, num_sets - 1)
         key = f"{key_prefix}{key_idx}"
         ref = get_ref(key)
 
         if op == "INSERT":
-            vals = [_random.randint(0, max_val) for _ in range(_random.randint(1, 4))]
+            vals = [random.randint(0, max_val) for _ in range(random.randint(1, 4))]
             added = 0
             for v in set(vals):
                 if v not in ref:
@@ -196,7 +196,7 @@ def test_fuzz_node32_small(env: Env):
             env.assertEqual(env.cmd("BITS.INSERT", key, *vals), added)
 
         elif op == "REMOVE":
-            vals = [_random.randint(0, max_val) for _ in range(_random.randint(1, 4))]
+            vals = [random.randint(0, max_val) for _ in range(random.randint(1, 4))]
             removed = 0
             for v in set(vals):
                 if v in ref:
@@ -205,7 +205,7 @@ def test_fuzz_node32_small(env: Env):
             env.assertEqual(env.cmd("BITS.REMOVE", key, *vals), removed)
 
         elif op == "GET":
-            val = _random.randint(0, max_val)
+            val = random.randint(0, max_val)
             env.assertEqual(env.cmd("BITS.GET", key, val), 1 if val in ref else 0)
 
         elif op == "COUNT":
@@ -226,7 +226,7 @@ def test_fuzz_node32_small(env: Env):
                 env.assertEqual(res, max(ref))
 
         elif op == "SUCCESSOR":
-            val = _random.randint(0, max_val)
+            val = random.randint(0, max_val)
             res = env.cmd("BITS.SUCCESSOR", key, val)
             succs = [v for v in ref if v > val]
             if not succs:
@@ -235,7 +235,7 @@ def test_fuzz_node32_small(env: Env):
                 env.assertEqual(res, min(succs))
 
         elif op == "PREDECESSOR":
-            val = _random.randint(0, max_val)
+            val = random.randint(0, max_val)
             res = env.cmd("BITS.PREDECESSOR", key, val)
             preds = [v for v in ref if v < val]
             if not preds:
