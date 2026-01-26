@@ -415,7 +415,7 @@ public:
             // if the summary no longer contains this cluster, it was removed during the intersection
             auto& cluster{const_cast<subnode_t&>(*it)};
             const auto key{cluster.key()};
-            if (auto o_it = o_clusters.find(key); !s_summary.contains(key) || cluster.and_inplace(o_it == o_clusters.end() ? cluster : *o_it, alloc)) {
+            if (auto o_it = o_clusters.find(key); !s_summary.contains(key) || cluster.and_inplace(*o_it, alloc)) {
                 cluster.destroy(alloc);
                 it = s_clusters.erase(it);
                 if (s_summary.remove(key, alloc)) {

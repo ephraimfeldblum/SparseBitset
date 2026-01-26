@@ -638,10 +638,11 @@ public:
                             // this early exit isn't real. it can only happen on the last idx. it doesn't save us from iterating.
                             destroy(alloc);
                             break;
-                        }
-                        else {
+                        } else {
                             s_clusters[k++] = xor_cluster;
                         }
+                    } else {
+                        s_clusters[k++] = xor_cluster;
                     }
                 }
             } else {
