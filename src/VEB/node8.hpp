@@ -143,7 +143,7 @@ public:
         }
 
         // Check subsequent words
-        if (w < num_words) {
+        if (w < num_words - 1) {
             const auto v{load()};
             const auto zeros{_mm256_cmpeq_epi64(v, _mm256_setzero_si256())};
             const auto mask{(~_mm256_movemask_pd(_mm256_castsi256_pd(zeros)) & 0xF) >> (w + 1)};

@@ -30,6 +30,7 @@
 - If tests fail, attempt to fix the root cause. Limit to 3 quick edit-test cycles for the same file; escalate if still failing.
 - If creating new files, include concise documentation and update relevant READMEs if necessary.
 - Prefer running tests inside WSL or Docker if on Windows. Redis is not Windows-compatible.
+ - Emit logs using `RedisModule_Log` only; do not use `fprintf`, `std::cerr`, `std::cout`, or other stdio/iostream channels in module or VEB code. This ensures logs are captured consistently by Redis and test harnesses.
 
 **Testing Strategy**
 - Reproduce failing tests locally using QUICK mode and using the specific test with TEST to limit runtime.

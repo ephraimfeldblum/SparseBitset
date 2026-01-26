@@ -368,11 +368,13 @@ public:
     }
 
     constexpr inline bool and_inplace(const Node32& other, std::size_t& alloc) {
-        const auto i_min{std::max(min_, other.min_)};
-        const auto i_max{std::min(max_, other.max_)};
+        const auto s_min{min_};
+        const auto s_max{max_};
+        const auto i_min{std::max(s_min, other.min_)};
+        const auto i_max{std::min(s_max, other.max_)};
         const auto new_min{contains(i_min) && other.contains(i_min) ? std::make_optional(i_min) : std::nullopt};
         const auto new_max{contains(i_max) && other.contains(i_max) ? std::make_optional(i_max) : std::nullopt};
-
+    
         const auto update_minmax = [&] {
             destroy(alloc);
             if (new_min.has_value() && new_max.has_value()) {
@@ -412,11 +414,12 @@ public:
         for (auto it{s_clusters.begin()}; it != s_clusters.end(); ) {
             // if the summary no longer contains this cluster, it was removed during the intersection
             auto& cluster{const_cast<subnode_t&>(*it)};
-            if (const auto key{cluster.key()}; !s_summary.contains(key) || cluster.and_inplace(*o_clusters.find(key), alloc)) {
+            const auto key{cluster.key()};
+            if (auto o_it = o_clusters.find(key); !s_summary.contains(key) || cluster.and_inplace(o_it == o_clusters.end() ? cluster : *o_it, alloc)) {
                 cluster.destroy(alloc);
                 it = s_clusters.erase(it);
                 if (s_summary.remove(key, alloc)) {
-                    // early exit here. s_clusters still might contian nodes that will be removed unconditionally in destroy.
+                    // early exit here. s_clusters still might contain nodes that will be removed unconditionally in destroy.
                     return update_minmax();
                 }
             } else {
@@ -424,10 +427,10 @@ public:
             }
         }
 
-        min_ = new_min.has_value() ? new_min.value() : index(s_summary.min(), s_clusters.find(s_summary.min())->min());
         max_ = new_max.has_value() ? new_max.value() : index(s_summary.max(), s_clusters.find(s_summary.max())->max());
+        min_ = new_min.has_value() ? new_min.value() : index(s_summary.min(), s_clusters.find(s_summary.min())->min());
 
-        if (max_ != i_max) {
+        if (max_ != s_max) {
             const auto it = s_clusters.find(s_summary.max());
             auto& cluster = const_cast<subnode_t&>(*it);
             if (cluster.remove(static_cast<subindex_t>(max_), alloc)) {
@@ -439,11 +442,10 @@ public:
                 }
             }
         }
-        if (min_ != i_min) {
+        if (min_ != s_min) {
             const auto it = s_clusters.find(s_summary.min());
             auto& cluster = const_cast<subnode_t&>(*it);
             if (cluster.remove(static_cast<subindex_t>(min_), alloc)) {
-                cluster.destroy(alloc);
                 s_clusters.erase(it);
                 if (s_summary.remove(s_summary.min(), alloc)) {
                     destroy(alloc);

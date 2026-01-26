@@ -492,8 +492,10 @@ public:
     }
 
     constexpr inline bool and_inplace(const Node16& other, std::size_t& alloc) {
-        const auto i_min{std::max(min_, other.min_)};
-        const auto i_max{std::min(max_, other.max_)};
+        const auto s_min{min_};
+        const auto s_max{max_};
+        const auto i_min{std::max(s_min, other.min_)};
+        const auto i_max{std::min(s_max, other.max_)};
         const auto new_min{contains(i_min) && other.contains(i_min) ? std::make_optional(i_min) : std::nullopt};
         const auto new_max{contains(i_max) && other.contains(i_max) ? std::make_optional(i_max) : std::nullopt};
 
@@ -555,14 +557,16 @@ public:
         // now that we're done iterating, we can finally update the summary to the intersection
         s_summary = int_summary;
 
-        min_ = new_min.has_value() ? new_min.value() : index(s_summary.min(), s_clusters[0].min());
         max_ = new_max.has_value() ? new_max.value() : index(s_summary.max(), s_clusters[i - 1].max());
+        min_ = new_min.has_value() ? new_min.value() : index(s_summary.min(), s_clusters[0].min());
 
-        if (max_ != i_max && s_clusters[i - 1].remove(static_cast<subindex_t>(max_)) && s_summary.remove(s_summary.max())) {
-            destroy(alloc);
-            return false;
+        if (max_ != s_max && s_clusters[i - 1].remove(static_cast<subindex_t>(max_))) {
+            if (s_summary.remove(s_summary.max())) {
+                destroy(alloc);
+                return false;
+            }
         }
-        if (min_ != i_min && s_clusters[0].remove(static_cast<subindex_t>(min_))) {
+        if (min_ != s_min && s_clusters[0].remove(static_cast<subindex_t>(min_))) {
             if (s_summary.remove(s_summary.min())) {
                 destroy(alloc);
                 return false;
