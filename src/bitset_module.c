@@ -465,7 +465,7 @@ static int bits_toarray_command(RedisModuleCtx *ctx, RedisModuleString **argv, i
     }
 
     size_t *array = veb_api->to_array(handle);
-    RedisModule_ReplyWithArray(ctx, size);
+    RedisModule_ReplyWithArray(ctx, (long)size);
     for (size_t i = 0; i < size; i++) {
         RedisModule_ReplyWithLongLong(ctx, (long long)array[i]);
     }

@@ -17,8 +17,8 @@ BUILD_DIR = build
 # Compiler and flags
 CC = gcc
 CXX = g++
-CFLAGS = -Wall -Wextra -O3 -fPIC -std=c11 -mavx2 -mbmi2
-CXXFLAGS = -Wall -Wextra -O3 -fPIC -std=c++23 -mavx2 -mbmi2
+CFLAGS = -Wall -Wextra -Wpedantic -Wconversion -Wsign-compare -Wpointer-arith -Wno-missing-braces -Wno-missing-field-initializers -Wno-missing-attributes -O3 -fPIC -std=c11 -mavx2 -mbmi2 # -ftime-trace
+CXXFLAGS = -Wall -Wextra -Wpedantic -Wconversion -Wsign-compare -Wpointer-arith -Wno-missing-braces -Wno-missing-field-initializers -Wno-missing-attributes -O3 -fPIC -std=c++23 -mavx2 -mbmi2 # -ftime-trace
 LDFLAGS = -shared
 
 # Include directories

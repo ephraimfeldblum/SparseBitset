@@ -3,10 +3,11 @@
 import redis
 import time
 from prettytable import PrettyTable
+import argparse
 import random
 
 # --- CONFIGURATION ---
-r = redis.Redis(decode_responses=True)
+r = None
 DATA_FILE_1 = 'tests/benchmarks/files/benchmark_{}_data_1.txt'
 DATA_FILE_2 = 'tests/benchmarks/files/benchmark_{}_data_2.txt'
 KEYS = {
@@ -138,13 +139,13 @@ def run_all_benchmarks(data1, data2, i):
     table.add_row(["AND", f"{s_and_size}", f"{c_and_size}", f"{d_and_size}", get_stats('bits.op'), get_stats('R.BITOP'), get_stats('bitop'), compare_results(s_and_size, d_and_size)])
 
     # XOR
-    # r.bitop('XOR', KEYS['dest_d'], KEYS['dense1'], KEYS['dense2'])
-    # r.execute_command('R.BITOP', 'XOR', KEYS['dest_c'], KEYS['compressed1'], KEYS['compressed2'])
-    # r.execute_command('BITS.OP', 'XOR', KEYS['dest_s'], KEYS['sparse1'], KEYS['sparse2'])
-    # s_xor_size = r.execute_command('BITS.COUNT', KEYS['dest_s'])
-    # d_xor_size = r.bitcount(KEYS['dest_d'])
-    # c_xor_size = r.execute_command('R.BITCOUNT', KEYS['dest_c'])
-    # table.add_row(["XOR", f"{s_xor_size}", f"{c_xor_size}", f"{d_xor_size}", get_stats('bits.op'), get_stats('R.BITOP'), get_stats('bitop'), compare_results(s_xor_size, d_xor_size)])
+    r.bitop('XOR', KEYS['dest_d'], KEYS['dense1'], KEYS['dense2'])
+    r.execute_command('R.BITOP', 'XOR', KEYS['dest_c'], KEYS['compressed1'], KEYS['compressed2'])
+    r.execute_command('BITS.OP', 'XOR', KEYS['dest_s'], KEYS['sparse1'], KEYS['sparse2'])
+    s_xor_size = r.execute_command('BITS.COUNT', KEYS['dest_s'])
+    d_xor_size = r.bitcount(KEYS['dest_d'])
+    c_xor_size = r.execute_command('R.BITCOUNT', KEYS['dest_c'])
+    table.add_row(["XOR", f"{s_xor_size}", f"{c_xor_size}", f"{d_xor_size}", get_stats('bits.op'), get_stats('R.BITOP'), get_stats('bitop'), compare_results(s_xor_size, d_xor_size)])
 
     # # --- TOARRAY ---
     # print("Benchmarking toarray...")
@@ -174,4 +175,8 @@ def main():
         print(f"Benchmark {i} complete")
 
 if __name__ == "__main__":
-    main() 
+    parser = argparse.ArgumentParser(description="Run benchmarks for vEB bitsets against Redis bitmaps and Roaring bitmaps.")
+    parser.add_argument('--port', type=int, default=6379, help='Redis server port.')
+    args = parser.parse_args()
+    r = redis.Redis(decode_responses=True, port=args.port)
+    main()

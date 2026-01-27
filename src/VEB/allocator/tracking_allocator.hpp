@@ -25,7 +25,7 @@
  * @tparam T The type of objects to allocate
  */
 template <typename T>
-class tracking_allocator {
+struct tracking_allocator {
 public:
     using value_type = T;
     using size_type = std::size_t;

@@ -2,7 +2,7 @@
  * @file VebTree.h
  * @brief C API for van Emde Boas Tree implementation
  *
- * This header provides a C-compatible interface to the C++ VebTree template class.
+ * This header provides a C-compatible interface to the C++ VebTree template struct.
  */
 
 #ifndef VEBTREE_H
@@ -130,7 +130,7 @@ typedef struct VebTree_API {
  *
  * Note: Every call to vebtree_create() must be matched with a call to VEBTREE_DESTROY().
  */
-VebTree_Handle_t vebtree_create();
+VebTree_Handle_t vebtree_create(void);
 
 /**
  * @brief Get the API function table for a specific VebTree instance
@@ -154,7 +154,7 @@ VebTree_Handle_t vebtree_create();
  *
  * @return const VebTree_API_t* Pointer to the API function table.
  */
-const VebTree_API_t* vebtree_get_api();
+const VebTree_API_t* vebtree_get_api(void);
 
 /**
  * @brief Safe destruction macro for VebTree handles

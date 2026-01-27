@@ -20,7 +20,7 @@
 - Run full tests: `make test`
 - Run a single flow test quickly: `make test QUICK=1 TEST=test_set_operations`
 - Example Windows/WSL invocation used in this workspace:
-  `wsl -d Ubuntu -e bash -lc "make clean && make test QUICK=1 TEST=test_set_operations"`
+  `wsl -e bash -lc "make clean && make test QUICK=1 TEST=test_set_operations"`
 
 **Agent (You) — Working Rules and Instructions**
 - ALWAYS start with a short todo entry via the project's todo tool to track the change.
@@ -44,6 +44,14 @@
 - Run all flow tests: `make test QUICK=1`
 - Run all flow tests in all configurations: `make test`
 - Run in Docker: `./run_in_docker.sh`
+
+**VEB invariants**
+- **Min/Max ownership:** The `min` and `max` values must be stored in the node itself and must never be stored inside cluster containers. If an operation would remove a node's `min` or `max`, the node must promote a replacement value from its clusters (for example, pull the next `min`/`max` from the appropriate cluster) so the node's `min`/`max` remain authoritative. These in-node `min`/`max` values are the single source of truth and are not copies.
+- **Nodes are never empty:** A node is never considered empty except during the fleeting moment between an operation that removed its last elements and the call site that destroys the node. Agents should assume nodes always contain at least the stored `min`/`max` invariants until `destroy()` is invoked.
+- **Summary is the source of truth:** The `summary` index (the subnode used as the summary) is authoritative for which clusters exist. If the `summary` indicates a cluster exists at a key, callers do not need to re-validate that by checking `find()` return values or similar — rely on the summary's membership operations (e.g., `contains`, `min`, `max`, `successor`, `predecessor`) to reason about clusters.
+- **Summary is itself non-empty:** The `summary` is a proper node and therefore must contain at least one element whenever `cluster_data_` exists. Treat `summary` as non-empty — its `min`/`max` and membership ops are valid.
+- **Clusterless does not mean empty:** A node with no clusters still contains valid `min` and `max` values and therefore must be treated as non-empty. Do not infer emptiness solely from the absence of clusters.
+- **Summary implies clusters exist and are non-empty:** Because `summary` is authoritative for cluster membership, and `summary` is non-empty, it can be assumed that clusters are also non-empty rather than defensively re-checking cluster containers.
 
 **Coding & PR Guidelines for the Agent**
 - Keep patches minimal and narrowly scoped.

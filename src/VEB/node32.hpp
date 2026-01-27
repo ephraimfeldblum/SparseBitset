@@ -1,6 +1,7 @@
 #ifndef NODE32_HPP
 #define NODE32_HPP
 
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -27,11 +28,11 @@
  *   - Two index fields (`min_` and `max_`) to lazily propagate the minimum and maximum elements.
  *
  * The purpose of this design is to optimize memory usage while maintaining fast operations on the underlying nodes.
- * The total size of this class is 16 bytes on 64-bit systems, ie two registers. As such, we should prefer passing
- *   instances of this class by value whenever possible.
+ * The total size of this struct is 16 bytes on 64-bit systems, ie two registers. As such, we should prefer passing
+ *   instances of this struct by value whenever possible.
  */
-class Node32 {
-    friend class VebTree;
+struct Node32 {
+    friend struct VebTree;
 public:
     using subnode_t = Node16;
     using subindex_t = subnode_t::index_t;
@@ -186,21 +187,27 @@ public:
 
     constexpr inline bool remove(index_t x, std::size_t& alloc) {
         if (x == min_) {
-            if (cluster_data_ == nullptr || cluster_data_->clusters.empty()) {
+            if (cluster_data_ == nullptr) {
                 return true;
             } else {
-                auto min_cluster{cluster_data_->summary.min()};
-                auto min_element{cluster_data_->clusters.find(min_cluster)->min()};
+                const auto min_cluster{cluster_data_->summary.min()};
+                [[assume(cluster_data_->summary.contains(min_cluster))]];
+                const auto it_min = cluster_data_->clusters.find(min_cluster);
+                [[assume(it_min != cluster_data_->clusters.end())]];
+                const auto min_element{it_min->min()};
                 x = min_ = index(min_cluster, min_element);
             }
         }
 
         if (x == max_) {
-            if (cluster_data_ == nullptr || cluster_data_->clusters.empty()) {
+            if (cluster_data_ == nullptr) {
                 max_ = min_;
             } else {
-                auto max_cluster{cluster_data_->summary.max()};
-                auto max_element{cluster_data_->clusters.find(max_cluster)->max()};
+                const auto max_cluster{cluster_data_->summary.max()};
+                [[assume(cluster_data_->summary.contains(max_cluster))]];
+                const auto it_max = cluster_data_->clusters.find(max_cluster);
+                [[assume(it_max != cluster_data_->clusters.end())]];
+                const auto max_element{it_max->max()};
                 x = max_ = index(max_cluster, max_element);
             }
         }
@@ -258,7 +265,10 @@ public:
         }
 
         if (auto succ_cluster{cluster_data_->summary.successor(h)}; succ_cluster.has_value()) {
-            auto min_element{cluster_data_->clusters.find(*succ_cluster)->min()};
+            [[assume(cluster_data_->summary.contains(*succ_cluster))]];
+            const auto it = cluster_data_->clusters.find(*succ_cluster);
+            [[assume(it != cluster_data_->clusters.end())]];
+            const auto min_element{it->min()};
             return index(*succ_cluster, min_element);
         }
 
@@ -286,7 +296,10 @@ public:
         }
 
         if (auto pred_cluster{cluster_data_->summary.predecessor(h)}; pred_cluster.has_value()) {
-            auto max_element{cluster_data_->clusters.find(*pred_cluster)->max()};
+            [[assume(cluster_data_->summary.contains(*pred_cluster))]];
+            const auto it = cluster_data_->clusters.find(*pred_cluster);
+            [[assume(it != cluster_data_->clusters.end())]];
+            const auto max_element{it->max()};
             return index(*pred_cluster, max_element);
         }
 
@@ -302,7 +315,7 @@ public:
 
         return std::transform_reduce(
 #ifdef __cpp_lib_execution
-            std::execution::unseq,
+            std::execution::par_unseq,
 #endif
             cluster_data_->clusters.begin(), cluster_data_->clusters.end(),
             base_count, std::plus<>{}, [](const auto& cluster) { return cluster.size(); }
@@ -427,30 +440,34 @@ public:
             }
         }
 
-        max_ = new_max.has_value() ? new_max.value() : index(s_summary.max(), s_clusters.find(s_summary.max())->max());
-        min_ = new_min.has_value() ? new_min.value() : index(s_summary.min(), s_clusters.find(s_summary.min())->min());
+        const auto sum_max = s_summary.max();
+        [[assume(s_summary.contains(sum_max))]];
+        const auto it_max = s_clusters.find(sum_max);
+        [[assume(it_max != s_clusters.end())]];
+        auto& c_max = const_cast<subnode_t&>(*it_max);
+        const auto sum_min = s_summary.min();
+        [[assume(s_summary.contains(sum_min))]];
+        const auto it_min = s_clusters.find(sum_min);
+        [[assume(it_min != s_clusters.end())]];
+        auto& c_min = const_cast<subnode_t&>(*it_min);
 
-        if (max_ != s_max) {
-            const auto it = s_clusters.find(s_summary.max());
-            auto& cluster = const_cast<subnode_t&>(*it);
-            if (cluster.remove(static_cast<subindex_t>(max_), alloc)) {
-                cluster.destroy(alloc);
-                s_clusters.erase(it);
-                if (s_summary.remove(s_summary.max(), alloc)) {
-                    destroy(alloc);
-                    return false;
-                }
+        max_ = new_max.has_value() ? new_max.value() : index(sum_max, c_max.max());
+        min_ = new_min.has_value() ? new_min.value() : index(sum_min, c_min.min());
+
+        if (max_ != s_max && c_max.remove(static_cast<subindex_t>(max_), alloc)) {
+            c_max.destroy(alloc);
+            s_clusters.erase(it_max);
+            if (s_summary.remove(sum_max, alloc)) {
+                destroy(alloc);
+                return false;
             }
         }
-        if (min_ != s_min) {
-            const auto it = s_clusters.find(s_summary.min());
-            auto& cluster = const_cast<subnode_t&>(*it);
-            if (cluster.remove(static_cast<subindex_t>(min_), alloc)) {
-                s_clusters.erase(it);
-                if (s_summary.remove(s_summary.min(), alloc)) {
-                    destroy(alloc);
-                    return false;
-                }
+        if (min_ != s_min && c_min.remove(static_cast<subindex_t>(min_), alloc)) {
+            c_min.destroy(alloc);
+            s_clusters.erase(it_min);
+            if (s_summary.remove(sum_min, alloc)) {
+                destroy(alloc);
+                return false;
             }
         }
 

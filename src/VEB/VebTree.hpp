@@ -66,7 +66,7 @@ static_assert(sizeof(Node64) == 24, "Node64 size is incorrect");
  * - Node32 for universe ≤ 4294967296 (2^32)
  * - Node64 for larger universes
  */
-class VebTree {
+struct VebTree {
 private:
     using StorageType = std::variant<std::monostate, Node8, Node16, Node32, Node64>;
     std::size_t allocated_{sizeof *this};
@@ -121,7 +121,7 @@ public:
         destroy_storage();
     }
 
-    class Iterator {
+    struct Iterator {
         const VebTree* tree_;
         std::size_t current_;
 
@@ -755,7 +755,9 @@ public:
                     a.or_inplace(b64, allocated_);
                     b64.destroy(allocated_);
                 },
-                [](auto&&, auto&&) {}
+                [](auto&&, auto&&) {
+                    std::unreachable();
+                }
             },
             storage_, other.storage_
         );
@@ -769,30 +771,19 @@ public:
      * @return Reference to this tree after XOR
      */
     inline VebTree& operator^=(const VebTree& other) {
+        if (other.empty()) {
+            return *this;
+        }
+        if (empty()) {
+            storage_ = std::visit(overload{
+                [](std::monostate) -> StorageType { return std::monostate{}; },
+                [](const Node8& node) -> StorageType { return node; },
+                [&](const auto& node) -> StorageType { return node.clone(allocated_); },
+            }, other.storage_);
+            return *this;
+        }
         std::visit(
             overload{
-                [](std::monostate, std::monostate) -> void {
-                },
-                [&](std::monostate, const Node8& b) -> void {
-                    storage_ = b;
-                },
-                [&](std::monostate, const Node16& b) -> void {
-                    storage_ = b.clone(allocated_);
-                },
-                [&](std::monostate, const Node32& b) -> void {
-                    storage_ = b.clone(allocated_);
-                },
-                [&](std::monostate, const Node64& b) -> void {
-                    storage_ = b.clone(allocated_);
-                },
-                [](Node8&, std::monostate) -> void {
-                },
-                [](Node16&, std::monostate) -> void {
-                },
-                [](Node32&, std::monostate) -> void {
-                },
-                [](Node64&, std::monostate) -> void {
-                },
                 [&](Node8& a, const Node8& b) -> void {
                     if (a.xor_inplace(b)) {
                         storage_ = std::monostate{};
