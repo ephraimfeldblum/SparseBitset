@@ -440,30 +440,34 @@ public:
             }
         }
 
-        max_ = new_max.has_value() ? new_max.value() : index(s_summary.max(), s_clusters.find(s_summary.max())->max());
-        min_ = new_min.has_value() ? new_min.value() : index(s_summary.min(), s_clusters.find(s_summary.min())->min());
+        const auto sum_max = s_summary.max();
+        [[assume(s_summary.contains(sum_max))]];
+        const auto it_max = s_clusters.find(sum_max);
+        [[assume(it_max != s_clusters.end())]];
+        auto& c_max = const_cast<subnode_t&>(*it_max);
+        const auto sum_min = s_summary.min();
+        [[assume(s_summary.contains(sum_min))]];
+        const auto it_min = s_clusters.find(sum_min);
+        [[assume(it_min != s_clusters.end())]];
+        auto& c_min = const_cast<subnode_t&>(*it_min);
 
-        if (max_ != s_max) {
-            const auto it = s_clusters.find(s_summary.max());
-            auto& cluster = const_cast<subnode_t&>(*it);
-            if (cluster.remove(static_cast<subindex_t>(max_), alloc)) {
-                cluster.destroy(alloc);
-                s_clusters.erase(it);
-                if (s_summary.remove(s_summary.max(), alloc)) {
-                    destroy(alloc);
-                    return false;
-                }
+        max_ = new_max.has_value() ? new_max.value() : index(sum_max, c_max.max());
+        min_ = new_min.has_value() ? new_min.value() : index(sum_min, c_min.min());
+
+        if (max_ != s_max && c_max.remove(static_cast<subindex_t>(max_), alloc)) {
+            c_max.destroy(alloc);
+            s_clusters.erase(it_max);
+            if (s_summary.remove(sum_max, alloc)) {
+                destroy(alloc);
+                return false;
             }
         }
-        if (min_ != s_min) {
-            const auto it = s_clusters.find(s_summary.min());
-            auto& cluster = const_cast<subnode_t&>(*it);
-            if (cluster.remove(static_cast<subindex_t>(min_), alloc)) {
-                s_clusters.erase(it);
-                if (s_summary.remove(s_summary.min(), alloc)) {
-                    destroy(alloc);
-                    return false;
-                }
+        if (min_ != s_min && c_min.remove(static_cast<subindex_t>(min_), alloc)) {
+            c_min.destroy(alloc);
+            s_clusters.erase(it_min);
+            if (s_summary.remove(sum_min, alloc)) {
+                destroy(alloc);
+                return false;
             }
         }
 

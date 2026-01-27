@@ -265,7 +265,7 @@ public:
                 [[assume(cluster_data_->summary_.contains(min_cluster))]];
                 const auto idx_min = cluster_data_->index_of(min_cluster);
                 [[assume(idx_min < cluster_data_->size())]];
-                auto min_element{cluster_data_->clusters_[idx_min].min()};
+                const auto min_element{cluster_data_->clusters_[idx_min].min()};
                 x = min_ = index(min_cluster, min_element);
             }
         }
@@ -283,7 +283,7 @@ public:
                 [[assume(cluster_data_->summary_.contains(max_cluster))]];
                 const auto idx_max = cluster_data_->index_of(max_cluster);
                 [[assume(idx_max < cluster_data_->size())]];
-                auto max_element{cluster_data_->clusters_[idx_max].max()};
+                const auto max_element{cluster_data_->clusters_[idx_max].max()};
                 x = max_ = index(max_cluster, max_element);
             }
         }
@@ -477,7 +477,7 @@ public:
 
         const auto new_cluster_data{reinterpret_cast<cluster_data_t*>(a.allocate(new_capacity + 1))};
         const auto& new_summary{new_cluster_data->summary_ = merge_summary};
-        auto* new_clusters{new_cluster_data->clusters_};
+        auto* const {new_cluster_data->clusters_};
 
         std::size_t i{};
         std::size_t j{};
@@ -569,6 +569,8 @@ public:
 
         // now that we're done iterating, we can finally update the summary to the intersection
         s_summary = int_summary;
+
+        [[assume(s_summary.size() == i)]];
 
         max_ = new_max.has_value() ? new_max.value() : index(s_summary.max(), s_clusters[i - 1].max());
         min_ = new_min.has_value() ? new_min.value() : index(s_summary.min(), s_clusters[0].min());

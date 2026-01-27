@@ -6,7 +6,7 @@ from prettytable import PrettyTable
 import random
 
 # --- CONFIGURATION ---
-r = redis.Redis(decode_responses=True, port=6380)
+r = None
 DATA_FILE_1 = 'tests/benchmarks/files/benchmark_{}_data_1.txt'
 DATA_FILE_2 = 'tests/benchmarks/files/benchmark_{}_data_2.txt'
 KEYS = {
@@ -174,4 +174,8 @@ def main():
         print(f"Benchmark {i} complete")
 
 if __name__ == "__main__":
-    main() 
+    parser = argparse.ArgumentParser(description="Run benchmarks for vEB bitsets against Redis bitmaps and Roaring bitmaps.")
+    parser.add_argument('--port', type=int, default=6379, help='Redis server port.')
+    args = parser.parse_args()
+    r = redis.Redis(decode_responses=True, port=args.port)
+    main()
