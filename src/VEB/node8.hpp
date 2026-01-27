@@ -16,11 +16,13 @@
     #include "immintrin.h"
     #define NODE8_AVX2_ENABLED
     #define NODE8_ALIGNMENT alignas(32)
+    #define NODE8_CONSTEXPR inline
     #if defined(__BMI2__)
         #define NODE8_BMI2_ENABLED
     #endif
 #else
     #define NODE8_ALIGNMENT
+    #define NODE8_CONSTEXPR constexpr inline
 #endif
 
 #include "VebCommon.hpp"
@@ -33,8 +35,8 @@
  *
  * The purpose of this design is to optimize memory usage while maintaining fast operations on the underlying nodes.
  */
-class Node8 {
-    friend class VebTree;
+struct Node8 {
+    friend struct VebTree;
 public:
     using subindex_t = std::uint8_t;
     using index_t = std::uint8_t;
@@ -53,15 +55,15 @@ private:
     }
 
 #ifdef NODE8_AVX2_ENABLED
-    constexpr inline __m256i load() const {
+    NODE8_CONSTEXPR __m256i load() const {
         return _mm256_load_si256(reinterpret_cast<const __m256i*>(bits_.data()));
     }
-    constexpr inline void store(__m256i v) {
+    NODE8_CONSTEXPR void store(__m256i v) {
         _mm256_store_si256(reinterpret_cast<__m256i*>(bits_.data()), v);
     }
 #endif
 
-    constexpr inline bool empty() const {
+    NODE8_CONSTEXPR bool empty() const {
 #ifdef NODE8_AVX2_ENABLED
         const __m256i v = load();
         return _mm256_testz_si256(v, v);
@@ -71,7 +73,7 @@ private:
     }
     
 public:
-    constexpr inline index_t get_cluster_index(index_t key) const {
+    NODE8_CONSTEXPR index_t get_cluster_index(index_t key) const {
         const auto [target_word, target_bit] {decompose(key)};
         const std::uint64_t mask{(1ULL << target_bit) - 1};
 
@@ -83,16 +85,16 @@ public:
         return count;
     }
 
-    constexpr inline explicit Node8(index_t x) {
+    NODE8_CONSTEXPR explicit Node8(index_t x) {
         const auto [word_idx, bit_idx] {decompose(x)};
         bits_[word_idx] |= (1ULL << bit_idx);
     }
 
-    static constexpr inline std::size_t universe_size() {
+    static NODE8_CONSTEXPR std::size_t universe_size() {
         return std::numeric_limits<index_t>::max();
     }
 
-    constexpr inline index_t min() const {
+    NODE8_CONSTEXPR index_t min() const {
         for (subindex_t word{}; word < num_words; ++word) {
             if (bits_[word] != 0) {
                 auto bit_idx{std::countr_zero(bits_[word])};
@@ -102,7 +104,7 @@ public:
         std::unreachable();
     }
 
-    constexpr inline index_t max() const {
+    NODE8_CONSTEXPR index_t max() const {
         for (subindex_t word{num_words}; word > 0; --word) {
             if (bits_[word - 1] != 0) {
                 auto bit_idx{bits_per_word - 1 - std::countl_zero(bits_[word - 1])};
@@ -112,12 +114,12 @@ public:
         std::unreachable();
     }
 
-    constexpr inline void insert(index_t x) {
+    NODE8_CONSTEXPR void insert(index_t x) {
         const auto [word_idx, bit_idx] {decompose(x)};
         bits_[word_idx] |= (1ULL << bit_idx);
     }
 
-    constexpr inline bool remove(index_t x) {
+    NODE8_CONSTEXPR bool remove(index_t x) {
         const auto [word_idx, bit_idx] {decompose(x)};
 
         if (!(bits_[word_idx] & (1ULL << bit_idx))) {
@@ -128,12 +130,12 @@ public:
         return empty();
     }
 
-    constexpr inline bool contains(index_t x) const {
+    NODE8_CONSTEXPR bool contains(index_t x) const {
         const auto [word_idx, bit_idx] {decompose(x)};
         return (bits_[word_idx] & (1ULL << bit_idx)) != 0;
     }
 
-    constexpr inline std::optional<index_t> successor(index_t x) const {
+    NODE8_CONSTEXPR std::optional<index_t> successor(index_t x) const {
 #if defined(NODE8_BMI2_ENABLED)
         const auto [w, b] {decompose(x)};
 
@@ -175,7 +177,7 @@ public:
         return std::nullopt;
     }
 
-    constexpr inline std::optional<index_t> predecessor(index_t x) const {
+    NODE8_CONSTEXPR std::optional<index_t> predecessor(index_t x) const {
 #if defined(NODE8_BMI2_ENABLED)
         const auto [w, b] {decompose(x)};
 
@@ -217,7 +219,7 @@ public:
         return std::nullopt;
     }
 
-    constexpr inline std::size_t size() const {
+    NODE8_CONSTEXPR std::size_t size() const {
         return std::transform_reduce(
 #if __cpp_lib_execution
             std::execution::unseq,
@@ -227,7 +229,7 @@ public:
         );
     }
 
-    constexpr inline VebTreeMemoryStats get_memory_stats() const {
+    NODE8_CONSTEXPR VebTreeMemoryStats get_memory_stats() const {
         return {0, 0, 1};
     }
 
@@ -240,7 +242,7 @@ public:
     //  1 | 0 |  0 |   1   |   0   |   1   |   1
     //  1 | 1 |  0 |   1   |   1   |   0   |   0
 
-    constexpr inline bool not_inplace() {
+    NODE8_CONSTEXPR bool not_inplace() {
 #ifdef NODE8_AVX2_ENABLED
         const __m256i v{load()};
         const __m256i ones{_mm256_set1_epi64x(-1LL)};
@@ -253,7 +255,7 @@ public:
 #endif
         return empty();
     }
-    constexpr inline bool or_inplace(const Node8& other) {
+    NODE8_CONSTEXPR bool or_inplace(const Node8& other) {
 #ifdef NODE8_AVX2_ENABLED
         const __m256i v1{load()};
         const __m256i v2{other.load()};
@@ -267,7 +269,7 @@ public:
         // no need to check for emptiness, oring can only ever grow a set
         return false;
     }
-    constexpr inline bool xor_inplace(const Node8& other) {
+    NODE8_CONSTEXPR bool xor_inplace(const Node8& other) {
 #ifdef NODE8_AVX2_ENABLED
         const __m256i v1{load()};
         const __m256i v2{other.load()};
@@ -280,7 +282,7 @@ public:
 #endif
         return empty();
     }
-    constexpr inline bool and_inplace(const Node8& other) {
+    NODE8_CONSTEXPR bool and_inplace(const Node8& other) {
 #ifdef NODE8_AVX2_ENABLED
         const __m256i v1{load()};
         const __m256i v2{other.load()};
@@ -294,7 +296,7 @@ public:
         return empty();
     }
     // difference: A \ B
-    constexpr inline bool and_not_inplace(const Node8& other) {
+    NODE8_CONSTEXPR bool and_not_inplace(const Node8& other) {
 #ifdef NODE8_AVX2_ENABLED
         const __m256i v1{load()};
         const __m256i v2{other.load()};

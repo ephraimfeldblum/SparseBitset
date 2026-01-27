@@ -1,6 +1,7 @@
 #ifndef NODE16_HPP
 #define NODE16_HPP
 
+#include <cassert>
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -27,8 +28,8 @@
  *   - An index field (`key_`) to identify which of the parent `Node32` clusters this node belongs to.
  *   - A `capacity_` field to track the allocated size of the clusters array.
  * 
- * The total size of this class is 16 bytes on 64-bit systems, ie two registers. As such, we should prefer passing
- *   instances of this class by value whenever possible.
+ * The total size of this struct is 16 bytes on 64-bit systems, ie two registers. As such, we should prefer passing
+ *   instances of this struct by value whenever possible.
  * The purpose of this design is to optimize memory usage while maintaining fast operations on the underlying nodes.
  * The `cluster_data_t` structure is allocated dynamically to allow for flexible sizing of the clusters array.
  * The `capacity_` field helps manage the dynamic array of clusters, allowing for efficient resizing when necessary.
@@ -40,8 +41,8 @@
  * Additionally, the `key_` field allows us to efficiently determine which `Node32` cluster this node belongs to during
  *   operations like insertion and deletion.
  */
-class Node16 {
-    friend class VebTree;
+struct Node16 {
+    friend struct VebTree;
 public:
     using subnode_t = Node8;
     using subindex_t = subnode_t::index_t;
@@ -80,7 +81,7 @@ private:
         return {static_cast<subindex_t>(x >> 8), static_cast<subindex_t>(x)};
     }
     static constexpr inline index_t index(subindex_t high, subindex_t low) {
-        return static_cast<index_t>(high) << 8 | low;
+        return static_cast<index_t>((high << 8) | low);
     }
 
     constexpr inline subnode_t* find(subindex_t x) {
@@ -260,8 +261,11 @@ public:
                     return false;
                 }
             } else {
-                auto min_cluster{cluster_data_->summary_.min()};
-                auto min_element{cluster_data_->clusters_[cluster_data_->index_of(min_cluster)].min()};
+                const auto min_cluster{cluster_data_->summary_.min()};
+                [[assume(cluster_data_->summary_.contains(min_cluster))]];
+                const auto idx_min = cluster_data_->index_of(min_cluster);
+                [[assume(idx_min < cluster_data_->size())]];
+                auto min_element{cluster_data_->clusters_[idx_min].min()};
                 x = min_ = index(min_cluster, min_element);
             }
         }
@@ -275,8 +279,11 @@ public:
                     return false;
                 }
             } else {
-                auto max_cluster{cluster_data_->summary_.max()};
-                auto max_element{cluster_data_->clusters_[cluster_data_->index_of(max_cluster)].max()};
+                const auto max_cluster{cluster_data_->summary_.max()};
+                [[assume(cluster_data_->summary_.contains(max_cluster))]];
+                const auto idx_max = cluster_data_->index_of(max_cluster);
+                [[assume(idx_max < cluster_data_->size())]];
+                auto max_element{cluster_data_->clusters_[idx_max].max()};
                 x = max_ = index(max_cluster, max_element);
             }
         }
@@ -335,7 +342,10 @@ public:
         }
 
         if (auto succ_cluster{cluster_data_->summary_.successor(h)}; succ_cluster.has_value()) {
-            auto min_element{cluster_data_->clusters_[cluster_data_->index_of(*succ_cluster)].min()};
+            [[assume(cluster_data_->summary_.contains(*succ_cluster))]];
+            const auto idx = cluster_data_->index_of(*succ_cluster);
+            [[assume(idx < cluster_data_->size())]];
+            const auto min_element{cluster_data_->clusters_[idx].min()};
             return index(*succ_cluster, min_element);
         }
 
@@ -363,7 +373,10 @@ public:
         }
 
         if (auto pred_cluster{cluster_data_->summary_.predecessor(h)}; pred_cluster.has_value()) {
-            auto max_element{cluster_data_->clusters_[cluster_data_->index_of(*pred_cluster)].max()};
+            [[assume(cluster_data_->summary_.contains(*pred_cluster))]];
+            const auto idx = cluster_data_->index_of(*pred_cluster);
+            [[assume(idx < cluster_data_->size())]];
+            const auto max_element{cluster_data_->clusters_[idx].max()};
             return index(*pred_cluster, max_element);
         }
 

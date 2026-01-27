@@ -1,6 +1,7 @@
 #ifndef NODE64_HPP
 #define NODE64_HPP
 
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -15,8 +16,8 @@
 #include "VebCommon.hpp"
 #include "allocator/tracking_allocator.hpp"
 
-class Node64 {
-    friend class VebTree;
+struct Node64 {
+    friend struct VebTree;
 public:
     using subnode_t = Node32;
     using subindex_t = subnode_t::index_t;
@@ -172,21 +173,27 @@ public:
 
     constexpr inline bool remove(index_t x, std::size_t& alloc) {
         if (x == min_) {
-            if (cluster_data_ == nullptr || cluster_data_->clusters.empty()) {
+            if (cluster_data_ == nullptr) {
                 return true;
             } else {
                 const auto min_cluster{cluster_data_->summary.min()};
-                const auto min_element{cluster_data_->clusters.at(min_cluster).min()};
+                [[assume(cluster_data_->summary.contains(min_cluster))]];
+                const auto it_min = cluster_data_->clusters.find(min_cluster);
+                [[assume(it_min != cluster_data_->clusters.end())]];
+                const auto min_element{it_min->second.min()};
                 x = min_ = index(min_cluster, min_element);
             }
         }
 
         if (x == max_) {
-            if (cluster_data_ == nullptr || cluster_data_->clusters.empty()) {
+            if (cluster_data_ == nullptr) {
                 max_ = min_;
             } else {
                 const auto max_cluster{cluster_data_->summary.max()};
-                const auto max_element{cluster_data_->clusters.at(max_cluster).max()};
+                [[assume(cluster_data_->summary.contains(max_cluster))]];
+                const auto it_max = cluster_data_->clusters.find(max_cluster);
+                [[assume(it_max != cluster_data_->clusters.end())]];
+                const auto max_element{it_max->second.max()};
                 x = max_ = index(max_cluster, max_element);
             }
         }
@@ -290,7 +297,7 @@ public:
 
         return std::transform_reduce(
 #ifdef __cpp_lib_execution
-            std::execution::unseq,
+            std::execution::par_unseq,
 #endif
             cluster_data_->values().begin(), cluster_data_->values().end(),
             base_count, std::plus<>(), [](const auto& cluster) { return cluster.size(); }
@@ -399,6 +406,7 @@ public:
         // iterate only clusters surviving the summary intersection
         for (auto s_it{s_clusters.begin()}; s_it != s_clusters.end(); ) {
             auto& [key, cluster] = *s_it;
+            [[assume(s_summary.contains(key) || o_summary.contains(key))]];
             if (!s_summary.contains(key) || cluster.and_inplace(o_clusters.find(key)->second, alloc)) {
                 cluster.destroy(alloc);
                 s_it = s_clusters.erase(s_it);
@@ -410,8 +418,17 @@ public:
             }
         }
 
-        max_ = new_max.has_value() ? new_max.value() : index(s_summary.max(), s_clusters.find(s_summary.max())->second.max());
-        min_ = new_min.has_value() ? new_min.value() : index(s_summary.min(), s_clusters.find(s_summary.min())->second.min());
+        const auto sum_max = s_summary.max();
+        [[assume(s_summary.contains(sum_max))]];
+        const auto it_max = s_clusters.find(sum_max);
+        [[assume(it_max != s_clusters.end())]];
+        const auto sum_min = s_summary.min();
+        [[assume(s_summary.contains(sum_min))]];
+        const auto it_min = s_clusters.find(sum_min);
+        [[assume(it_min != s_clusters.end())]];
+
+        max_ = new_max.has_value() ? new_max.value() : index(sum_max, it_max->second.max());
+        min_ = new_min.has_value() ? new_min.value() : index(sum_min, it_min->second.min());
 
         if (max_ != s_max) {
             const auto it{s_clusters.find(s_summary.max())};

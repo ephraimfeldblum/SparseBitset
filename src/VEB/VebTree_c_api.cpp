@@ -86,9 +86,8 @@ static std::size_t vebtree_size(const_VebTree_Handle_t handle) {
 static std::size_t* vebtree_to_array(const_VebTree_Handle_t handle) {
     assert(handle);
     std::size_t* array = static_cast<std::size_t*>(malloc(handle->size() * sizeof *array));
-    std::size_t idx = 0;
-    for (auto v : *handle) {
-        array[idx++] = v;
+    for (std::size_t i = 0; auto v : *handle) {
+        array[i++] = v;
     }
     return array;
 }
