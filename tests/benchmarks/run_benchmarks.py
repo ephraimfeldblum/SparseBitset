@@ -3,6 +3,7 @@
 import redis
 import time
 from prettytable import PrettyTable
+import argparse
 import random
 
 # --- CONFIGURATION ---

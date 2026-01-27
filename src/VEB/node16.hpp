@@ -477,7 +477,7 @@ public:
 
         const auto new_cluster_data{reinterpret_cast<cluster_data_t*>(a.allocate(new_capacity + 1))};
         const auto& new_summary{new_cluster_data->summary_ = merge_summary};
-        auto* const {new_cluster_data->clusters_};
+        auto* new_clusters{new_cluster_data->clusters_};
 
         std::size_t i{};
         std::size_t j{};

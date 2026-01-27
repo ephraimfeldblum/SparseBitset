@@ -46,6 +46,7 @@
 - Run in Docker: `./run_in_docker.sh`
 
 **VEB invariants**
+- **Min/Max ownership:** The `min` and `max` values must be stored in the node itself and must never be stored inside cluster containers. If an operation would remove a node's `min` or `max`, the node must promote a replacement value from its clusters (for example, pull the next `min`/`max` from the appropriate cluster) so the node's `min`/`max` remain authoritative. These in-node `min`/`max` values are the single source of truth and are not copies.
 - **Nodes are never empty:** A node is never considered empty except during the fleeting moment between an operation that removed its last elements and the call site that destroys the node. Agents should assume nodes always contain at least the stored `min`/`max` invariants until `destroy()` is invoked.
 - **Summary is the source of truth:** The `summary` index (the subnode used as the summary) is authoritative for which clusters exist. If the `summary` indicates a cluster exists at a key, callers do not need to re-validate that by checking `find()` return values or similar — rely on the summary's membership operations (e.g., `contains`, `min`, `max`, `successor`, `predecessor`) to reason about clusters.
 - **Summary is itself non-empty:** The `summary` is a proper node and therefore must contain at least one element whenever `cluster_data_` exists. Treat `summary` as non-empty — its `min`/`max` and membership ops are valid.
