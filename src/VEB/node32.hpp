@@ -71,7 +71,7 @@ public:
         : min_{x}, max_{x} {
     }
 
-    constexpr inline Node32(Node16&& old_storage, std::size_t& alloc)
+    constexpr inline Node32(subnode_t&& old_storage, std::size_t& alloc)
         : cluster_data_{nullptr}
         , min_{old_storage.min()}
         , max_{old_storage.max()}
@@ -176,7 +176,7 @@ public:
             a.construct(cluster_data_, h, alloc);
             cluster_data_->clusters.emplace(h, l);
         } else if (auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end()) {
-            auto& cluster{const_cast<Node16&>(*it)};
+            auto& cluster{const_cast<subnode_t&>(*it)};
             cluster.insert(l, alloc);
         } else {
             cluster_data_->summary.insert(h, alloc);
@@ -209,7 +209,7 @@ public:
 
         if (cluster_data_ != nullptr) {
             if (auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end()) {
-                if (auto& cluster{const_cast<Node16&>(*it)}; cluster.remove(l, alloc)) {
+                if (auto& cluster{const_cast<subnode_t&>(*it)}; cluster.remove(l, alloc)) {
                     cluster.destroy(alloc);
                     cluster_data_->clusters.erase(it);
                     cluster_data_->summary.remove(h, alloc);
@@ -331,118 +331,195 @@ public:
         );
     }
 
-private:
-    constexpr inline decltype(auto) empty_clusters_or_tombstone(this auto&& self, std::optional<index_t> new_min, std::optional<index_t> new_max, std::size_t& alloc) {
-        self.destroy(alloc);
-        if (new_min.has_value() && new_max.has_value()) {
-            self.min_ = *new_min;
-            self.max_ = *new_max;
-        } else if (new_min.has_value()) {
-            self.min_ = *new_min;
-            self.max_ = *new_min;
-        } else if (new_max.has_value()) {
-            self.min_ = *new_max;
-            self.max_ = *new_max;
-        } else {
-            self.min_ = std::numeric_limits<index_t>::max();
-            self.max_ = std::numeric_limits<index_t>::min();
-        }
-        return std::forward<decltype(self)>(self);
-    }
-
-public:
-    constexpr inline bool is_tombstone() const {
-        return min_ > max_;
-    }
-
-    constexpr inline decltype(auto) or_inplace(this auto&& self, const Node32& other, std::size_t& alloc) {
-        self.insert(other.min_, alloc);
-        self.insert(other.max_, alloc);
+    constexpr inline bool or_inplace(const Node32& other, std::size_t& alloc) {
+        insert(other.min_, alloc);
+        insert(other.max_, alloc);
 
         if (other.cluster_data_ == nullptr) {
-            return std::forward<decltype(self)>(self);
+            return false;
         }
 
-        if (self.cluster_data_ == nullptr) {
+        if (cluster_data_ == nullptr) {
             allocator_t a{alloc};
-            self.cluster_data_ = a.allocate(1);
-            a.construct(self.cluster_data_, 0, alloc);
-            self.cluster_data_->summary = other.cluster_data_->summary.clone(alloc);
+            cluster_data_ = a.allocate(1);
+            a.construct(cluster_data_, 0, alloc);
+            cluster_data_->summary = other.cluster_data_->summary.clone(alloc);
             for (const auto& cluster : other.cluster_data_->clusters) {
-                self.cluster_data_->clusters.emplace(cluster.clone(alloc));
+                cluster_data_->clusters.emplace(cluster.clone(alloc));
             }
 
-            return std::forward<decltype(self)>(self);
+            return false;
         }
 
-        auto& this_summary{self.cluster_data_->summary};
-        auto& this_clusters{self.cluster_data_->clusters};
-        const auto& other_summary{other.cluster_data_->summary};
-        const auto& other_clusters{other.cluster_data_->clusters};
+        auto& s_summary{cluster_data_->summary};
+        auto& s_clusters{cluster_data_->clusters};
+        const auto& o_summary{other.cluster_data_->summary};
+        const auto& o_clusters{other.cluster_data_->clusters};
         
-        this_summary.or_inplace(other_summary, alloc);
-        for (const auto& other_cluster : other_clusters) {
-            if (auto it{this_clusters.find(other_cluster)}; it != this_clusters.end()) {
-                auto& cluster{const_cast<Node16&>(*it)};
-                cluster.or_inplace(other_cluster, alloc);
+        s_summary.or_inplace(o_summary, alloc);
+        for (const auto& o_cluster : o_clusters) {
+            if (auto it{s_clusters.find(o_cluster)}; it != s_clusters.end()) {
+                const_cast<subnode_t&>(*it).or_inplace(o_cluster, alloc);
             } else {
-                this_clusters.emplace(other_cluster.clone(alloc));
+                s_clusters.emplace(o_cluster.clone(alloc));
             }
         }
-        return std::forward<decltype(self)>(self);
+        return false;
     }
 
-    constexpr inline decltype(auto) and_inplace(this auto&& self, const Node32& other, std::size_t& alloc) {
-        const auto potential_min{std::max(self.min_, other.min_)};
-        const auto potential_max{std::min(self.max_, other.max_)};
-        auto new_min{self.contains(potential_min) && other.contains(potential_min) ? std::make_optional(potential_min) : std::nullopt};
-        auto new_max{self.contains(potential_max) && other.contains(potential_max) ? std::make_optional(potential_max) : std::nullopt};
+    constexpr inline bool and_inplace(const Node32& other, std::size_t& alloc) {
+        const auto s_min{min_};
+        const auto s_max{max_};
+        const auto i_min{std::max(s_min, other.min_)};
+        const auto i_max{std::min(s_max, other.max_)};
+        const auto new_min{contains(i_min) && other.contains(i_min) ? std::make_optional(i_min) : std::nullopt};
+        const auto new_max{contains(i_max) && other.contains(i_max) ? std::make_optional(i_max) : std::nullopt};
+    
+        const auto update_minmax = [&] {
+            destroy(alloc);
+            if (new_min.has_value() && new_max.has_value()) {
+                min_ = new_min.value();
+                max_ = new_max.value();
+                return false;
+            }
+            if (new_min.has_value()) {
+                min_ = max_ = new_min.value();
+                return false;
+            }
+            if (new_max.has_value()) {
+                min_ = max_ = new_max.value();
+                return false;
+            }
+            return true;
+        };
 
-        if (potential_min >= potential_max || self.cluster_data_ == nullptr || other.cluster_data_ == nullptr) {
-            return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(new_min, new_max, alloc);
+        // easy outs: no overlap aside from mins/maxs, or either node has no clusters
+        if (i_min >= i_max || cluster_data_ == nullptr || other.cluster_data_ == nullptr) {
+            return update_minmax();
         }
 
-        auto& this_summary{self.cluster_data_->summary};
-        auto& this_clusters{self.cluster_data_->clusters};
-        const auto& other_summary{other.cluster_data_->summary};
-        const auto& other_clusters{other.cluster_data_->clusters};
+        auto& s_summary{cluster_data_->summary};
+        auto& s_clusters{cluster_data_->clusters};
+        const auto& o_summary{other.cluster_data_->summary};
+        const auto& o_clusters{other.cluster_data_->clusters};
 
-        if (this_summary.and_inplace(other_summary, alloc).is_tombstone()) {
-            return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(new_min, new_max, alloc);
+        // pre compute summary intersection. if empty, we are done
+        // makes iterating clusters easier as we only need to consider clusters in s_summary
+        // avoids cloning the summary unnecessarily
+        if (s_summary.and_inplace(o_summary, alloc)) {
+            return update_minmax();
         }
 
-        for (auto cluster_idx{std::make_optional(this_summary.min())}; cluster_idx.has_value(); cluster_idx = this_summary.successor(*cluster_idx)) {
-            if (const auto this_it{this_clusters.find(*cluster_idx)}, other_it{other_clusters.find(*cluster_idx)};
-                this_it != this_clusters.end() && other_it != other_clusters.end()) {
-                if (auto& cluster{const_cast<Node16&>(*this_it)}; cluster.and_inplace(*other_it, alloc).is_tombstone()) {
-                    cluster.destroy(alloc);
-                    this_clusters.erase(this_it);
-                    if (this_summary.remove(*cluster_idx, alloc)) {
-                        return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(new_min, new_max, alloc);
-                    }
+        // iterate only clusters surviving the summary intersection
+        for (auto it{s_clusters.begin()}; it != s_clusters.end(); ) {
+            // if the summary no longer contains this cluster, it was removed during the intersection
+            auto& cluster{const_cast<subnode_t&>(*it)};
+            const auto key{cluster.key()};
+            if (auto o_it = o_clusters.find(key); !s_summary.contains(key) || cluster.and_inplace(*o_it, alloc)) {
+                cluster.destroy(alloc);
+                it = s_clusters.erase(it);
+                if (s_summary.remove(key, alloc)) {
+                    // early exit here. s_clusters still might contain nodes that will be removed unconditionally in destroy.
+                    return update_minmax();
+                }
+            } else {
+                ++it;
+            }
+        }
+
+        max_ = new_max.has_value() ? new_max.value() : index(s_summary.max(), s_clusters.find(s_summary.max())->max());
+        min_ = new_min.has_value() ? new_min.value() : index(s_summary.min(), s_clusters.find(s_summary.min())->min());
+
+        if (max_ != s_max) {
+            const auto it = s_clusters.find(s_summary.max());
+            auto& cluster = const_cast<subnode_t&>(*it);
+            if (cluster.remove(static_cast<subindex_t>(max_), alloc)) {
+                cluster.destroy(alloc);
+                s_clusters.erase(it);
+                if (s_summary.remove(s_summary.max(), alloc)) {
+                    destroy(alloc);
+                    return false;
+                }
+            }
+        }
+        if (min_ != s_min) {
+            const auto it = s_clusters.find(s_summary.min());
+            auto& cluster = const_cast<subnode_t&>(*it);
+            if (cluster.remove(static_cast<subindex_t>(min_), alloc)) {
+                s_clusters.erase(it);
+                if (s_summary.remove(s_summary.min(), alloc)) {
+                    destroy(alloc);
+                    return false;
                 }
             }
         }
 
-        self.max_ = new_max.has_value() ? *new_max : index(this_summary.max(), this_clusters.find(this_summary.max())->max());
-        self.min_ = new_min.has_value() ? *new_min : index(this_summary.min(), this_clusters.find(this_summary.min())->min());
+        return false;
+    }
 
-        if (self.max_ != potential_max) {
-            const auto it{this_clusters.find(this_summary.max())};
-            auto& cluster{const_cast<Node16&>(*it)};
-            cluster.remove(static_cast<subindex_t>(self.max_), alloc) && this_summary.remove(this_summary.max(), alloc);
-        }
-        if (self.min_ != potential_min && !this_clusters.empty()) {
-            const auto it{this_clusters.find(this_summary.min())};
-            auto& cluster{const_cast<Node16&>(*it)};
-            cluster.remove(static_cast<subindex_t>(self.min_), alloc) && this_summary.remove(this_summary.min(), alloc);
-        }
+    constexpr inline bool xor_inplace(const Node32& other, std::size_t& alloc) {
+        const auto s_min{min_};
+        const auto s_max{max_};
+        const auto o_min{other.min_};
+        const auto o_max{other.max_};
 
-        if (this_clusters.empty()) {
-            return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(self.min_, self.max_, alloc);
+        if (o_min < s_min) {
+            insert(o_min, alloc);
+        }
+        if (o_max > s_max) {
+            insert(o_max, alloc);
         }
 
-        return std::forward<decltype(self)>(self);
+        allocator_t a{alloc};
+        if (other.cluster_data_ == nullptr) {
+        } else if (cluster_data_ == nullptr) {
+            cluster_data_ = a.allocate(1);
+            a.construct(cluster_data_, 0, alloc);
+            cluster_data_->summary = other.cluster_data_->summary.clone(alloc);
+            for (const auto& cluster : other.cluster_data_->clusters) {
+                cluster_data_->clusters.emplace(cluster.clone(alloc));
+            }
+        } else {
+            auto& s_summary{cluster_data_->summary};
+            auto& s_clusters{cluster_data_->clusters};
+            const auto& o_clusters{other.cluster_data_->clusters};
+
+            for (const auto& o_cluster : o_clusters) {
+                if (auto it{s_clusters.find(o_cluster.key())}; it != s_clusters.end()) {
+                    auto& s_cluster{const_cast<subnode_t&>(*it)};
+                    if (s_cluster.xor_inplace(o_cluster, alloc)) {
+                        s_cluster.destroy(alloc);
+                        s_clusters.erase(it);
+                        s_summary.remove(o_cluster.key(), alloc);
+                    }
+                } else {
+                    s_summary.insert(o_cluster.key(), alloc);
+                    s_clusters.emplace(o_cluster.clone(alloc));
+                }
+            }
+
+            if (s_clusters.empty()) {
+                destroy(alloc);
+            }
+        }
+
+        if (s_min < o_min) {
+            if (contains(o_min)) {
+                remove(o_min, alloc);
+            } else {
+                insert(o_min, alloc);
+            }
+        }
+        if (s_max > o_max) {
+            if (contains(o_max)) {
+                remove(o_max, alloc);
+            } else {
+                insert(o_max, alloc);
+            }
+        }
+
+        return (other.contains(s_min) && remove(s_min, alloc)) || 
+               (other.contains(s_max) && remove(s_max, alloc));
     }
 };
 

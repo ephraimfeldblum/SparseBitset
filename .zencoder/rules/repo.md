@@ -27,7 +27,7 @@ vEBitset is a Redis module that provides efficient bitset operations using van E
 - **libvebtree**: Internal C++ library built from `src/VEB`.
 
 **Development Dependencies**:
-- **GCC/G++**: With C++23 and AVX2 support.
+- **GCC/G++**: With C++23 and AVX2 and BMI2 support.
 - **CMake**: 3.16+ required for VEB library build.
 - **Python 3**: For running tests and benchmarks.
 - **RLTest**: Python framework for Redis module testing.
@@ -50,12 +50,12 @@ redis-server --loadmodule ./bitset.so
 **Framework**: RLTest (Python)  
 **Test Location**: `tests/flow/`  
 **Naming Convention**: `test_*.py`  
-**Configuration**: Handled by `run_flow_tests.sh`
+**Configuration**: Handled by makefile `make test`
 
 **Run Command**:
 ```bash
 # Run all functional tests (creates venv and installs dependencies automatically)
-./run_flow_tests.sh
+make test
 
 # Run benchmarks (requires running Redis with module loaded)
 python3 tests/benchmarks/generate_data.py

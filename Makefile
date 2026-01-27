@@ -17,8 +17,8 @@ BUILD_DIR = build
 # Compiler and flags
 CC = gcc
 CXX = g++
-CFLAGS = -Wall -Wextra -O3 -fPIC -std=c11 -mavx2
-CXXFLAGS = -Wall -Wextra -O3 -fPIC -std=c++23 -mavx2
+CFLAGS = -Wall -Wextra -O3 -fPIC -std=c11 -mavx2 -mbmi2
+CXXFLAGS = -Wall -Wextra -O3 -fPIC -std=c++23 -mavx2 -mbmi2
 LDFLAGS = -shared
 
 # Include directories
@@ -53,20 +53,16 @@ $(VEB_BUILD_DIR):
 		-DCMAKE_CXX_FLAGS="$(CXXFLAGS)" \
 		-DCMAKE_CXX_STANDARD=23 ..
 
-# Build VEB library if needed
 $(VEB_BUILD_DIR)/libvebtree.so: $(VEB_BUILD_DIR)
 	@echo "Building VEB library with $(BUILD_TYPE) configuration..."
 	cd $(VEB_BUILD_DIR) && $(MAKE) -j$(shell nproc) vebtree
 
-# Compile module source files
 %.o: %.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-# Link the module
 $(MODULE_SO): $(MODULE_OBJECTS) $(VEB_BUILD_DIR)/libvebtree.so
 	$(CXX) $(LDFLAGS) -o $@ $(MODULE_OBJECTS) $(LIBS)
 
-# Clean build artifacts
 clean:
 	rm -f $(MODULE_OBJECTS) $(MODULE_SO)
 	rm -rf $(BUILD_DIR)
@@ -74,13 +70,11 @@ clean:
 		cd $(VEB_DIR) && $(MAKE) clean; \
 	fi
 
-# Clean everything including VEB library
 distclean: clean
 	@if [ -d "$(VEB_DIR)" ]; then \
 		cd $(VEB_DIR) && $(MAKE) clean; \
 	fi
 
-# Install the module (copy to a standard location)
 install: $(MODULE_SO)
 	@echo "Installing $(MODULE_SO)..."
 	@echo "Copy $(MODULE_SO) to your Redis modules directory"
@@ -88,14 +82,12 @@ install: $(MODULE_SO)
 
 
 
-# Build targets for different configurations
 debug:
 	@$(MAKE) all BUILD_TYPE=Debug
 
 release:
 	@$(MAKE) all BUILD_TYPE=Release
 
-# Show help
 help:
 	@echo "Available targets:"
 	@echo "  all       - Build the Redis module (default: Release)"
@@ -109,21 +101,13 @@ help:
 	@echo "Build configuration:"
 	@echo "  BUILD_TYPE=$(BUILD_TYPE) (can be Debug or Release)"
 
-.PHONY: all debug release clean distclean install help
-
-.PHONY: test
-
-# Run flow tests locally (uses run_flow_tests.sh)
-test:
+test: $(MODULE_SO)
 	TEST=$(TEST) QUICK=$(QUICK) ./run_flow_tests.sh
 
-.PHONY: docker-build-image docker-test
-
-# Build the Docker image used for tests
 docker-build-image:
 	docker build -t vebitset:test .
 
-# Run RLTest-based flow tests inside Docker and store logs inside the repo
-# Usage: make docker-test
 docker-test: docker-build-image
 	./run_in_docker.sh
+
+.PHONY: all debug release clean distclean install help test docker-build-image docker-test

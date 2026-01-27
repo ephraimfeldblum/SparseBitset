@@ -14,4 +14,9 @@ def test_min_max(env: Env):
     # Empty set returns null
     env.cmd("BITS.CLEAR", "mm")
     env.assertEqual(env.cmd("BITS.MIN", "mm"), None)
-    env.assertEqual(env.cmd("BITS.MAX", "mm"), None) 
+    env.assertEqual(env.cmd("BITS.MAX", "mm"), None)
+
+
+def test_min_max_non_existent(env: Env):
+    env.assertEqual(env.cmd("BITS.MIN", "nonexistent"), None)
+    env.assertEqual(env.cmd("BITS.MAX", "nonexistent"), None)

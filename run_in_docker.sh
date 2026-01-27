@@ -7,4 +7,4 @@ IMAGE_NAME="vebitset:test"
 docker build -t "$IMAGE_NAME" .
 
 # Run container and execute the test runner
-docker run --rm -v "$PROJECT_DIR":/workspace -w /workspace "$IMAGE_NAME" /workspace/run_flow_tests.sh "$@"
+docker run --rm -v "$PROJECT_DIR":/workspace -w /workspace "$IMAGE_NAME" make test "$@"

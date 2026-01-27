@@ -143,7 +143,7 @@ public:
         : cluster_data_{nullptr}, capacity_{0}, key_{hi}, min_{lo}, max_{lo} {
     }
 
-    constexpr inline Node16(Node8 old_storage, std::size_t& alloc)
+    constexpr inline Node16(subnode_t old_storage, std::size_t& alloc)
         : cluster_data_{nullptr}
         , capacity_{0}
         , key_{0}
@@ -387,6 +387,10 @@ public:
         );
     }
 
+    constexpr inline std::uint16_t key() const {
+        return key_;
+    }
+
     constexpr inline VebTreeMemoryStats get_memory_stats() const {
         if (cluster_data_ == nullptr) {
             return {0, 0, 1};
@@ -407,160 +411,300 @@ public:
         return stats;
     }
 
-    constexpr inline decltype(auto) empty_clusters_or_tombstone(this auto&& self, std::optional<index_t> new_min, std::optional<index_t> new_max, std::size_t& alloc) {
-        self.destroy(alloc);
-        if (new_min.has_value() && new_max.has_value()) {
-            self.min_ = *new_min;
-            self.max_ = *new_max;
-        } else if (new_min.has_value()) {
-            self.min_ = *new_min;
-            self.max_ = *new_min;
-        } else if (new_max.has_value()) {
-            self.min_ = *new_max;
-            self.max_ = *new_max;
-        } else {
-            self.min_ = std::numeric_limits<index_t>::max();
-            self.max_ = std::numeric_limits<index_t>::min();
-        }
-        return std::forward<decltype(self)>(self);
-    }
-
-    constexpr inline bool is_tombstone() const {
-        return min_ > max_;
-    }
-
-    constexpr inline decltype(auto) or_inplace(this auto&& self, const Node16& other, std::size_t& alloc) {
-        self.insert(other.min_, alloc);
-        self.insert(other.max_, alloc);
+    constexpr inline bool or_inplace(const Node16& other, std::size_t& alloc) {
+        insert(other.min_, alloc);
+        insert(other.max_, alloc);
 
         if (other.cluster_data_ == nullptr) {
-            return std::forward<decltype(self)>(self);
+            return false;
         }
 
         allocator_t a{alloc};
-        if (self.cluster_data_ == nullptr) {
+        if (cluster_data_ == nullptr) {
             const std::size_t size = other.cluster_data_->size();
-            self.cluster_data_ = reinterpret_cast<cluster_data_t*>(a.allocate(size + 1));
-            self.cluster_data_->summary_ = other.cluster_data_->summary_;
+            cluster_data_ = reinterpret_cast<cluster_data_t*>(a.allocate(size + 1));
+            cluster_data_->summary_ = other.cluster_data_->summary_;
             std::copy_n(
 #ifdef __cpp_lib_execution
                 std::execution::unseq,
 #endif
-                other.cluster_data_->clusters_, size, self.cluster_data_->clusters_
+                other.cluster_data_->clusters_, size, cluster_data_->clusters_
             );
-            self.capacity_ = static_cast<std::uint16_t>(size);
+            capacity_ = static_cast<std::uint16_t>(size);
 
-            return std::forward<decltype(self)>(self);
+            return false;
         }
 
-        auto& this_summary{self.cluster_data_->summary_};
-        auto* this_clusters{self.cluster_data_->clusters_};
-        const auto& other_summary{other.cluster_data_->summary_};
-        const auto* other_clusters{other.cluster_data_->clusters_};
+        auto& s_summary{cluster_data_->summary_};
+        auto* s_clusters{cluster_data_->clusters_};
+        const auto& o_summary{other.cluster_data_->summary_};
+        const auto* o_clusters{other.cluster_data_->clusters_};
 
-        if (auto merge_summary{auto{this_summary}.or_inplace(other_summary)};
-            merge_summary.size() != self.cluster_data_->size()
-        ) {
-            auto new_cluster_data{reinterpret_cast<cluster_data_t*>(a.allocate(merge_summary.size() + 1))};
-            auto new_capacity{static_cast<std::uint16_t>(merge_summary.size())};
-            auto& new_summary{new_cluster_data->summary_};
-            auto* new_clusters{new_cluster_data->clusters_};
-            new_summary = std::move(merge_summary);
-
+        // pre compute merged summary.
+        // if the size is the same as self's, we can do everything in place since we won't need to add any new clusters
+        // this probably isn't the common case, but it's worth optimizing for nonetheless to avoid unnecessary allocations and copies
+        auto merge_summary{s_summary};
+        merge_summary.or_inplace(o_summary);
+        const auto new_capacity{merge_summary.size()};
+        if (new_capacity == cluster_data_->size()) {
             std::size_t i{};
             std::size_t j{};
-            std::size_t k{};
-            for (auto idx{std::make_optional(new_summary.min())}; idx.has_value(); idx = new_summary.successor(*idx)) {
-                const bool in_this = this_summary.contains(*idx);
-                const bool in_other = other_summary.contains(*idx);
-                if (in_this && in_other) {
-                    new_clusters[k++] = this_clusters[i++].or_inplace(other_clusters[j++]); 
-                } else if (in_this) {
-                    new_clusters[k++] = this_clusters[i++];
-                } else if (in_other) {
-                    new_clusters[k++] = other_clusters[j++];
-                } else {
-                    std::unreachable();
+            for (auto idx{std::make_optional(s_summary.min())}; idx.has_value(); idx = s_summary.successor(*idx)) {
+                // just because the merge summary contains this index doesn't mean other does
+                // we need to find it in other using idx to validate that j is the correct cluster
+                // regardless, we always advance i since self definitely contains this cluster
+                if (o_summary.contains(*idx)) {
+                    s_clusters[i].or_inplace(o_clusters[j]);
+                    ++j;
                 }
+                ++i;
             }
-            self.destroy(alloc);
-            self.cluster_data_ = new_cluster_data;
-            self.capacity_ = new_capacity;
-            return std::forward<decltype(self)>(self);
+            return false;
         }
+
+        const auto new_cluster_data{reinterpret_cast<cluster_data_t*>(a.allocate(new_capacity + 1))};
+        const auto& new_summary{new_cluster_data->summary_ = merge_summary};
+        auto* new_clusters{new_cluster_data->clusters_};
 
         std::size_t i{};
         std::size_t j{};
-        for (auto idx{std::make_optional(this_summary.min())}; idx.has_value(); idx = this_summary.successor(*idx)) {
-            if (other_summary.contains(*idx)) {
-                self.cluster_data_->clusters_[i].or_inplace(other.cluster_data_->clusters_[j]);
-                ++j;
+        std::size_t k{};
+        for (auto idx{std::make_optional(new_summary.min())}; idx.has_value(); idx = new_summary.successor(*idx)) {
+            // here we know that at least one of self or other contains idx, but we don't know which
+            // we need to check both summaries and advance only the corresponding cluster iterators
+            const bool in_s = s_summary.contains(*idx);
+            const bool in_o = o_summary.contains(*idx);
+            if (in_s && in_o) {
+                s_clusters[i].or_inplace(o_clusters[j++]);
+                new_clusters[k++] = s_clusters[i++];
+            } else if (in_s) {
+                new_clusters[k++] = s_clusters[i++];
+            } else if (in_o) {
+                new_clusters[k++] = o_clusters[j++];
+            } else {
+                std::unreachable();
             }
-            ++i;
         }
-        return std::forward<decltype(self)>(self);
+        destroy(alloc);
+        cluster_data_ = new_cluster_data;
+        capacity_ = static_cast<std::uint16_t>(new_capacity);
+        return false;
     }
 
-    constexpr inline decltype(auto) and_inplace(this auto&& self, const Node16& other, std::size_t& alloc) {
-        const auto potential_min{std::max(self.min_, other.min_)};
-        const auto potential_max{std::min(self.max_, other.max_)};
-        const auto new_min{self.contains(potential_min) && other.contains(potential_min) ? std::make_optional(potential_min) : std::nullopt};
-        const auto new_max{self.contains(potential_max) && other.contains(potential_max) ? std::make_optional(potential_max) : std::nullopt};
+    constexpr inline bool and_inplace(const Node16& other, std::size_t& alloc) {
+        const auto s_min{min_};
+        const auto s_max{max_};
+        const auto i_min{std::max(s_min, other.min_)};
+        const auto i_max{std::min(s_max, other.max_)};
+        const auto new_min{contains(i_min) && other.contains(i_min) ? std::make_optional(i_min) : std::nullopt};
+        const auto new_max{contains(i_max) && other.contains(i_max) ? std::make_optional(i_max) : std::nullopt};
 
-        if (potential_min >= potential_max || self.cluster_data_ == nullptr || other.cluster_data_ == nullptr) {
-            return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(new_min, new_max, alloc);
+        const auto update_minmax = [&] {
+            destroy(alloc);
+            if (new_min.has_value() && new_max.has_value()) {
+                min_ = new_min.value();
+                max_ = new_max.value();
+                return false;
+            }
+            if (new_min.has_value()) {
+                min_ = max_ = new_min.value();
+                return false;
+            }
+            if (new_max.has_value()) {
+                min_ = max_ = new_max.value();
+                return false;
+            }
+            return true;
+        };
+        // easy outs: no overlap aside from mins/maxs, or either node has no clusters
+        if (i_min >= i_max || cluster_data_ == nullptr || other.cluster_data_ == nullptr) {
+            return update_minmax();
         }
+        auto& s_summary{cluster_data_->summary_};
+        auto* s_clusters{cluster_data_->clusters_};
+        const auto& o_summary{other.cluster_data_->summary_};
+        const auto* o_clusters{other.cluster_data_->clusters_};
 
-        auto& this_summary{self.cluster_data_->summary_};
-        auto* this_clusters{self.cluster_data_->clusters_};
-        const auto& other_summary{other.cluster_data_->summary_};
-        const auto* other_clusters{other.cluster_data_->clusters_};
-
-        auto summary_intersection{auto{this_summary}.and_inplace(other_summary)};
-        if (summary_intersection.is_tombstone()) {
-            return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(new_min, new_max, alloc);
+        // reduce future work by pre computing summary intersection. if empty, we are done
+        // makes iterating clusters easier as we only need to consider clusters that we know will survive intersection
+        // unfortunately, we need to clone s_summary here because iterating below requires preserving the original state to find correct indices
+        // cloning a node8 is cheap enough though
+        auto int_summary{s_summary};
+        if (int_summary.and_inplace(o_summary)) {
+            return update_minmax();
         }
-
-        std::size_t write_idx{};
-        for (auto cluster_idx{std::make_optional(summary_intersection.min())}; cluster_idx.has_value(); cluster_idx = summary_intersection.successor(*cluster_idx)) {
-            const auto this_cluster_pos{self.cluster_data_->index_of(*cluster_idx)};
-            const auto other_cluster_pos{other.cluster_data_->index_of(*cluster_idx)};
-            auto& this_cluster{this_clusters[this_cluster_pos]};
-            const auto& other_cluster{other_clusters[other_cluster_pos]};
-
-            if (!this_cluster.and_inplace(other_cluster).is_tombstone()) {
-                if (write_idx != this_cluster_pos) {
-                    this_clusters[write_idx] = this_cluster;
+        // iterate only clusters surviving the summary intersection
+        // writeback inplace from the start of the array, overwriting removed clusters
+        // avoids allocating a new array
+        std::size_t i{};
+        for (auto idx{std::make_optional(int_summary.min())}; idx.has_value(); idx = int_summary.successor(*idx)) {
+            // unconditionally access these clusters here. we know they must both exist. otherwise idx would not be set in the summary intersection
+            const auto s_i = cluster_data_->index_of(*idx);
+            if (auto& int_cluster{s_clusters[s_i]}; int_cluster.and_inplace(o_clusters[other.cluster_data_->index_of(*idx)])) {
+                // these removals could be batched (andnot) to avoid accessing the summary multiple times
+                // that would require us to track which clusters are being removed and only remove them after the loop
+                // in node16 this is less needful because removing from a node8 is essentially free
+                if (int_summary.remove(*idx)) {
+                    // this early exit isn't real. it can only happen on the last idx. doesn't save us from iterating.
+                    return update_minmax();
                 }
-                write_idx++;
-            } else if (summary_intersection.remove(*cluster_idx)) {
-                return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(new_min, new_max, alloc);
+            // could be faster to write back unconditionally? would never overwrite valid data with the new data since i <= s_i always
+            } else if (i++ != s_i) {
+                s_clusters[i - 1] = int_cluster;
             }
         }
-        this_summary = summary_intersection;
 
-        self.max_ = new_max.has_value() ? *new_max : index(this_summary.max(), this_clusters[this_summary.size() - 1].max());
-        self.min_ = new_min.has_value() ? *new_min : index(this_summary.min(), this_clusters[0].min());
+        // now that we're done iterating, we can finally update the summary to the intersection
+        s_summary = int_summary;
 
-        if (self.max_ != potential_max && this_clusters[this_summary.size() - 1].remove(static_cast<subindex_t>(self.max_))) {
-            this_summary.remove(this_summary.max());
-            if (this_summary.is_tombstone()) {
-                return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(self.min_, self.max_, alloc);
+        max_ = new_max.has_value() ? new_max.value() : index(s_summary.max(), s_clusters[i - 1].max());
+        min_ = new_min.has_value() ? new_min.value() : index(s_summary.min(), s_clusters[0].min());
+
+        if (max_ != s_max && s_clusters[i - 1].remove(static_cast<subindex_t>(max_))) {
+            if (s_summary.remove(s_summary.max())) {
+                destroy(alloc);
+                return false;
             }
         }
-        if (self.min_ != potential_min && this_clusters[0].remove(static_cast<subindex_t>(self.min_))) {
-            this_summary.remove(this_summary.min());
-            if (this_summary.is_tombstone()) {
-                return std::forward<decltype(self)>(self).empty_clusters_or_tombstone(self.min_, self.max_, alloc);
+        if (min_ != s_min && s_clusters[0].remove(static_cast<subindex_t>(min_))) {
+            if (s_summary.remove(s_summary.min())) {
+                destroy(alloc);
+                return false;
             }
-            const auto begin{this_clusters + 1};
-            const auto end{this_clusters + write_idx};
+            const auto begin{s_clusters + 1};
+            const auto end{s_clusters + i};
             std::move(begin, end, begin - 1);
         }
-
-        return std::forward<decltype(self)>(self);
+        return false;
     }
-    
+
+    constexpr inline bool xor_inplace(const Node16& other, std::size_t& alloc) {
+        const auto s_min{min_};
+        const auto s_max{max_};
+        const auto o_min{other.min_};
+        const auto o_max{other.max_};
+
+        // ensure that self contains the true edges of both nodes
+        // push min_ and max_ down to the clusters if needed
+        if (o_min < s_min) {
+            insert(o_min, alloc);
+        }
+        if (o_max > s_max) {
+            insert(o_max, alloc);
+        }
+        // don't remove s_min/max yet if it was equal to o_min, since that would pull another value up
+        // leading to recursively checking for removal of values until we reach values distinct from other
+
+
+        allocator_t a{alloc};
+        if (other.cluster_data_ == nullptr) {
+            // Only need to adjust min and max
+        } else if (cluster_data_ == nullptr) {
+            const std::size_t size = other.cluster_data_->size();
+            cluster_data_ = reinterpret_cast<cluster_data_t*>(a.allocate(size + 1));
+            cluster_data_->summary_ = other.cluster_data_->summary_;
+            std::copy_n(
+#ifdef __cpp_lib_execution
+                std::execution::unseq,
+#endif
+                other.cluster_data_->clusters_, size, cluster_data_->clusters_
+            );
+            capacity_ = static_cast<std::uint16_t>(size);
+        } else {
+            auto& s_summary{cluster_data_->summary_};
+            auto* s_clusters{cluster_data_->clusters_};
+            const auto& o_summary{other.cluster_data_->summary_};
+            const auto* o_clusters{other.cluster_data_->clusters_};
+
+            // pre compute merged summary.
+            // if the size is the same as self's, we can do everything in place. since at most, we will be removing clusters
+            // this probably isn't the common case, but it's worth optimizing for nonetheless to avoid unnecessary allocations and copies
+            auto union_summary{s_summary};
+            union_summary.or_inplace(o_summary);
+            auto max_size = union_summary.size();
+            if (max_size == s_summary.size()) {
+                std::size_t i{};
+                std::size_t j{};
+                std::size_t k{};
+                for (auto idx{std::make_optional(s_summary.min())}; idx.has_value(); idx = s_summary.successor(*idx)) {
+                    // just because the merge summary contains this index doesn't mean other does
+                    // we need to find it in other using idx to validate that j is the correct cluster
+                    // regardless, we always advance i since self definitely contains this cluster
+                    if (auto& xor_cluster{s_clusters[i++]}; o_summary.contains(*idx)) {
+                        // these removals should probably be batched (andnot) to avoid traversing the summary multiple times
+                        // that would require us to track which clusters are being removed and only remove them after the loop
+                        // in node16 this is less needful because removing from a node8 is free
+                        if (xor_cluster.xor_inplace(o_clusters[j++]) && s_summary.remove(*idx)) {
+                            // this early exit isn't real. it can only happen on the last idx. it doesn't save us from iterating.
+                            destroy(alloc);
+                            break;
+                        } else {
+                            s_clusters[k++] = xor_cluster;
+                        }
+                    } else {
+                        s_clusters[k++] = xor_cluster;
+                    }
+                }
+            } else {
+                auto* new_data{reinterpret_cast<cluster_data_t*>(a.allocate(max_size + 1))};
+                auto& new_summary{new_data->summary_ = std::move(union_summary)};
+                auto* new_clusters{new_data->clusters_};
+
+                std::size_t i{};
+                std::size_t j{};
+                std::size_t k{};
+                for (auto idx{std::make_optional(new_summary.min())}; idx.has_value(); idx = new_summary.successor(*idx)) {
+                    const bool in_s = s_summary.contains(*idx);
+                    const bool in_o = o_summary.contains(*idx);
+                    if (in_s && in_o) {
+                        if (auto& xor_cluster{s_clusters[i++]}; xor_cluster.xor_inplace(o_clusters[j++])) {
+                            if (new_summary.remove(*idx)) {
+                                a.deallocate(reinterpret_cast<subnode_t*>(new_data), max_size + 1);
+                                new_data = nullptr;
+                                max_size = 0;
+                                break;
+                            }
+                        } else {
+                            new_clusters[k++] = xor_cluster;
+                        }
+                    } else if (in_s) {
+                        new_clusters[k++] = s_clusters[i++];
+                    } else if (in_o) {
+                        new_clusters[k++] = o_clusters[j++];
+                    } else {
+                        std::unreachable();
+                    }
+                }
+                destroy(alloc);
+                cluster_data_ = new_data;
+                capacity_ = static_cast<std::uint16_t>(max_size);
+            }
+        }
+
+        // self must contain o_min if it was less than s_min due to the insert at the top of the function
+        // we handle the case where o_min == s_min below this handles the case where o_min > s_min
+        // we do not need to check the return value here, as removing o_min cannot empty this node as s_min must exist
+        if (s_min < o_min) {
+            if (contains(o_min)) {
+                remove(o_min, alloc);
+            } else {
+                insert(o_min, alloc);
+            }
+        }
+        if (s_max > o_max) {
+            if (contains(o_max)) {
+                remove(o_max, alloc);
+            } else {
+                insert(o_max, alloc);
+            }
+        }
+        // other contains s_min either if it was equal to o_min or in one of other's clusters.
+        // if it was equal to o_min, we pull up the next minimum from the clusters, which by now we know is not in other
+        // if it was in one of the clusters, that cluster will still exist in self, so we need to remove it from the cluster
+        return (other.contains(s_min) && remove(s_min, alloc)) ||
+               (other.contains(s_max) && remove(s_max, alloc));
+    }
+
     struct Eq {
         using is_transparent = void;
         constexpr inline bool operator()(const Node16& lhs, const Node16& rhs) const {

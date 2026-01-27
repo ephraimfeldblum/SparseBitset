@@ -18,6 +18,6 @@ def test_info_command(env: Env):
     # Non-existent key should return an error
     env.expect("BITS.INFO", "no_such_key").error().contains("key does not exist or is not a bitset")
 
-    # BITS.INFO on a non-bitset type should return an error (use a string key)
+    # BITS.INFO on a non-bitset type should return WRONGTYPE
     env.cmd("SET", "notabits", "hello")
-    env.expect("BITS.INFO", "notabits").error().contains("key does not exist or is not a bitset")
+    env.expect("BITS.INFO", "notabits").error().contains("WRONGTYPE")

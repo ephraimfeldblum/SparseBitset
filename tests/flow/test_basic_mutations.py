@@ -36,3 +36,20 @@ def test_set(env: Env):
     env.assertEqual(env.cmd("BITS.SET", key, 10, 0), 1)
     env.assertEqual(env.cmd("BITS.GET", key, 10), 0)
     env.assertEqual(env.cmd("BITS.COUNT", key), 0)
+
+
+def test_non_existent_key(env: Env):
+    env.assertEqual(env.cmd("BITS.GET", "nonexistent", 10), 0)
+    env.assertEqual(env.cmd("BITS.COUNT", "nonexistent"), 0)
+    env.assertEqual(env.cmd("BITS.REMOVE", "nonexistent", 10), 0)
+    env.assertEqual(env.cmd("BITS.CLEAR", "nonexistent"), b"OK")
+
+
+def test_large_range_insert(env: Env):
+    key = "large_range"
+    elements = [1, 100, 10000, 1000000]
+    env.assertEqual(env.cmd("BITS.INSERT", key, *elements), 4)
+    env.assertEqual(env.cmd("BITS.COUNT", key), 4)
+    for e in elements:
+        env.assertEqual(env.cmd("BITS.GET", key, e), 1)
+    env.assertEqual(env.cmd("BITS.GET", key, 50), 0)

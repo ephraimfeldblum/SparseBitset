@@ -527,36 +527,31 @@ public:
                     storage_ = std::monostate{};
                 },
                 [&](Node8& a, const Node8& b) -> void {
-                    a.and_inplace(b);
-                    if (a.is_tombstone()) {
+                    if (a.and_inplace(b)) {
                         storage_ = std::monostate{};
                     }
                 },
                 [&](Node16& a, const Node16& b) -> void {
-                    a.and_inplace(b, allocated_);
-                    if (a.is_tombstone()) {
+                    if (a.and_inplace(b, allocated_)) {
                         a.destroy(allocated_);
                         storage_ = std::monostate{};
                     }
                 },
                 [&](Node32& a, const Node32& b) -> void {
-                    a.and_inplace(b, allocated_);
-                    if (a.is_tombstone()) {
+                    if (a.and_inplace(b, allocated_)) {
                         a.destroy(allocated_);
                         storage_ = std::monostate{};
                     }
                 },
                 [&](Node64& a, const Node64& b) -> void {
-                    a.and_inplace(b, allocated_);
-                    if (a.is_tombstone()) {
+                    if (a.and_inplace(b, allocated_)) {
                         a.destroy(allocated_);
                         storage_ = std::monostate{};
                     }
                 },
                 [&](Node8& a, const Node16& b) -> void {
                     auto a16{Node16{std::move(a), allocated_}};
-                    a16.and_inplace(b, allocated_);
-                    if (a16.is_tombstone()) {
+                    if (a16.and_inplace(b, allocated_)) {
                         a16.destroy(allocated_);
                         storage_ = std::monostate{};
                     } else {
@@ -565,8 +560,7 @@ public:
                 },
                 [&](Node16& a, const Node8& b) -> void {
                     auto b16{Node16{b, allocated_}};
-                    a.and_inplace(b16, allocated_);
-                    if (a.is_tombstone()) {
+                    if (a.and_inplace(b16, allocated_)) {
                         a.destroy(allocated_);
                         storage_ = std::monostate{};
                     }
@@ -574,8 +568,7 @@ public:
                 },
                 [&](Node8& a, const Node32& b) -> void {
                     auto a32{Node32{Node16{std::move(a), allocated_}, allocated_}};
-                    a32.and_inplace(b, allocated_);
-                    if (a32.is_tombstone()) {
+                    if (a32.and_inplace(b, allocated_)) {
                         a32.destroy(allocated_);
                         storage_ = std::monostate{};
                     } else {
@@ -584,8 +577,7 @@ public:
                 },
                 [&](Node32& a, const Node8& b) -> void {
                     auto b32{Node32{Node16{b, allocated_}, allocated_}};
-                    a.and_inplace(b32, allocated_);
-                    if (a.is_tombstone()) {
+                    if (a.and_inplace(b32, allocated_)) {
                         a.destroy(allocated_);
                         storage_ = std::monostate{};
                     }
@@ -593,8 +585,7 @@ public:
                 },
                 [&](Node16& a, const Node32& b) -> void {
                     auto a32{Node32{std::move(a), allocated_}};
-                    a32.and_inplace(b, allocated_);
-                    if (a32.is_tombstone()) {
+                    if (a32.and_inplace(b, allocated_)) {
                         a32.destroy(allocated_);
                         storage_ = std::monostate{};
                     } else {
@@ -603,8 +594,7 @@ public:
                 },
                 [&](Node32& a, const Node16& b) -> void {
                     auto b32{Node32{b.clone(allocated_), allocated_}};
-                    a.and_inplace(b32, allocated_);
-                    if (a.is_tombstone()) {
+                    if (a.and_inplace(b32, allocated_)) {
                         a.destroy(allocated_);
                         storage_ = std::monostate{};
                     }
@@ -612,8 +602,7 @@ public:
                 },
                 [&](Node8& a, const Node64& b) -> void {
                     auto a64{Node64{Node32{Node16{std::move(a), allocated_}, allocated_}, allocated_}};
-                    a64.and_inplace(b, allocated_);
-                    if (a64.is_tombstone()) {
+                    if (a64.and_inplace(b, allocated_)) {
                         a64.destroy(allocated_);
                         storage_ = std::monostate{};
                     } else {
@@ -622,8 +611,7 @@ public:
                 },
                 [&](Node64& a, const Node8& b) -> void {
                     auto b64{Node64{Node32{Node16{b, allocated_}, allocated_}, allocated_}};
-                    a.and_inplace(b64, allocated_);
-                    if (a.is_tombstone()) {
+                    if (a.and_inplace(b64, allocated_)) {
                         a.destroy(allocated_);
                         storage_ = std::monostate{};
                     }
@@ -631,8 +619,7 @@ public:
                 },
                 [&](Node16& a, const Node64& b) -> void {
                     auto a64{Node64{Node32{std::move(a), allocated_}, allocated_}};
-                    a64.and_inplace(b, allocated_);
-                    if (a64.is_tombstone()) {
+                    if (a64.and_inplace(b, allocated_)) {
                         a64.destroy(allocated_);
                         storage_ = std::monostate{};
                     } else {
@@ -641,8 +628,7 @@ public:
                 },
                 [&](Node64& a, const Node16& b) -> void {
                     auto b64{Node64{Node32{b.clone(allocated_), allocated_}, allocated_}};
-                    a.and_inplace(b64, allocated_);
-                    if (a.is_tombstone()) {
+                    if (a.and_inplace(b64, allocated_)) {
                         a.destroy(allocated_);
                         storage_ = std::monostate{};
                     }
@@ -650,8 +636,7 @@ public:
                 },
                 [&](Node32& a, const Node64& b) -> void {
                     auto a64{Node64{std::move(a), allocated_}};
-                    a64.and_inplace(b, allocated_);
-                    if (a64.is_tombstone()) {
+                    if (a64.and_inplace(b, allocated_)) {
                         a64.destroy(allocated_);
                         storage_ = std::monostate{};
                     } else {
@@ -660,8 +645,7 @@ public:
                 },
                 [&](Node64& a, const Node32& b) -> void {
                     auto b64{Node64{b.clone(allocated_), allocated_}};
-                    a.and_inplace(b64, allocated_);
-                    if (a.is_tombstone()) {
+                    if (a.and_inplace(b64, allocated_)) {
                         a.destroy(allocated_);
                         storage_ = std::monostate{};
                     }
@@ -785,13 +769,162 @@ public:
      * @return Reference to this tree after XOR
      */
     inline VebTree& operator^=(const VebTree& other) {
-        for (std::size_t element : other) {
-            if (contains(element)) {
-                remove(element);
-            } else {
-                insert(element);
-            }
-        }
+        std::visit(
+            overload{
+                [](std::monostate, std::monostate) -> void {
+                },
+                [&](std::monostate, const Node8& b) -> void {
+                    storage_ = b;
+                },
+                [&](std::monostate, const Node16& b) -> void {
+                    storage_ = b.clone(allocated_);
+                },
+                [&](std::monostate, const Node32& b) -> void {
+                    storage_ = b.clone(allocated_);
+                },
+                [&](std::monostate, const Node64& b) -> void {
+                    storage_ = b.clone(allocated_);
+                },
+                [](Node8&, std::monostate) -> void {
+                },
+                [](Node16&, std::monostate) -> void {
+                },
+                [](Node32&, std::monostate) -> void {
+                },
+                [](Node64&, std::monostate) -> void {
+                },
+                [&](Node8& a, const Node8& b) -> void {
+                    if (a.xor_inplace(b)) {
+                        storage_ = std::monostate{};
+                    }
+                },
+                [&](Node16& a, const Node16& b) -> void {
+                    if (a.xor_inplace(b, allocated_)) {
+                        a.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    }
+                },
+                [&](Node32& a, const Node32& b) -> void {
+                    if (a.xor_inplace(b, allocated_)) {
+                        a.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    }
+                },
+                [&](Node64& a, const Node64& b) -> void {
+                    if (a.xor_inplace(b, allocated_)) {
+                        a.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    }
+                },
+                [&](Node8& a, const Node16& b) -> void {
+                    auto a16{Node16{std::move(a), allocated_}};
+                    if (a16.xor_inplace(b, allocated_)) {
+                        a16.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    } else {
+                        storage_ = std::move(a16);
+                    }
+                },
+                [&](Node16& a, const Node8& b) -> void {
+                    auto b16{Node16{b, allocated_}};
+                    if (a.xor_inplace(b16, allocated_)) {
+                        a.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    }
+                    b16.destroy(allocated_);
+                },
+                [&](Node8& a, const Node32& b) -> void {
+                    auto a32{Node32{Node16{std::move(a), allocated_}, allocated_}};
+                    if (a32.xor_inplace(b, allocated_)) {
+                        a32.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    } else {
+                        storage_ = std::move(a32);
+                    }
+                },
+                [&](Node32& a, const Node8& b) -> void {
+                    auto b32{Node32{Node16{b, allocated_}, allocated_}};
+                    if (a.xor_inplace(b32, allocated_)) {
+                        a.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    }
+                    b32.destroy(allocated_);
+                },
+                [&](Node16& a, const Node32& b) -> void {
+                    auto a32{Node32{std::move(a), allocated_}};
+                    if (a32.xor_inplace(b, allocated_)) {
+                        a32.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    } else {
+                        storage_ = std::move(a32);
+                    }
+                },
+                [&](Node32& a, const Node16& b) -> void {
+                    auto b32{Node32{b.clone(allocated_), allocated_}};
+                    if (a.xor_inplace(b32, allocated_)) {
+                        a.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    }
+                    b32.destroy(allocated_);
+                },
+                [&](Node8& a, const Node64& b) -> void {
+                    auto a64{Node64{Node32{Node16{std::move(a), allocated_}, allocated_}, allocated_}};
+                    if (a64.xor_inplace(b, allocated_)) {
+                        a64.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    } else {
+                        storage_ = std::move(a64);
+                    }
+                },
+                [&](Node64& a, const Node8& b) -> void {
+                    auto b64{Node64{Node32{Node16{b, allocated_}, allocated_}, allocated_}};
+                    if (a.xor_inplace(b64, allocated_)) {
+                        a.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    }
+                    b64.destroy(allocated_);
+                },
+                [&](Node16& a, const Node64& b) -> void {
+                    auto a64{Node64{Node32{std::move(a), allocated_}, allocated_}};
+                    if (a64.xor_inplace(b, allocated_)) {
+                        a64.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    } else {
+                        storage_ = std::move(a64);
+                    }
+                },
+                [&](Node64& a, const Node16& b) -> void {
+                    auto b64{Node64{Node32{b.clone(allocated_), allocated_}, allocated_}};
+                    if (a.xor_inplace(b64, allocated_)) {
+                        a.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    }
+                    b64.destroy(allocated_);
+                },
+                [&](Node32& a, const Node64& b) -> void {
+                    auto a64{Node64{std::move(a), allocated_}};
+                    if (a64.xor_inplace(b, allocated_)) {
+                        a64.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    } else {
+                        storage_ = std::move(a64);
+                    }
+                },
+                [&](Node64& a, const Node32& b) -> void {
+                    auto b64{Node64{b.clone(allocated_), allocated_}};
+                    if (a.xor_inplace(b64, allocated_)) {
+                        a.destroy(allocated_);
+                        storage_ = std::monostate{};
+                    }
+                    b64.destroy(allocated_);
+                },
+                [](auto&&, auto&&) -> void {
+                    std::unreachable();
+                }
+            },
+            storage_, other.storage_
+        );
+
         return *this;
     }
 
