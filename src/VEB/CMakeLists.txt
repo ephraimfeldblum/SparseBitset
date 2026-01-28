@@ -29,8 +29,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wconversion -W
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wpedantic -Wconversion -Wsign-compare -Wpointer-arith -Wno-missing-braces -Wno-missing-field-initializers -Wno-missing-attributes -march=native -fPIC")
 
 # Build type specific flags
-set(CMAKE_CXX_FLAGS_DEBUG "-g3 -DDEBUG")
-set(CMAKE_C_FLAGS_DEBUG "-g3 -DDEBUG")
+set(CMAKE_CXX_FLAGS_DEBUG "-g3 -DDEBUG -Og")
+set(CMAKE_C_FLAGS_DEBUG "-g3 -DDEBUG -Og")
 
 set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG -flto -O3")
 set(CMAKE_C_FLAGS_RELEASE "-DNDEBUG -flto -O3")
@@ -48,7 +48,7 @@ include(FetchContent)
 FetchContent_Declare(
     xsimd
     GIT_REPOSITORY https://github.com/xtensor-stack/xsimd.git
-    GIT_TAG master
+    GIT_TAG 14.0.0
 )
 FetchContent_MakeAvailable(xsimd)
 

@@ -28,8 +28,7 @@
  *   - An index field (`key_`) to identify which of the parent `Node32` clusters this node belongs to.
  *   - A `capacity_` field to track the allocated size of the clusters array.
  * 
- * The total size of this struct is 16 bytes on 64-bit systems, ie two registers. As such, we should prefer passing
- *   instances of this struct by value whenever possible.
+ * The total size of this struct is 16 bytes on 64-bit systems, ie two registers.
  * The purpose of this design is to optimize memory usage while maintaining fast operations on the underlying nodes.
  * The `cluster_data_t` structure is allocated dynamically to allow for flexible sizing of the clusters array.
  * The `capacity_` field helps manage the dynamic array of clusters, allowing for efficient resizing when necessary.
