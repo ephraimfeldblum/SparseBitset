@@ -25,16 +25,12 @@ endif()
 set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "Valgrind")
 
 # Compiler flags
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wconversion -Wsign-compare -Wpointer-arith -Wno-missing-braces -Wno-missing-field-initializers -Wno-missing-attributes -fPIC")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wpedantic -Wconversion -Wsign-compare -Wpointer-arith -Wno-missing-braces -Wno-missing-field-initializers -Wno-missing-attributes -fPIC")
-
-# AVX2 support flags
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mbmi2")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mavx2 -mbmi2")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wconversion -Wsign-compare -Wpointer-arith -Wno-missing-braces -Wno-missing-field-initializers -Wno-missing-attributes -march=native -fPIC")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wpedantic -Wconversion -Wsign-compare -Wpointer-arith -Wno-missing-braces -Wno-missing-field-initializers -Wno-missing-attributes -march=native -fPIC")
 
 # Build type specific flags
-set(CMAKE_CXX_FLAGS_DEBUG "-g -DDEBUG -O0")
-set(CMAKE_C_FLAGS_DEBUG "-g -DDEBUG -O0")
+set(CMAKE_CXX_FLAGS_DEBUG "-g3 -DDEBUG")
+set(CMAKE_C_FLAGS_DEBUG "-g3 -DDEBUG")
 
 set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG -flto -O3")
 set(CMAKE_C_FLAGS_RELEASE "-DNDEBUG -flto -O3")
@@ -47,6 +43,16 @@ set(CMAKE_C_FLAGS_VALGRIND "-g -DDEBUG -O0")
 # Include directories
 include_directories(.)
 
+# Fetch xsimd if not present (header-only)
+include(FetchContent)
+FetchContent_Declare(
+    xsimd
+    GIT_REPOSITORY https://github.com/xtensor-stack/xsimd.git
+    GIT_TAG master
+)
+FetchContent_MakeAvailable(xsimd)
+
+
 # Source files
 set(CORE_SOURCES
     VebTree_c_api.cpp
@@ -55,6 +61,7 @@ set(CORE_SOURCES
 
 # Create shared library
 add_library(vebtree SHARED ${CORE_SOURCES})
+target_include_directories(vebtree PRIVATE ${xsimd_SOURCE_DIR}/include)
 
 # Try to link Intel TBB for parallel execution policy support (std::execution implementations
 # on some toolchains rely on TBB). Prefer CMake package, fall back to system library if needed.
