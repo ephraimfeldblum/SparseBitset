@@ -92,7 +92,7 @@ private:
     }
 
     constexpr inline void grow_capacity_if_needed(std::size_t& alloc) {
-        const std::size_t size{cluster_data_ ? cluster_data_->size() : 0};
+        const auto size{cluster_data_->size()};
         if (size < capacity_) {
             return;
         }
@@ -104,7 +104,7 @@ private:
 #ifdef __cpp_lib_execution
             std::execution::unseq,
 #endif
-            cluster_data_->clusters_, cluster_data_->size(), new_data->clusters_
+            cluster_data_->clusters_, size, new_data->clusters_
         );
         destroy(alloc);
         cluster_data_ = new_data;
@@ -122,7 +122,7 @@ private:
         }
 
 
-        const std::uint8_t idx{cluster_data_->index_of(hi)};
+        const auto idx{cluster_data_->index_of(hi)};
         if (cluster_data_->summary_.contains(hi)) {
             cluster_data_->clusters_[idx].insert(lo);
             return;
@@ -130,7 +130,7 @@ private:
 
         grow_capacity_if_needed(alloc);
 
-        if (const std::size_t size{cluster_data_->size()}; idx < size) {
+        if (const auto size{cluster_data_->size()}; idx < size) {
             const auto begin{cluster_data_->clusters_ + idx};
             const auto end{cluster_data_->clusters_ + size};
             std::move_backward(begin, end, end + 1);
@@ -253,7 +253,7 @@ public:
 
     constexpr inline bool remove(index_t x, std::size_t& alloc) {
         if (x == min_) {
-            if (!cluster_data_ || cluster_data_->size() == 0) {
+            if (cluster_data_ == nullptr) {
                 if (max_ == min_) {
                     return true;
                 } else {
@@ -262,16 +262,13 @@ public:
                 }
             } else {
                 const auto min_cluster{cluster_data_->summary_.min()};
-                [[assume(cluster_data_->summary_.contains(min_cluster))]];
-                const auto idx_min = cluster_data_->index_of(min_cluster);
-                [[assume(idx_min < cluster_data_->size())]];
-                const auto min_element{cluster_data_->clusters_[idx_min].min()};
+                const auto min_element{cluster_data_->clusters_[0].min()};
                 x = min_ = index(min_cluster, min_element);
             }
         }
 
         if (x == max_) {
-            if (!cluster_data_ || cluster_data_->size() == 0) {
+            if (cluster_data_ == nullptr) {
                 if (max_ == min_) {
                     return true;
                 } else {
@@ -280,7 +277,6 @@ public:
                 }
             } else {
                 const auto max_cluster{cluster_data_->summary_.max()};
-                [[assume(cluster_data_->summary_.contains(max_cluster))]];
                 const auto idx_max = cluster_data_->index_of(max_cluster);
                 [[assume(idx_max < cluster_data_->size())]];
                 const auto max_element{cluster_data_->clusters_[idx_max].max()};
@@ -290,17 +286,15 @@ public:
 
         const auto [h, l] {decompose(x)};
 
-        if (auto* cluster{find(h)}; cluster != nullptr) {
-            if (cluster->remove(l)) {
-                const std::uint8_t idx{cluster_data_->index_of(h)};
-                const std::size_t size{cluster_data_->size()};
-                const auto begin{cluster_data_->clusters_ + idx + 1};
-                const auto end{cluster_data_->clusters_ + size};
-                std::move(begin, end, begin - 1);
+        if (auto* cluster{find(h)}; cluster != nullptr && cluster->remove(l)) {
+            const auto idx{cluster_data_->index_of(h)};
+            const auto size{cluster_data_->size()};
+            const auto begin{cluster_data_->clusters_ + idx + 1};
+            const auto end{cluster_data_->clusters_ + size};
+            std::move(begin, end, begin - 1);
 
-                if (cluster_data_->summary_.remove(h) && cluster_data_->size() == 0) {
-                    destroy(alloc);
-                }
+            if (cluster_data_->summary_.remove(h)) {
+                destroy(alloc);
             }
         }
 
@@ -321,7 +315,7 @@ public:
 
     constexpr inline std::optional<index_t> successor(index_t x) const {
         if (x < min_) {
-            return min_;
+            return std::make_optional(min_);
         }
         if (x >= max_) {
             return std::nullopt;
@@ -333,20 +327,17 @@ public:
 
         const auto [h, l] {decompose(x)};
 
-        if (const auto* cluster{find(h)}; cluster != nullptr) {
-            if (l < cluster->max()) {
-                if (auto succ{cluster->successor(l)}; succ.has_value()) {
-                    return index(h, *succ);
-                }
+        if (const auto* cluster{find(h)}; cluster != nullptr && l < cluster->max()) {
+            if (auto succ{cluster->successor(l)}; succ.has_value()) {
+                return std::make_optional(index(h, *succ));
             }
         }
 
         if (auto succ_cluster{cluster_data_->summary_.successor(h)}; succ_cluster.has_value()) {
-            [[assume(cluster_data_->summary_.contains(*succ_cluster))]];
             const auto idx = cluster_data_->index_of(*succ_cluster);
             [[assume(idx < cluster_data_->size())]];
             const auto min_element{cluster_data_->clusters_[idx].min()};
-            return index(*succ_cluster, min_element);
+            return std::make_optional(index(*succ_cluster, min_element));
         }
 
         return std::make_optional(max_);
@@ -354,42 +345,41 @@ public:
 
     constexpr inline std::optional<index_t> predecessor(index_t x) const {
         if (x > max_) {
-            return max_;
+            return std::make_optional(max_);
         }
         if (x <= min_) {
             return std::nullopt;
         }
 
-        if (cluster_data_ == nullptr) return min_;
+        if (cluster_data_ == nullptr) {
+            return std::make_optional(min_);
+        }
 
         const auto [h, l] {decompose(x)};
 
-        if (const auto* cluster{find(h)}; cluster != nullptr) {
-            if (l > cluster->min()) {
-                if (auto pred{cluster->predecessor(l)}; pred.has_value()) {
-                    return index(h, *pred);
-                }
+        if (const auto* cluster{find(h)}; cluster != nullptr && l > cluster->min()) {
+            if (auto pred{cluster->predecessor(l)}; pred.has_value()) {
+                return std::make_optional(index(h, *pred));
             }
         }
 
         if (auto pred_cluster{cluster_data_->summary_.predecessor(h)}; pred_cluster.has_value()) {
-            [[assume(cluster_data_->summary_.contains(*pred_cluster))]];
             const auto idx = cluster_data_->index_of(*pred_cluster);
             [[assume(idx < cluster_data_->size())]];
             const auto max_element{cluster_data_->clusters_[idx].max()};
-            return index(*pred_cluster, max_element);
+            return std::make_optional(index(*pred_cluster, max_element));
         }
 
-        return min_;
+        return std::make_optional(min_);
     }
 
     constexpr inline std::size_t size() const {
-        const std::size_t base_count = (min_ == max_) ? 1uz : 2uz;
+        const auto base_count{(min_ == max_) ? 1uz : 2uz};
         if (cluster_data_ == nullptr) {
             return base_count;
         }
 
-        const auto* const data {cluster_data_->clusters_};
+        const auto* const data{cluster_data_->clusters_};
         const auto count{cluster_data_->size()};
         return std::transform_reduce(
 #ifdef __cpp_lib_execution
@@ -434,7 +424,7 @@ public:
 
         allocator_t a{alloc};
         if (cluster_data_ == nullptr) {
-            const std::size_t size = other.cluster_data_->size();
+            const auto size{other.cluster_data_->size()};
             cluster_data_ = reinterpret_cast<cluster_data_t*>(a.allocate(size + 1));
             cluster_data_->summary_ = other.cluster_data_->summary_;
             std::copy_n(
@@ -509,8 +499,8 @@ public:
         const auto s_max{max_};
         const auto i_min{std::max(s_min, other.min_)};
         const auto i_max{std::min(s_max, other.max_)};
-        const auto new_min{contains(i_min) && other.contains(i_min) ? std::make_optional(i_min) : std::nullopt};
-        const auto new_max{contains(i_max) && other.contains(i_max) ? std::make_optional(i_max) : std::nullopt};
+        auto new_min{contains(i_min) && other.contains(i_min) ? std::make_optional(i_min) : std::nullopt};
+        auto new_max{contains(i_max) && other.contains(i_max) ? std::make_optional(i_max) : std::nullopt};
 
         const auto update_minmax = [&] {
             destroy(alloc);
@@ -533,6 +523,13 @@ public:
         if (i_min >= i_max || cluster_data_ == nullptr || other.cluster_data_ == nullptr) {
             return update_minmax();
         }
+
+        // if this is not the correct min, we will need to update it during iteration
+        bool min_out{!new_min.has_value()};
+        if (!min_out) {
+            min_ = new_min.value();
+        }
+
         auto& s_summary{cluster_data_->summary_};
         auto* s_clusters{cluster_data_->clusters_};
         const auto& o_summary{other.cluster_data_->summary_};
@@ -548,48 +545,59 @@ public:
         }
         // iterate only clusters surviving the summary intersection
         // writeback inplace from the start of the array, overwriting removed clusters
-        // avoids allocating a new array
+        // avoids allocation of a new array
         std::size_t i{};
-        for (auto idx{std::make_optional(int_summary.min())}; idx.has_value(); idx = int_summary.successor(*idx)) {
-            // unconditionally access these clusters here. we know they must both exist. otherwise idx would not be set in the summary intersection
-            const auto s_i = cluster_data_->index_of(*idx);
-            if (auto& int_cluster{s_clusters[s_i]}; int_cluster.and_inplace(o_clusters[other.cluster_data_->index_of(*idx)])) {
-                // these removals could be batched (andnot) to avoid accessing the summary multiple times
-                // that would require us to track which clusters are being removed and only remove them after the loop
-                // in node16 this is less needful because removing from a node8 is essentially free
-                if (int_summary.remove(*idx)) {
-                    // this early exit isn't real. it can only happen on the last idx. doesn't save us from iterating.
+        for (auto int_hi_o{std::make_optional(int_summary.min())}; int_hi_o.has_value(); int_hi_o = int_summary.successor(*int_hi_o)) {
+            const auto int_hi{int_hi_o.value()};
+            // unconditionally access these clusters here. we know they must both exist. otherwise int_hi would not be set in the summary intersection
+            const auto s_i{cluster_data_->index_of(int_hi)};
+            const auto o_i{other.cluster_data_->index_of(int_hi)};
+
+            auto& int_cluster{s_clusters[s_i]};
+            // first check if the cluster intersection is empty
+            if (int_cluster.and_inplace(o_clusters[o_i])) {
+                if (int_summary.remove(int_hi)) {
+                    // this early exit isn't real. it can only happen on the last int_hi_o. doesn't save us from iterating.
                     return update_minmax();
                 }
-            // could be faster to write back unconditionally? would never overwrite valid data with the new data since i <= s_i always
-            } else if (i++ != s_i) {
+                // cluster is empty, skip min check and writeback
+                continue;
+            }
+            // cluster is non-empty. check if we need to update min_. only happens once, at i == 0.
+            // which might not end up being the true 0'th cluster if it gets removed here
+            if (min_out) {
+                min_out = false;
+                min_ = index(int_hi, int_cluster.min());
+                // update new_min if we exit with the above update_minmax. we want to ensure min_ is kept correct there
+                new_min = std::make_optional(min_);
+                if (int_cluster.remove(static_cast<subindex_t>(min_))) {
+                    if (int_summary.remove(int_hi)) {
+                        // node is now clusterless, but not empty since min_ at least exists.
+                        // update max_ and exit
+                        destroy(alloc);
+                        max_ = new_max.has_value() ? new_max.value() : min_;
+                        return false;
+                    }
+                    // cluster is empty, skip writeback
+                    continue;
+                }
+            }
+            // writeback cluster to its new position, if gaps were created by removed clusters
+            // might be quicker to unconditionally writeback, but this avoids unnecessary writes in the case of highly overlapping clusters
+            if (s_i != i++) {
                 s_clusters[i - 1] = int_cluster;
             }
         }
 
+        max_ = new_max.has_value() ? new_max.value() : index(int_summary.max(), s_clusters[i - 1].max());
+        if (max_ != s_max && s_clusters[i - 1].remove(static_cast<subindex_t>(max_)) && int_summary.remove(int_summary.max())) {
+            // node is now clusterless, but not empty since min_ and max_ exist.
+            destroy(alloc);
+            return false;
+        }
+        
         // now that we're done iterating, we can finally update the summary to the intersection
         s_summary = int_summary;
-
-        [[assume(s_summary.size() == i)]];
-
-        max_ = new_max.has_value() ? new_max.value() : index(s_summary.max(), s_clusters[i - 1].max());
-        min_ = new_min.has_value() ? new_min.value() : index(s_summary.min(), s_clusters[0].min());
-
-        if (max_ != s_max && s_clusters[i - 1].remove(static_cast<subindex_t>(max_))) {
-            if (s_summary.remove(s_summary.max())) {
-                destroy(alloc);
-                return false;
-            }
-        }
-        if (min_ != s_min && s_clusters[0].remove(static_cast<subindex_t>(min_))) {
-            if (s_summary.remove(s_summary.min())) {
-                destroy(alloc);
-                return false;
-            }
-            const auto begin{s_clusters + 1};
-            const auto end{s_clusters + i};
-            std::move(begin, end, begin - 1);
-        }
         return false;
     }
 

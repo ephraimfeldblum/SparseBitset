@@ -86,11 +86,11 @@ def test_fuzz_set_ops(env: Env):
     ref_sets = {}
     key_prefix = "fuzz_op_set_"
     num_sets = 5
-    max_val = 500
+    max_val = 100000 # larger universe to ensure node32 usage
 
     for i in range(num_sets):
         key = f"{key_prefix}{i}"
-        ref_sets[key] = set(random.sample(range(max_val), random.randint(10, 50)))
+        ref_sets[key] = set(random.sample(range(max_val), random.randint(max_val // 20, max_val // 10)))
         env.cmd("BITS.INSERT", key, *list(ref_sets[key]))
 
     for i in range(num_iterations):
@@ -124,7 +124,7 @@ def test_fuzz_set_ops(env: Env):
             env.assertEqual(res, (max(expected) // 8) + 1)
             
         env.assertEqual(env.cmd("BITS.COUNT", dest_key), len(expected))
-        if len(expected) < 100: # Don't check TOARRAY for very large sets to keep it fast
+        if len(expected) < 100: # Don't check TOARRAY for very large sets
             env.assertEqual(sorted(list(expected)), env.cmd("BITS.TOARRAY", dest_key))
 
 

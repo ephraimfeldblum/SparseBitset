@@ -203,8 +203,7 @@ public:
                 if (it->second.remove(l, alloc)) {
                     it->second.destroy(alloc);
                     cluster_data_->clusters.erase(it);
-                    cluster_data_->summary.remove(h, alloc);
-                    if (cluster_data_->clusters.empty()) {
+                    if (cluster_data_->summary.remove(h, alloc)) {
                         destroy(alloc);
                     }
                 }
@@ -478,6 +477,7 @@ public:
                     if (it->second.xor_inplace(o_cluster, alloc)) {
                         it->second.destroy(alloc);
                         s_clusters.erase(it);
+                        // don't destroy early here, as other clusters might still be created
                         s_summary.remove(key, alloc);
                     }
                 } else {
@@ -486,6 +486,7 @@ public:
                 }
             }
 
+            // now that all xors are done, check if we need to destroy the cluster_data
             if (s_clusters.empty()) {
                 destroy(alloc);
             }

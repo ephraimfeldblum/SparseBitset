@@ -507,6 +507,7 @@ public:
                     if (s_cluster.xor_inplace(o_cluster, alloc)) {
                         s_cluster.destroy(alloc);
                         s_clusters.erase(it);
+                        // don't destroy early here, as other clusters might still be created
                         s_summary.remove(o_cluster.key(), alloc);
                     }
                 } else {
@@ -515,6 +516,7 @@ public:
                 }
             }
 
+            // now that all xors are done, check if we need to destroy the cluster_data
             if (s_clusters.empty()) {
                 destroy(alloc);
             }

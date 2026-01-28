@@ -244,9 +244,9 @@ public:
 
     NODE8_CONSTEXPR bool not_inplace() {
 #ifdef NODE8_AVX2_ENABLED
-        const __m256i v{load()};
-        const __m256i ones{_mm256_set1_epi64x(-1LL)};
-        const __m256i not_v{_mm256_xor_si256(v, ones)};
+        const auto v{load()};
+        const auto ones{_mm256_set1_epi64x(-1LL)};
+        const auto not_v{_mm256_xor_si256(v, ones)};
         store(not_v);
 #else
         for (std::size_t i{}; i < num_words; ++i) {
@@ -257,9 +257,9 @@ public:
     }
     NODE8_CONSTEXPR bool or_inplace(const Node8& other) {
 #ifdef NODE8_AVX2_ENABLED
-        const __m256i v1{load()};
-        const __m256i v2{other.load()};
-        const __m256i or_v{_mm256_or_si256(v1, v2)};
+        const auto v1{load()};
+        const auto v2{other.load()};
+        const auto or_v{_mm256_or_si256(v1, v2)};
         store(or_v);
 #else
         for (std::size_t i{}; i < num_words; ++i) {
@@ -271,9 +271,9 @@ public:
     }
     NODE8_CONSTEXPR bool xor_inplace(const Node8& other) {
 #ifdef NODE8_AVX2_ENABLED
-        const __m256i v1{load()};
-        const __m256i v2{other.load()};
-        const __m256i xor_v{_mm256_xor_si256(v1, v2)};
+        const auto v1{load()};
+        const auto v2{other.load()};
+        const auto xor_v{_mm256_xor_si256(v1, v2)};
         store(xor_v);
 #else
         for (std::size_t i{}; i < num_words; ++i) {
@@ -284,9 +284,9 @@ public:
     }
     NODE8_CONSTEXPR bool and_inplace(const Node8& other) {
 #ifdef NODE8_AVX2_ENABLED
-        const __m256i v1{load()};
-        const __m256i v2{other.load()};
-        const __m256i and_v{_mm256_and_si256(v1, v2)};
+        const auto v1{load()};
+        const auto v2{other.load()};
+        const auto and_v{_mm256_and_si256(v1, v2)};
         store(and_v);
 #else
         for (std::size_t i{}; i < num_words; ++i) {
@@ -298,9 +298,9 @@ public:
     // difference: A \ B
     NODE8_CONSTEXPR bool and_not_inplace(const Node8& other) {
 #ifdef NODE8_AVX2_ENABLED
-        const __m256i v1{load()};
-        const __m256i v2{other.load()};
-        const __m256i andnot_v{_mm256_andnot_si256(v2, v1)};
+        const auto v1{load()};
+        const auto v2{other.load()};
+        const auto andnot_v{_mm256_andnot_si256(v2, v1)};
         store(andnot_v);
 #else
         for (std::size_t i{}; i < num_words; ++i) {
