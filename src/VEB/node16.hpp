@@ -812,23 +812,23 @@ public:
         constexpr inline bool operator()(const Node16& lhs, const Node16& rhs) const {
             return lhs.key_ == rhs.key_;
         }
-        constexpr inline bool operator()(const Node16& lhs, const Node16::index_t rhs) const {
+        constexpr inline bool operator()(const Node16& lhs, const index_t rhs) const {
             return lhs.key_ == rhs;
         }
-        constexpr inline bool operator()(const Node16::index_t lhs, const Node16& rhs) const {
+        constexpr inline bool operator()(const index_t lhs, const Node16& rhs) const {
             return lhs == rhs.key_;
         }
-        constexpr inline bool operator()(const Node16::index_t lhs, const Node16::index_t rhs) const {
+        constexpr inline bool operator()(const index_t lhs, const index_t rhs) const {
             return lhs == rhs;
         }
     };
     struct Hash {
         using is_transparent = void;
         constexpr inline std::size_t operator()(const Node16& node) const {
-            return std::hash<Node16::index_t>{}(node.key_);
+            return std::hash<index_t>{}(node.key_);
         }
-        constexpr inline std::size_t operator()(const Node16::index_t key) const {
-            return std::hash<Node16::index_t>{}(key);
+        constexpr inline std::size_t operator()(const index_t key) const {
+            return std::hash<index_t>{}(key);
         }
     };
 };
