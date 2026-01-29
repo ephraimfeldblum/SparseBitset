@@ -1,23 +1,23 @@
 import random
-import pytest
+from RLTest import Env
 
 
-def add(env, key, v):
-    return env.cmd('BITS.INSERT', key, v)
+def add(env: Env, key: str, v: int):
+    env.cmd('BITS.INSERT', key, v)
 
-def remove(env, key, v):
-    return env.cmd('BITS.REMOVE', key, v)
+def remove(env: Env, key: str, v: int):
+    env.cmd('BITS.REMOVE', key, v)
 
-def count_range(env, key, lo, hi):
+def count_range(env: Env, key: str, lo: int, hi: int) -> int:
     return int(env.cmd('BITS.COUNT', key, lo, hi, 'BIT'))
 
-def ref_count(s, lo, hi):
+def ref_count(s: set[int], lo: int, hi: int) -> int:
     return sum(1 for x in s if lo <= x <= hi)
 
-def reset(env):
+def reset(env: Env):
     env.cmd('FLUSHALL')
 
-def test_count_range_basic(env):
+def test_count_range_basic(env: Env):
     reset(env)
     key = "veb1"
     s = set()
@@ -45,7 +45,7 @@ def test_count_range_promote_min_on_delete(env):
     s.remove(2)
     env.assertEqual(count_range(env, key, 2, 1000), ref_count(s, 2, 1000))
     env.assertEqual(count_range(env, key, 3, 1000), ref_count(s, 3, 1000))
-def test_count_range_promote_max_on_delete(env):
+def test_count_range_promote_max_on_delete(env: Env):
     reset(env)
     key = "veb_promote_max"
     s = set([0,1,2,3,4])
@@ -59,7 +59,7 @@ def test_count_range_promote_max_on_delete(env):
     s.remove(3)
     env.assertEqual(count_range(env, key, 0, 10), ref_count(s, 0, 10))
 
-def test_count_range_cross_cluster_boundaries(env):
+def test_count_range_cross_cluster_boundaries(env: Env):
     reset(env)
     key = "veb_clusters"
     # pick positions that are likely to span different clusters/levels:
@@ -79,7 +79,7 @@ def test_count_range_cross_cluster_boundaries(env):
     env.assertEqual(count_range(env, key, 15, 256), ref_count(s, 15, 256))
     env.assertEqual(count_range(env, key, 256, 1025), ref_count(s, 256, 1025))
 
-def test_count_range_randomized_small(env):
+def test_count_range_randomized_small(env: Env):
     reset(env)
     key = "veb_rand"
     s = set()
