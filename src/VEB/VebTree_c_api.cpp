@@ -83,6 +83,11 @@ static std::size_t vebtree_size(const_VebTree_Handle_t handle) {
     return handle->size();
 }
 
+static std::size_t vebtree_count_range(const_VebTree_Handle_t handle, size_t start, size_t end) {
+    assert(handle);
+    return handle->count_range(start, end);
+}
+
 static std::size_t* vebtree_to_array(const_VebTree_Handle_t handle) {
     assert(handle);
     std::size_t* array = static_cast<std::size_t*>(malloc(handle->size() * sizeof *array));
@@ -155,6 +160,7 @@ static constexpr VebTree_API_t vebtree_api = {
     .empty = vebtree_empty,
     .clear = vebtree_clear,
     .size = vebtree_size,
+    .count_range = vebtree_count_range,
     .to_array = vebtree_to_array,
     .get_memory_stats = vebtree_get_memory_stats,
     .get_allocated_memory = vebtree_get_allocated_memory,

@@ -5,7 +5,7 @@
  * This implementation uses a recursive node cluster structure to store the elements.
  * Each node is associated with a summary structure to indicate which clusters contain elements.
  *
- * The tree can be visualized as shown below:
+ * The tree is extremely flat and can be visualized as shown below:
  * Node<log U = 32> 
  * ┌───────────────────────────────┐
  * | min, max: u32                 | ← Lazily propagated. Not inserted into clusters.
@@ -18,10 +18,10 @@
  * ┌───────────────────────────────┐
  * | key: u16                      | ← Store which cluster this node belongs to directly in padding bytes.
  * | min, max: u16                 |
- * | capacity: u16                 |
+ * | cap, len: u8                  | ← Capacity and length of clusters array. 0 represents 256.
  * | cluster_data: * {             |
  * |   summary : Node<8>           | ← Used to index into clusters in constant time. Requires sorted clusters.
- * |   clusters: Array<Node<8>, …> | ← Up to 256 elements. FAM is more cache-friendly than HashMap.
+ * |   clusters: FAM<Node<8>>      | ← Up to 256 elements. Flexible array is more cache-friendly than HashMap.
  * | }           |                 |
  * └─────────────|─────────────────┘
  * Node<8>       ▼
@@ -39,10 +39,6 @@
 #include <utility>       // std::exchange, std::move, std::unreachable
 #include <variant>       // std::holds_alternative, std::monostate, std::variant, std::visit
 #include <vector>        // std::vector
-
-// #if defined(__x86_64__) || defined(__x86_64) || defined(__amd64__) || defined(__amd64)
-// #include <immintrin.h>
-// #endif
 
 #include "allocator/tracking_allocator.hpp"
 #include "VebCommon.hpp"
@@ -387,6 +383,33 @@ public:
             overload{
                 [](std::monostate) { return 0uz; },
                 [](const auto& s) { return s.size(); },
+            },
+            storage_);
+    }
+
+    /**
+     * Count elements in the inclusive range [start, end].
+     * This implementation leverages node-level size/count helpers so that
+     * iteration happens at cluster granularity (Node8/Node16 etc.) instead
+     * of over each element via repeated `successor` calls.
+     */
+    inline std::size_t count_range(std::size_t start, std::size_t end) const {
+        if (start > end) return 0;
+        return std::visit(
+            overload{
+                [](std::monostate) -> std::size_t { return 0; },
+                [&](const auto& n) -> std::size_t {
+                    using NodeType = std::decay_t<decltype(n)>;
+                    const auto minv{n.min()};
+                    const auto maxv{n.max()};
+                    if (start > maxv || end < minv) {
+                        return 0;
+                    }
+                    end = std::min(end, n.universe_size());
+                    const auto lo = std::max(static_cast<index_t<NodeType>>(start), minv);
+                    const auto hi = std::min(static_cast<index_t<NodeType>>(end), maxv);
+                    return n.count_range({ .lo = lo, .hi = hi });
+                },
             },
             storage_);
     }

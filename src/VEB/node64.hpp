@@ -120,7 +120,13 @@ public:
     }
 
     // Node64 must be destructed via `.destroy(alloc)`. Failure to do so will result in UB.
+#ifdef DEBUG
+    ~Node64() noexcept {
+        assert(cluster_data_ == nullptr && "Node64 must be destructed via `.destroy(alloc)` before going out of scope.");
+    }
+#else
     // ~Node64() noexcept = default;
+#endif
 
     constexpr inline void destroy(std::size_t& alloc) {
         if (cluster_data_) {
@@ -203,8 +209,7 @@ public:
                 if (it->second.remove(l, alloc)) {
                     it->second.destroy(alloc);
                     cluster_data_->clusters.erase(it);
-                    cluster_data_->summary.remove(h, alloc);
-                    if (cluster_data_->clusters.empty()) {
+                    if (cluster_data_->summary.remove(h, alloc)) {
                         destroy(alloc);
                     }
                 }
@@ -300,6 +305,47 @@ public:
             cluster_data_->values().begin(), cluster_data_->values().end(),
             base_count, std::plus<>(), [](const auto& cluster) { return cluster.size(); }
         );
+    }
+
+    // helper struct for count_range. allows passing either arg optionally
+    struct count_range_args {
+        index_t lo{static_cast<index_t>(0)};
+        index_t hi{static_cast<index_t>(universe_size())};
+    };
+    constexpr inline std::size_t count_range(count_range_args args) const {
+        const auto [lo, hi] {args};
+        auto total{static_cast<std::size_t>(
+            (lo <= min_ && min_ <= hi) + (max_ != min_ && lo <= max_ && max_ <= hi)
+        )};
+
+        if (cluster_data_ == nullptr) {
+            return total;
+        }
+
+        const auto& summary{cluster_data_->summary};
+        const auto& clusters{cluster_data_->clusters};
+
+        const auto [lcl, lidx] {decompose(lo)};
+        const auto [hcl, hidx] {decompose(hi)};
+        if (lcl == hcl) {
+            if (const auto it{clusters.find(lcl)}; it != clusters.end()) {
+                total += it->second.count_range({ .lo = lidx, .hi = hidx });
+            }
+            return total;
+        }
+
+        if (const auto it{clusters.find(lcl)}; it != clusters.end()) {
+            total += it->second.count_range({ .lo = lidx });
+        }
+        if (const auto it{clusters.find(hcl)}; it != clusters.end()) {
+            total += it->second.count_range({ .hi = hidx });
+        }
+
+        for (auto i{summary.successor(lcl)}; i.has_value() && i.value() < hcl; i = summary.successor(i.value())) {
+            total += clusters.find(i.value())->second.size();
+        }
+
+        return total;
     }
 
     constexpr inline VebTreeMemoryStats get_memory_stats() const {
@@ -478,6 +524,7 @@ public:
                     if (it->second.xor_inplace(o_cluster, alloc)) {
                         it->second.destroy(alloc);
                         s_clusters.erase(it);
+                        // don't destroy early here, as other clusters might still be created
                         s_summary.remove(key, alloc);
                     }
                 } else {
@@ -486,6 +533,7 @@ public:
                 }
             }
 
+            // now that all xors are done, check if we need to destroy the cluster_data
             if (s_clusters.empty()) {
                 destroy(alloc);
             }

@@ -133,7 +133,13 @@ public:
     }
 
     // Node32 must be destructed via `.destroy(alloc)`. Failure to do so will result in UB.
+#ifdef DEBUG
+    ~Node32() noexcept {
+        assert(cluster_data_ == nullptr && "Node32 must be destructed via `.destroy(alloc)` before going out of scope.");
+    }
+#else
     // ~Node32() noexcept = default;
+#endif
 
     constexpr inline void destroy(std::size_t& alloc) {
         if (cluster_data_ != nullptr) {
@@ -322,6 +328,47 @@ public:
         );
     }
 
+    // helper struct for count_range. allows passing either arg optionally
+    struct count_range_args {
+        index_t lo{static_cast<index_t>(0)};
+        index_t hi{static_cast<index_t>(universe_size())};
+    };
+    constexpr inline std::size_t count_range(count_range_args args) const {
+        const auto [lo, hi] {args};
+        auto total{static_cast<std::size_t>(
+            (lo <= min_ && min_ <= hi) + (max_ != min_ && lo <= max_ && max_ <= hi)
+        )};
+
+        if (cluster_data_ == nullptr) {
+            return total;
+        }
+
+        const auto& summary{cluster_data_->summary};
+        const auto& clusters{cluster_data_->clusters};
+
+        const auto [lcl, lidx] {decompose(lo)};
+        const auto [hcl, hidx] {decompose(hi)};
+        if (lcl == hcl) {
+            if (const auto it{clusters.find(lcl)}; it != clusters.end()) {
+                total += it->count_range({ .lo = lidx, .hi = hidx });
+            }
+            return total;
+        }
+
+        if (const auto it{clusters.find(lcl)}; it != clusters.end()) {
+            total += it->count_range({ .lo = lidx });
+        }
+        if (const auto it{clusters.find(hcl)}; it != clusters.end()) {
+            total += it->count_range({ .hi = hidx });
+        }
+
+        for (auto i{summary.successor(lcl)}; i.has_value() && i.value() < hcl; i = summary.successor(i.value())) {
+            total += clusters.find(i.value())->size();
+        }
+
+        return total;
+    }
+
     constexpr inline VebTreeMemoryStats get_memory_stats() const {
         if (cluster_data_ == nullptr) {
             return VebTreeMemoryStats{0, 0, 1};
@@ -507,6 +554,7 @@ public:
                     if (s_cluster.xor_inplace(o_cluster, alloc)) {
                         s_cluster.destroy(alloc);
                         s_clusters.erase(it);
+                        // don't destroy early here, as other clusters might still be created
                         s_summary.remove(o_cluster.key(), alloc);
                     }
                 } else {
@@ -515,6 +563,7 @@ public:
                 }
             }
 
+            // now that all xors are done, check if we need to destroy the cluster_data
             if (s_clusters.empty()) {
                 destroy(alloc);
             }

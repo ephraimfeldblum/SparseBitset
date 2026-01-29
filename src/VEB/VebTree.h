@@ -91,6 +91,9 @@ typedef struct VebTree_API {
     /* Get the number of elements */
     size_t (*size)(const_VebTree_Handle_t handle);
 
+    /* Count elements in the inclusive range [start, end] */
+    size_t (*count_range)(const_VebTree_Handle_t handle, size_t start, size_t end);
+
     /* Convert to array */
     size_t* (*to_array)(const_VebTree_Handle_t handle);
 

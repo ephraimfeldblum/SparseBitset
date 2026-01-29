@@ -37,10 +37,15 @@ cmake_install.cmake
 build/Makefile
 cmake-build-*/Makefile
 
-# Valgrind output
+# Tests output
 *.valgrind
 tests/flow/logs/*
 tests/flow/rltest_logs/*
 .venv_rltest
 tests/benchmarks/files/
 benchmark_data.txt
+
+# Agent-related files
+.zencoder/*
+.zenflow/*
+tasks/*

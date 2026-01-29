@@ -53,3 +53,36 @@ def test_large_range_insert(env: Env):
     for e in elements:
         env.assertEqual(env.cmd("BITS.GET", key, e), 1)
     env.assertEqual(env.cmd("BITS.GET", key, 50), 0)
+
+
+def test_min_max(env: Env):
+    env.cmd("BITS.INSERT", "mm", 10, 5, 30)
+    env.assertEqual(env.cmd("BITS.MIN", "mm"), 5)
+    env.assertEqual(env.cmd("BITS.MAX", "mm"), 30)
+
+    # Remove current min and max
+    env.cmd("BITS.REMOVE", "mm", 5, 30)
+    env.assertEqual(env.cmd("BITS.MIN", "mm"), 10)
+    env.assertEqual(env.cmd("BITS.MAX", "mm"), 10)
+
+    # Empty set returns null
+    env.cmd("BITS.CLEAR", "mm")
+    env.assertEqual(env.cmd("BITS.MIN", "mm"), None)
+    env.assertEqual(env.cmd("BITS.MAX", "mm"), None)
+
+
+def test_min_max_non_existent(env: Env):
+    env.assertEqual(env.cmd("BITS.MIN", "nonexistent"), None)
+    env.assertEqual(env.cmd("BITS.MAX", "nonexistent"), None)
+
+
+def test_membership_and_size(env: Env):
+    env.assertEqual(env.cmd("BITS.INSERT", "ms", 1, 2, 3), 3)
+    env.assertEqual(env.cmd("BITS.COUNT", "ms"), 3)
+    env.assertEqual(env.cmd("BITS.GET", "ms", 2), 1)
+    env.assertEqual(env.cmd("BITS.GET", "ms", 4), 0)
+
+    # remove one element
+    env.assertEqual(env.cmd("BITS.REMOVE", "ms", 2), 1)
+    env.assertEqual(env.cmd("BITS.COUNT", "ms"), 2)
+    env.assertEqual(env.cmd("BITS.GET", "ms", 2), 0)

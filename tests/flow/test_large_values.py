@@ -1,7 +1,6 @@
 from RLTest import Env
 
 def test_large_values(env: Env):
-    """Test with very large bit offsets"""
     # 2^31 - 1
     val31 = 2147483647
     # 2^31
@@ -36,7 +35,6 @@ def test_large_values(env: Env):
     env.assertEqual(env.cmd("BITS.TOARRAY", key), [val31, val31p, val32, val32p, val63])
 
 def test_max_boundary(env: Env):
-    """Test values exactly at and around LLONG_MAX"""
     key = "boundary"
     max_ll = 9223372036854775807
     
