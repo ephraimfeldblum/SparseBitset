@@ -451,26 +451,33 @@ public:
             return acc;
         }
 
-        const auto [lo_cl, lo_idx] {decompose(lo)};
-        const auto [hi_cl, hi_idx] {decompose(hi)};
-        if (lo_cl == hi_cl) {
-            if (const auto* cluster{find(lo_cl)}; cluster != nullptr) {
-                acc += cluster->count_range({ .lo = lo_idx, .hi = hi_idx});
+        const auto [lcl, lidx] {decompose(lo)};
+        const auto [hcl, hidx] {decompose(hi)};
+        if (lcl == hcl) {
+            if (const auto* cluster{find(lcl)}; cluster != nullptr) {
+                acc += cluster->count_range({ .lo = lidx, .hi = hidx});
             }
             return acc;
         }
 
-        if (const auto* cluster{find(lo_cl)}; cluster != nullptr) {
-            acc += cluster->count_range({ .lo = lo_idx });
+        bool found_lo{false};
+        bool found_hi{false};
+
+        if (const auto* cluster{find(lcl)}; cluster != nullptr) {
+            found_lo = true;
+            acc += cluster->count_range({ .lo = lidx });
         }
-        if (const auto* cluster{find(hi_cl)}; cluster != nullptr) {
-            acc += cluster->count_range({ .hi = hi_idx });
+        if (const auto* cluster{find(hcl)}; cluster != nullptr) {
+            found_hi = true;
+            acc += cluster->count_range({ .hi = hidx });
         }
 
-        const auto start_idx{static_cast<subindex_t>(cluster_data_->index_of(lo_cl) + cluster_data_->summary_.contains(lo_cl))};
-        const auto end_idx{static_cast<subindex_t>(cluster_data_->index_of(hi_cl) - 1)};
-        if (start_idx <= end_idx) {
-            acc += cluster_data_->count(start_idx, end_idx);
+        if (const auto lcli{cluster_data_->index_of(lcl)}, hcli{cluster_data_->index_of(hcl)};
+            lcli < get_len() - found_lo && hcli > 0uz + found_hi && lcli + found_lo <= hcli - found_hi) {
+            acc += cluster_data_->count(
+                static_cast<subindex_t>(lcli + found_lo),
+                static_cast<subindex_t>(hcli - found_hi)
+            );
         }
 
         return acc;
