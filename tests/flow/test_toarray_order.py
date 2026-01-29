@@ -9,7 +9,7 @@ def test_toarray_order(env: Env):
     env.cmd("BITS.REMOVE", "arr", 50)
     env.assertEqual(env.cmd("BITS.TOARRAY", "arr"), [1, 100])
 
-    
+
 def test_toarray_order_large(env: Env):
     env.cmd("DEL", "larg")
     vals = [
