@@ -343,15 +343,15 @@ public:
             return total;
         }
 
-        if (summary.contains(lo_cl)) {
-            total += clusters.find(lo_cl)->count_range(lo_low, static_cast<subindex_t>(subnode_t::universe_size()));
+        if (const auto it{clusters.find(lo_cl)}; it != clusters.end()) {
+            total += it->count_range(lo_low, static_cast<subindex_t>(subnode_t::universe_size()));
         }
-        if (summary.contains(hi_cl)) {
-            total += clusters.find(hi_cl)->count_range(static_cast<subindex_t>(0), hi_low);
+        if (const auto it{clusters.find(hi_cl)}; it != clusters.end()) {
+            total += it->count_range(static_cast<subindex_t>(0), hi_low);
         }
 
-        for (auto i{summary.successor(lo_cl).value()}; i < hi_cl; i = summary.successor(i).value()) {
-            total += clusters.find(i)->size();
+        for (auto i{summary.successor(lo_cl)}; i.has_value() && i.value() < hi_cl; i = summary.successor(i.value())) {
+            total += clusters.find(i.value())->size();
         }
 
         return total;

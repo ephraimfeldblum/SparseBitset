@@ -451,7 +451,7 @@ public:
             acc += cluster->count_range(static_cast<subindex_t>(0), hi_idx);
         }
 
-        const auto start_idx{static_cast<subindex_t>(cluster_data_->index_of(lo_cl) + 1)};
+        const auto start_idx{static_cast<subindex_t>(cluster_data_->index_of(lo_cl) + cluster_data_->summary_.contains(lo_cl))};
         const auto end_idx{static_cast<subindex_t>(cluster_data_->index_of(hi_cl) - 1)};
         if (start_idx <= end_idx) {
             acc += cluster_data_->count(start_idx, end_idx);
