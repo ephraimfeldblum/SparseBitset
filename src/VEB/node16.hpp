@@ -110,12 +110,12 @@ private:
     // Allocate a new cluster_data_t with space for `cap` clusters.
     // If `other` is provided, copy its summary and clusters up to `other_size` (if non-zero)
     // otherwise fall back to `other->size()`.
-    static constexpr inline cluster_data_t* create(std::size_t& alloc, std::size_t cap, const cluster_data_t* other = nullptr, std::size_t other_size = 0) {
+    static constexpr inline cluster_data_t* create(std::size_t& alloc, std::size_t cap, const cluster_data_t* other, std::size_t other_size) {
         allocator_t a{alloc};
         auto* data = reinterpret_cast<cluster_data_t*>(a.allocate(cap + 1));
         if (other != nullptr) {
             data->summary_ = other->summary_;
-            const auto copy_count = std::min(cap, other_size != 0 ? other_size : other->size());
+            const auto copy_count = std::min(cap, other_size);
             std::copy_n(
 #ifdef __cpp_lib_execution
                 std::execution::unseq,
@@ -124,6 +124,13 @@ private:
             );
         }
         return data;
+    }
+    static constexpr inline cluster_data_t* create(std::size_t& alloc, std::size_t cap, subnode_t summary) {
+        return create(alloc, cap, reinterpret_cast<const cluster_data_t*>(&summary), 0);
+    }
+    static constexpr inline cluster_data_t* create(std::size_t& alloc, std::size_t cap, subindex_t hi, subnode_t lo) {
+        subnode_t dummy[] { subnode_t{hi}, lo, };
+        return create(alloc, cap, reinterpret_cast<const cluster_data_t*>(dummy), 1);
     }
 
     constexpr inline subnode_t* find(subindex_t x) {
@@ -149,9 +156,7 @@ private:
 
     constexpr inline void emplace(subindex_t hi, subindex_t lo, std::size_t& alloc) {
         if (cluster_data_ == nullptr) {
-            cluster_data_ = create(alloc, 1);
-            cluster_data_->summary_ = subnode_t{hi};
-            cluster_data_->clusters_[0] = subnode_t{lo};
+            cluster_data_ = create(alloc, 1, hi, subnode_t{lo});
             set_cap(1);
             set_len(1);
             return;
@@ -218,9 +223,7 @@ public:
         }
 
         if (old_storage.size() > 0) {
-            cluster_data_ = create(alloc, 1);
-            cluster_data_->summary_ = subnode_t{0};
-            cluster_data_->clusters_[0] = old_storage;
+            cluster_data_ = create(alloc, 1, 0, old_storage);
             set_cap(1);
             set_len(1);
         }
@@ -551,8 +554,8 @@ public:
             return false;
         }
 
-        auto* new_data = create(alloc, new_size);
-        const auto& new_summary{new_data->summary_ = merge_summary};
+        auto* new_data = create(alloc, new_size, merge_summary);
+        const auto& new_summary{new_data->summary_};
         auto* new_clusters{new_data->clusters_};
 
         std::size_t i{};
@@ -754,8 +757,8 @@ public:
                 }
                 set_len(k);
             } else {
-                auto* new_data = create(alloc, max_size);
-                auto& new_summary{new_data->summary_ = std::move(union_summary)};
+                auto* new_data = create(alloc, max_size, union_summary);
+                auto& new_summary{new_data->summary_};
                 auto* new_clusters{new_data->clusters_};
 
                 std::size_t i{};
