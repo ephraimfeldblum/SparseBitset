@@ -408,7 +408,7 @@ public:
                     end = std::min(end, n.universe_size());
                     const auto lo = std::max(static_cast<index_t<NodeType>>(start), minv);
                     const auto hi = std::min(static_cast<index_t<NodeType>>(end), maxv);
-                    return n.count_range(lo, hi);
+                    return n.count_range({ .lo = lo, .hi = hi });
                 },
             },
             storage_);

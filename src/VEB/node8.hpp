@@ -159,7 +159,13 @@ public:
                std::popcount(bits_[2]) + std::popcount(bits_[3]);
     }
 
-    constexpr inline std::size_t count_range(index_t lo, index_t hi) const {
+    // helper struct for count_range. allows passing either arg optionally
+    struct count_range_args {
+        index_t lo{static_cast<index_t>(0)};
+        index_t hi{static_cast<index_t>(universe_size())};
+    };
+    constexpr inline std::size_t count_range(count_range_args args) const {
+        const auto [lo, hi] {args};
         const auto [lw, lb] {decompose(lo)};
         const auto [hw, hb] {decompose(hi)};
         const auto lmask{~0ULL << lb};

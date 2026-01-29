@@ -63,7 +63,7 @@ private:
             if (x == 0) {
                 return 0;
             }
-            return static_cast<subindex_t>(summary_.count_range(static_cast<subindex_t>(0), static_cast<subindex_t>(x - 1)));
+            return static_cast<subindex_t>(summary_.count_range({ .hi = static_cast<subindex_t>(x - 1) }));
         }
         constexpr inline subnode_t* find(subindex_t x) {
             return summary_.contains(x) ? &clusters_[index_of(x)] : nullptr;
@@ -436,7 +436,13 @@ public:
             cluster_data_->count(static_cast<subindex_t>(0), static_cast<subindex_t>(get_len() - 1)));
     }
 
-    constexpr inline std::size_t count_range(index_t lo, index_t hi) const {
+    // helper struct for count_range. allows passing either arg optionally
+    struct count_range_args {
+        index_t lo{static_cast<index_t>(0)};
+        index_t hi{static_cast<index_t>(universe_size())};
+    };
+    constexpr inline std::size_t count_range(count_range_args args) const {
+        const auto [lo, hi] {args};
         auto acc{static_cast<std::size_t>(
             (lo <= min_ && min_ <= hi) + (max_ != min_ && lo <= max_ && max_ <= hi)
         )};
@@ -449,16 +455,16 @@ public:
         const auto [hi_cl, hi_idx] {decompose(hi)};
         if (lo_cl == hi_cl) {
             if (const auto* cluster{find(lo_cl)}; cluster != nullptr) {
-                acc += cluster->count_range(lo_idx, hi_idx);
+                acc += cluster->count_range({ .lo = lo_idx, .hi = hi_idx});
             }
             return acc;
         }
 
         if (const auto* cluster{find(lo_cl)}; cluster != nullptr) {
-            acc += cluster->count_range(lo_idx, static_cast<subindex_t>(subnode_t::universe_size()));
+            acc += cluster->count_range({ .lo = lo_idx });
         }
         if (const auto* cluster{find(hi_cl)}; cluster != nullptr) {
-            acc += cluster->count_range(static_cast<subindex_t>(0), hi_idx);
+            acc += cluster->count_range({ .hi = hi_idx });
         }
 
         const auto start_idx{static_cast<subindex_t>(cluster_data_->index_of(lo_cl) + cluster_data_->summary_.contains(lo_cl))};

@@ -307,7 +307,13 @@ public:
         );
     }
 
-    constexpr inline std::size_t count_range(index_t lo, index_t hi) const {
+    // helper struct for count_range. allows passing either arg optionally
+    struct count_range_args {
+        index_t lo{static_cast<index_t>(0)};
+        index_t hi{static_cast<index_t>(universe_size())};
+    };
+    constexpr inline std::size_t count_range(count_range_args args) const {
+        const auto [lo, hi] {args};
         auto total{static_cast<std::size_t>(
             (lo <= min_ && min_ <= hi) + (max_ != min_ && lo <= max_ && max_ <= hi)
         )};
@@ -319,23 +325,23 @@ public:
         const auto& summary{cluster_data_->summary};
         const auto& clusters{cluster_data_->clusters};
 
-        const auto [lo_cl, lo_low] {decompose(lo)};
-        const auto [hi_cl, hi_low] {decompose(hi)};
-        if (lo_cl == hi_cl) {
-            if (const auto it{clusters.find(lo_cl)}; it != clusters.end()) {
-                total += it->second.count_range(lo_low, hi_low);
+        const auto [lcl, lidx] {decompose(lo)};
+        const auto [hcl, hidx] {decompose(hi)};
+        if (lcl == hcl) {
+            if (const auto it{clusters.find(lcl)}; it != clusters.end()) {
+                total += it->second.count_range({ .lo = lidx, .hi = hidx });
             }
             return total;
         }
 
-        if (const auto it{clusters.find(lo_cl)}; it != clusters.end()) {
-            total += it->second.count_range(lo_low, static_cast<subindex_t>(subnode_t::universe_size()));
+        if (const auto it{clusters.find(lcl)}; it != clusters.end()) {
+            total += it->second.count_range({ .lo = lidx });
         }
-        if (const auto it{clusters.find(hi_cl)}; it != clusters.end()) {
-            total += it->second.count_range(static_cast<subindex_t>(0), hi_low);
+        if (const auto it{clusters.find(hcl)}; it != clusters.end()) {
+            total += it->second.count_range({ .hi = hidx });
         }
 
-        for (auto i{summary.successor(lo_cl)}; i.has_value() && i.value() < hi_cl; i = summary.successor(i.value())) {
+        for (auto i{summary.successor(lcl)}; i.has_value() && i.value() < hcl; i = summary.successor(i.value())) {
             total += clusters.find(i.value())->second.size();
         }
 
