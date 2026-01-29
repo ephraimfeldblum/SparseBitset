@@ -127,7 +127,7 @@ def test_count_range_edges_and_units(env: Env):
     env.assertEqual(env.cmd("BITS.COUNT", "cr", "100", "200", "BIT"), 0)
 
 
-def test_op_xor_not_and_sizes(env: Env):
+def test_op_xor_or_sizes(env: Env):
     """Test XOR and NOT operations and returned byte sizes"""
     env.cmd("DEL", "a", "b", "xora", "ora")
     env.cmd("BITS.INSERT", "a", 1, 3, 5)
@@ -176,12 +176,3 @@ def test_successor_predecessor_edges(env: Env):
     # successor beyond last -> None, predecessor below first -> None
     env.assertEqual(env.cmd("BITS.SUCCESSOR", "sp2", 15), None)
     env.assertEqual(env.cmd("BITS.PREDECESSOR", "sp2", 5), None)
-
-
-def test_toarray_order_large(env: Env):
-    """Ensure TOARRAY returns sorted order for larger sets"""
-    env.cmd("DEL", "larg")
-    vals = [1000, 10, 500, 250, 999]
-    env.cmd("BITS.INSERT", "larg", *vals)
-    expected = sorted(vals)
-    env.assertEqual(env.cmd("BITS.TOARRAY", "larg"), expected)

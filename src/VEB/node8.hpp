@@ -46,40 +46,28 @@ private:
         return static_cast<index_t>(word * bits_per_word + bit);
     }
 
-    inline vec_type load() const {
+    constexpr inline vec_type load() const {
         return vec_type::load_aligned(bits_.data());
     }
-    inline void store(const vec_type &v) {
+    constexpr inline void store(const vec_type &v) {
         v.store_aligned(bits_.data());
     }
 
-    inline bool empty() const {
+    constexpr inline bool empty() const {
         return xsimd::all(load() == 0);
     }
     
 public:
-    inline index_t get_cluster_index(index_t key) const {
-        const auto [target_word, target_bit] {decompose(key)};
-        const std::uint64_t mask{(1ULL << target_bit) - 1};
-
-        index_t count{};
-        for (subindex_t word{}; word < target_word; ++word) {
-            count += static_cast<index_t>(std::popcount(bits_[word]));
-        }
-        count += static_cast<index_t>(std::popcount(bits_[target_word] & mask));
-        return count;
-    }
-
-    inline explicit Node8(index_t x) {
+    constexpr inline explicit Node8(index_t x) {
         const auto [word_idx, bit_idx] {decompose(x)};
         bits_[word_idx] |= (1ULL << bit_idx);
     }
 
-    static inline std::size_t universe_size() {
+    static constexpr inline std::size_t universe_size() {
         return std::numeric_limits<index_t>::max();
     }
 
-    inline index_t min() const {
+    constexpr inline index_t min() const {
         for (subindex_t word{}; word < num_words; ++word) {
             if (bits_[word] != 0) {
                 auto bit_idx{std::countr_zero(bits_[word])};
@@ -89,7 +77,7 @@ public:
         std::unreachable();
     }
 
-    inline index_t max() const {
+    constexpr inline index_t max() const {
         for (subindex_t word{num_words}; word > 0; --word) {
             if (bits_[word - 1] != 0) {
                 auto bit_idx{bits_per_word - 1 - std::countl_zero(bits_[word - 1])};
@@ -99,12 +87,12 @@ public:
         std::unreachable();
     }
 
-    inline void insert(index_t x) {
+    constexpr inline void insert(index_t x) {
         const auto [word_idx, bit_idx] {decompose(x)};
         bits_[word_idx] |= (1ULL << bit_idx);
     }
 
-    inline bool remove(index_t x) {
+    constexpr inline bool remove(index_t x) {
         const auto [word_idx, bit_idx] {decompose(x)};
 
         if (!(bits_[word_idx] & (1ULL << bit_idx))) {
@@ -115,12 +103,12 @@ public:
         return empty();
     }
 
-    inline bool contains(index_t x) const {
+    constexpr inline bool contains(index_t x) const {
         const auto [word_idx, bit_idx] {decompose(x)};
         return (bits_[word_idx] & (1ULL << bit_idx)) != 0;
     }
 
-    inline std::optional<index_t> successor(index_t x) const {
+    constexpr inline std::optional<index_t> successor(index_t x) const {
         const auto [start_word, start_bit] {decompose(x)};
         const std::uint64_t mask{~0ULL << (start_bit + 1)};
 
@@ -143,7 +131,7 @@ public:
         return std::nullopt;
     }
 
-    inline std::optional<index_t> predecessor(index_t x) const {
+    constexpr inline std::optional<index_t> predecessor(index_t x) const {
         if (x == 0) {
             return std::nullopt;
         }
@@ -166,12 +154,30 @@ public:
         return std::nullopt;
     }
 
-    inline std::size_t size() const {
+    constexpr inline std::size_t size() const {
         return std::popcount(bits_[0]) + std::popcount(bits_[1]) +
                std::popcount(bits_[2]) + std::popcount(bits_[3]);
     }
 
-    inline VebTreeMemoryStats get_memory_stats() const {
+    constexpr inline std::size_t count_range(index_t lo, index_t hi) const {
+        const auto [lw, lb] {decompose(lo)};
+        const auto [hw, hb] {decompose(hi)};
+        const auto lmask{~0ULL << lb};
+        const auto hmask{~0ULL >> (bits_per_word - 1 - hb)};
+
+        if (lw == hw) {
+            return std::popcount(bits_[lw] & lmask & hmask);
+        }
+
+        auto acc{std::popcount(bits_[lw] & lmask) +
+                 std::popcount(bits_[hw] & hmask)};
+        for (int i = lw + 1; i < hw; ++i) {
+            acc += std::popcount(bits_[i]);
+        }
+        return acc;
+    }
+
+    static constexpr inline VebTreeMemoryStats get_memory_stats() {
         return {0, 0, 1};
     }
 
@@ -184,13 +190,13 @@ public:
     //  1 | 0 |  0 |   1   |   0   |   1   |   1
     //  1 | 1 |  0 |   1   |   1   |   0   |   0
 
-    inline bool not_inplace() {
+    constexpr inline bool not_inplace() {
         auto v = load();
         store(~v);
         return empty();
     }
 
-    inline bool or_inplace(const Node8& other) {
+    constexpr inline bool or_inplace(const Node8& other) {
         auto v1 = load();
         auto v2 = other.load();
         store(v1 | v2);
@@ -198,14 +204,14 @@ public:
         return false;
     }
 
-    inline bool xor_inplace(const Node8& other) {
+    constexpr inline bool xor_inplace(const Node8& other) {
         auto v1 = load();
         auto v2 = other.load();
         store(v1 ^ v2);
         return empty();
     }
 
-    inline bool and_inplace(const Node8& other) {
+    constexpr inline bool and_inplace(const Node8& other) {
         auto v1 = load();
         auto v2 = other.load();
         store(v1 & v2);
@@ -213,7 +219,7 @@ public:
     }
 
     // difference: A \ B
-    inline bool andnot_inplace(const Node8& other) {
+    constexpr inline bool andnot_inplace(const Node8& other) {
         auto v1 = load();
         auto v2 = other.load();
         store(xsimd::bitwise_andnot(v2, v1));

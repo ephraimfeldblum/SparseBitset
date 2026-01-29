@@ -57,8 +57,14 @@ private:
         subnode_t clusters_[];
 #pragma GCC diagnostic pop
 
+        // Returns the index of where cluster `x` would be located in `clusters_`
+        // If `x` is not present, this is the index where it would be inserted.
         constexpr inline subindex_t index_of(subindex_t x) const {
-            return summary_.get_cluster_index(x);
+            // checking against summary min/max is not worth it, that repeats the same scan as we do here
+            if (x == 0) {
+                return 0;
+            }
+            return static_cast<subindex_t>(summary_.count_range(static_cast<subindex_t>(0), static_cast<subindex_t>(x - 1)));
         }
         constexpr inline subnode_t* find(subindex_t x) {
             return summary_.contains(x) ? &clusters_[index_of(x)] : nullptr;
@@ -68,6 +74,19 @@ private:
         }
         constexpr inline std::size_t size() const {
             return summary_.size();
+        }
+
+        // range is inclusive: [lo, hi] to handle 256-element array counts correctly
+        constexpr inline std::size_t count(subindex_t lo, subindex_t hi) const {
+            const auto* const data{reinterpret_cast<const std::uint64_t*>(clusters_ + lo)};
+            const auto num_words{(hi + 1 - lo) * sizeof *clusters_ / sizeof *data};
+            return std::transform_reduce(
+#ifdef __cpp_lib_execution
+                std::execution::unseq,
+#endif
+                data, data + num_words, 0uz, std::plus<>{},
+                [](const auto word) { return std::popcount(word); }
+            );
         }
     };
 
@@ -404,18 +423,42 @@ public:
 
     constexpr inline std::size_t size() const {
         const auto base_count{(min_ == max_) ? 1uz : 2uz};
+        return base_count + (cluster_data_ == nullptr ? 0 :
+            cluster_data_->count(static_cast<subindex_t>(0), static_cast<subindex_t>(get_size() - 1)));
+    }
+
+    constexpr inline std::size_t count_range(index_t lo, index_t hi) const {
+        auto acc{static_cast<std::size_t>(
+            (lo <= min_ && min_ <= hi) + (max_ != min_ && lo <= max_ && max_ <= hi)
+        )};
+
         if (cluster_data_ == nullptr) {
-            return base_count;
+            return acc;
         }
 
-        const auto* const data{cluster_data_->clusters_};
-        return std::transform_reduce(
-#ifdef __cpp_lib_execution
-            std::execution::unseq,
-#endif
-            data, data + get_size(), base_count, std::plus<>{},
-            [](const auto& cluster) { return cluster.size(); }
-        );
+        const auto [lo_cl, lo_idx] {decompose(lo)};
+        const auto [hi_cl, hi_idx] {decompose(hi)};
+        if (lo_cl == hi_cl) {
+            if (const auto* cluster{find(lo_cl)}; cluster != nullptr) {
+                acc += cluster->count_range(lo_idx, hi_idx);
+            }
+            return acc;
+        }
+
+        if (const auto* cluster{find(lo_cl)}; cluster != nullptr) {
+            acc += cluster->count_range(lo_idx, static_cast<subindex_t>(subnode_t::universe_size()));
+        }
+        if (const auto* cluster{find(hi_cl)}; cluster != nullptr) {
+            acc += cluster->count_range(static_cast<subindex_t>(0), hi_idx);
+        }
+
+        const auto start_idx{static_cast<subindex_t>(cluster_data_->index_of(lo_cl) + 1)};
+        const auto end_idx{static_cast<subindex_t>(cluster_data_->index_of(hi_cl) - 1)};
+        if (start_idx < end_idx) {
+            acc += cluster_data_->count(start_idx, end_idx);
+        }
+
+        return acc;
     }
 
     constexpr inline std::uint16_t key() const {

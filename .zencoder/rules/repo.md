@@ -57,7 +57,21 @@ redis-server --loadmodule ./bitset.so
 # Run all functional tests (creates venv and installs dependencies automatically)
 make test
 
+# Run a specific test in quick mode (skips slow configurations like AOF/Replication)
+make test QUICK=1 TEST=test_set_operations
+
+# Run all tests in quick mode
+make test QUICK=1
+
 # Run benchmarks (requires running Redis with module loaded)
 python3 tests/benchmarks/generate_data.py
 python3 tests/benchmarks/run_benchmarks.py
+```
+
+## Docker Support
+The repository includes a `Dockerfile` and a helper script to run tests in a containerized environment, which is useful for Windows users or ensuring a clean environment.
+
+```bash
+# Build the Docker image and run all tests
+./run_in_docker.sh
 ```

@@ -18,7 +18,7 @@
  * ┌───────────────────────────────┐
  * | key: u16                      | ← Store which cluster this node belongs to directly in padding bytes.
  * | min, max: u16                 |
- * | capacity: u16                 |
+ * | cap, len: u8                  | ← Capacity and size of clusters array. 0 represents 256.
  * | cluster_data: * {             |
  * |   summary : Node<8>           | ← Used to index into clusters in constant time. Requires sorted clusters.
  * |   clusters: Array<Node<8>, …> | ← Up to 256 elements. FAM is more cache-friendly than HashMap.
@@ -387,6 +387,32 @@ public:
             overload{
                 [](std::monostate) { return 0uz; },
                 [](const auto& s) { return s.size(); },
+            },
+            storage_);
+    }
+
+    /**
+     * Count elements in the inclusive range [start, end].
+     * This implementation leverages node-level size/count helpers so that
+     * iteration happens at cluster granularity (Node8/Node16 etc.) instead
+     * of over each element via repeated `successor` calls.
+     */
+    inline std::size_t count_range(std::size_t start, std::size_t end) const {
+        if (start > end) return 0;
+        return std::visit(
+            overload{
+                [](std::monostate) -> std::size_t { return 0; },
+                [&](const auto& n) -> std::size_t {
+                    using NodeType = std::decay_t<decltype(n)>;
+                    const auto minv{n.min()};
+                    const auto maxv{n.max()};
+                    if (start > maxv || end < minv) {
+                        return 0;
+                    }
+                    const auto lo = std::max(static_cast<index_t<NodeType>>(start), minv);
+                    const auto hi = std::min(static_cast<index_t<NodeType>>(end), maxv);
+                    return n.count_range(lo, hi);
+                },
             },
             storage_);
     }

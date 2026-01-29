@@ -301,6 +301,41 @@ public:
         );
     }
 
+    constexpr inline std::size_t count_range(index_t lo, index_t hi) const {
+        auto total{static_cast<std::size_t>(
+            (lo <= min_ && min_ <= hi) + (max_ != min_ && lo <= max_ && max_ <= hi)
+        )};
+
+        if (cluster_data_ == nullptr) {
+            return total;
+        }
+
+        const auto& summary{cluster_data_->summary};
+        const auto& clusters{cluster_data_->clusters};
+
+        const auto [lo_cl, lo_low] {decompose(lo)};
+        const auto [hi_cl, hi_low] {decompose(hi)};
+        if (lo_cl == hi_cl) {
+            if (const auto it{clusters.find(lo_cl)}; it != clusters.end()) {
+                total += it->second.count_range(lo_low, hi_low);
+            }
+            return total;
+        }
+
+        if (summary.contains(lo_cl)) {
+            total += clusters.find(lo_cl)->second.count_range(lo_low, static_cast<subindex_t>(subnode_t::universe_size()));
+        }
+        if (summary.contains(hi_cl)) {
+            total += clusters.find(hi_cl)->second.count_range(static_cast<subindex_t>(0), hi_low);
+        }
+
+        for (auto i{summary.successor(lo_cl).value()}; i < hi_cl; i = summary.successor(i).value()) {
+            total += clusters.find(i)->second.size();
+        }
+
+        return total;
+    }
+
     constexpr inline VebTreeMemoryStats get_memory_stats() const {
         if (cluster_data_ == nullptr) {
             return VebTreeMemoryStats{0, 0, 1};

@@ -248,21 +248,8 @@ static long long count_elements_in_range(VebTree_Handle_t handle, long long star
     if (bit_start < 0) bit_start = 0;
     if (bit_end < 0) return 0;
 
-    long long count = 0;
-
-    VebTree_OptionalSize_t current;
-    if (bit_start == 0) {
-        current = veb_api->min(handle);
-    } else {
-        current = veb_api->successor(handle, (size_t)(bit_start - 1));
-    }
-
-    while (current.has_value && (long long)current.value <= bit_end) {
-        count++;
-        current = veb_api->successor(handle, current.value);
-    }
-
-    return count;
+    size_t c = veb_api->count_range(handle, (size_t)bit_start, (size_t)bit_end);
+    return (long long)c;
 }
 
 // bits.COUNT key [start end [BYTE | BIT]]
