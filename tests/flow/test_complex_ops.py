@@ -1,7 +1,6 @@
 from RLTest import Env
 
 def test_op_dest_is_source(env: Env):
-    """Test BITS.OP where destination is also one of the source keys"""
     env.cmd("BITS.INSERT", "s1", 1, 2, 3)
     env.cmd("BITS.INSERT", "s2", 3, 4, 5)
     
@@ -17,7 +16,6 @@ def test_op_dest_is_source(env: Env):
     env.assertEqual(env.cmd("BITS.TOARRAY", "s2"), [4, 5])
 
 def test_many_sources(env: Env):
-    """Test BITS.OP with a large number of source keys"""
     num_sources = 100
     for i in range(num_sources):
         env.cmd("BITS.INSERT", f"src{i}", i)
@@ -30,13 +28,11 @@ def test_many_sources(env: Env):
     env.assertEqual(env.cmd("BITS.COUNT", "empty_and"), 0)
 
 def test_large_insert_arity(env: Env):
-    """Test BITS.INSERT with many arguments"""
     vals = list(range(1000))
     env.assertEqual(env.cmd("BITS.INSERT", "big", *vals), 1000)
     env.assertEqual(env.cmd("BITS.COUNT", "big"), 1000)
 
 def test_delete_and_recreate(env: Env):
-    """Test deleting a bitset key and using it again"""
     env.cmd("BITS.INSERT", "delkey", 1, 2, 3)
     env.cmd("DEL", "delkey")
     
@@ -49,7 +45,6 @@ def test_delete_and_recreate(env: Env):
     env.assertEqual(env.cmd("BITS.COUNT", "delkey"), 1)
 
 def test_mixed_op_with_empty(env: Env):
-    """Test BITS.OP with mixture of existing and non-existing keys"""
     env.cmd("BITS.INSERT", "e1", 1)
     # e2 is non-existent
     env.cmd("BITS.INSERT", "e3", 3)
@@ -62,7 +57,6 @@ def test_mixed_op_with_empty(env: Env):
 
 
 def test_pos_count_and_set_edgecases(env: Env):
-    """Test BITS.POS behavior, BITS.COUNT with ranges/units, and BITS.SET errors"""
     # POS on an existing set
     env.cmd("BITS.INSERT", "p", 2, 5, 10)
     env.assertEqual(env.cmd("BITS.POS", "p", 1), 2)
@@ -89,7 +83,6 @@ def test_pos_count_and_set_edgecases(env: Env):
 
 
 def test_pos_boundaries_and_set_behavior(env: Env):
-    """Additional POS boundary checks and BITS.SET valid behavior"""
     env.cmd("BITS.CLEAR", "pb")
     # empty key: POS for 1 => -1, for 0 => start (0)
     env.assertEqual(env.cmd("BITS.POS", "pb", 1), -1)
@@ -109,7 +102,6 @@ def test_pos_boundaries_and_set_behavior(env: Env):
 
 
 def test_count_range_edges_and_units(env: Env):
-    """More coverage for BITS.COUNT with ranges and BYTE/BIT units"""
     env.cmd("DEL", "cr")
     # set bits spanning multiple bytes: bits 0,7,8,15,31
     env.cmd("BITS.INSERT", "cr", 0, 7, 8, 15, 31)
@@ -128,7 +120,6 @@ def test_count_range_edges_and_units(env: Env):
 
 
 def test_op_xor_or_sizes(env: Env):
-    """Test XOR and NOT operations and returned byte sizes"""
     env.cmd("DEL", "a", "b", "xora", "ora")
     env.cmd("BITS.INSERT", "a", 1, 3, 5)
     env.cmd("BITS.INSERT", "b", 3, 4, 10)
@@ -146,7 +137,6 @@ def test_op_xor_or_sizes(env: Env):
 
 
 def test_clear_remove_and_min_max_edges(env: Env):
-    """Test clear/remove semantics and min/max on empty or missing keys"""
     env.cmd("DEL", "cm")
     env.assertEqual(env.cmd("BITS.COUNT", "cm"), 0)
 
@@ -166,7 +156,6 @@ def test_clear_remove_and_min_max_edges(env: Env):
 
 
 def test_successor_predecessor_edges(env: Env):
-    """Extra successor/predecessor edge cases for missing keys and bounds"""
     env.cmd("DEL", "sp2")
     # Non-existent key: successor/predecessor should return None
     env.assertEqual(env.cmd("BITS.SUCCESSOR", "sp2", 0), None)

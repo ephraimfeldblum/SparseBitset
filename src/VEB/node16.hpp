@@ -26,13 +26,13 @@
  *       - An array of subnodes representing individual clusters.
  *   - Two index fields (`min_` and `max_`) to lazily propagate the minimum and maximum elements.
  *   - An index field (`key_`) to identify which of the parent `Node32` clusters this node belongs to.
- *   - A subindex `capacity_` field to track the allocated size of the clusters array.
- *   - A subindex `size_` field to track the number of used clusters.
+ *   - A subindex `cap_` field to track the allocated size of the clusters array.
+ *   - A subindex `len_` field to track the number of used clusters.
  * 
  * The total size of this struct is 16 bytes on 64-bit systems, ie two registers.
  * The purpose of this design is to optimize memory usage while maintaining fast operations on the underlying nodes.
  * The `cluster_data_t` structure is allocated dynamically to allow for flexible sizing of the clusters array.
- * The `capacity_` field helps manage the dynamic array of clusters, allowing for efficient resizing when necessary.
+ * The `cap_` and `len_` fields help manage the dynamic array of clusters, allowing for efficient resizing when necessary.
  * Growing the capacity involves allocating a new array, copying existing clusters, and updating the pointer.
  * The growth strategy increases capacity by 25% plus one to balance between memory overhead and allocation frequency.
  * This design balances memory efficiency with performance, making it suitable for fast set operations.
@@ -90,32 +90,16 @@ private:
         }
     };
 
-    cluster_data_t* cluster_data_{};
-    // `capacity_` and `size_` are stored as `subindex_t` to save space.
-    // Encoding: when `cluster_data_ == nullptr`, both are 0. Otherwise,
-    // - stored value 1..255 represents real value 1..255
-    // - stored value 0 represents real value 256
-    subindex_t capacity_{};
-    subindex_t size_{};
     index_t key_{};
     index_t min_{};
     index_t max_{};
-
-    constexpr inline std::size_t get_capacity() const {
-        if (cluster_data_ == nullptr) return 0;
-        return capacity_ == 0 ? 256uz : static_cast<std::size_t>(capacity_);
-    }
-    constexpr inline void set_capacity(std::size_t c) {
-        capacity_ = static_cast<subindex_t>(c);
-    }
-
-    constexpr inline std::size_t get_size() const {
-        if (cluster_data_ == nullptr) return 0;
-        return size_ == 0 ? 256uz : static_cast<std::size_t>(size_);
-    }
-    constexpr inline void set_size(std::size_t s) {
-        size_ = static_cast<subindex_t>(s);
-    }
+    // `cap_` and `len_` are stored as `subindex_t` to save space.
+    // - cluster_data_ == nullptr => 0,
+    // - 1..255 => 1..255,
+    // - 0 => 256,
+    subindex_t cap_{};
+    subindex_t len_{};
+    cluster_data_t* cluster_data_{};
 
     static constexpr inline std::pair<subindex_t, subindex_t> decompose(index_t x) {
         return {static_cast<subindex_t>(x >> 8), static_cast<subindex_t>(x)};
@@ -164,7 +148,6 @@ private:
             return;
         }
 
-
         const auto idx{cluster_data_->index_of(hi)};
         if (cluster_data_->summary_.contains(hi)) {
             cluster_data_->clusters_[idx].insert(lo);
@@ -184,18 +167,34 @@ private:
         set_size(size + 1);
     }
 
+    constexpr inline std::size_t get_capacity() const {
+        if (cluster_data_ == nullptr) return 0;
+        return cap_ == 0 ? 256uz : static_cast<std::size_t>(cap_);
+    }
+    constexpr inline void set_capacity(std::size_t c) {
+        cap_ = static_cast<subindex_t>(c);
+    }
+
+    constexpr inline std::size_t get_size() const {
+        if (cluster_data_ == nullptr) return 0;
+        return len_ == 0 ? 256uz : static_cast<std::size_t>(len_);
+    }
+    constexpr inline void set_size(std::size_t s) {
+        len_ = static_cast<subindex_t>(s);
+    }
+
 public:
     constexpr inline explicit Node16(index_t hi, index_t lo)
-        : cluster_data_{nullptr}, capacity_{0}, size_{0}, key_{hi}, min_{lo}, max_{lo} {
+        : key_{hi}, min_{lo}, max_{lo}, cap_{0}, len_{0}, cluster_data_{nullptr} {
     }
 
     constexpr inline Node16(subnode_t old_storage, std::size_t& alloc)
-        : cluster_data_{nullptr}
-        , capacity_{0}
-        , size_{0}
-        , key_{0}
+        : key_{0}
         , min_{old_storage.min()}
         , max_{old_storage.max()}
+        , cap_{0}
+        , len_{0}
+        , cluster_data_{nullptr}
     {
         const auto old_min{old_storage.min()};
         const auto old_max{old_storage.max()};
@@ -247,12 +246,12 @@ public:
     }
 
     constexpr inline Node16(Node16&& other) noexcept
-        : cluster_data_{std::exchange(other.cluster_data_, nullptr)}
-        , capacity_{std::exchange(other.capacity_, 0)}
-        , size_{std::exchange(other.size_, 0)}
-        , key_{other.key_}
+        : key_{other.key_}
         , min_{other.min_}
-        , max_{other.max_} {
+        , max_{other.max_}
+        , cap_{std::exchange(other.cap_, 0)}
+        , len_{std::exchange(other.len_, 0)}
+        , cluster_data_{std::exchange(other.cluster_data_, nullptr)} {
     }
 
     constexpr inline Node16& operator=(Node16&& other) noexcept {
@@ -261,8 +260,8 @@ public:
                 assert(false && "Node16 must be destructed via `.destroy()` before being assigned to.");
             }
             cluster_data_ = std::exchange(other.cluster_data_, nullptr);
-            capacity_ = std::exchange(other.capacity_, 0);
-            size_ = std::exchange(other.size_, 0);
+            cap_ = std::exchange(other.cap_, 0);
+            len_ = std::exchange(other.len_, 0);
             key_ = other.key_;
             min_ = other.min_;
             max_ = other.max_;
@@ -454,7 +453,7 @@ public:
 
         const auto start_idx{static_cast<subindex_t>(cluster_data_->index_of(lo_cl) + 1)};
         const auto end_idx{static_cast<subindex_t>(cluster_data_->index_of(hi_cl) - 1)};
-        if (start_idx < end_idx) {
+        if (start_idx <= end_idx) {
             acc += cluster_data_->count(start_idx, end_idx);
         }
 
