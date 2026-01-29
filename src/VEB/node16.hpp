@@ -129,7 +129,7 @@ private:
         return create(alloc, cap, reinterpret_cast<const cluster_data_t*>(&summary), 0);
     }
     static constexpr inline cluster_data_t* create(std::size_t& alloc, std::size_t cap, subindex_t hi, subnode_t lo) {
-        subnode_t dummy[] { subnode_t{hi}, lo, };
+        subnode_t dummy[] { subnode_t::new_with(hi), lo, };
         return create(alloc, cap, reinterpret_cast<const cluster_data_t*>(dummy), 1);
     }
 
@@ -156,7 +156,7 @@ private:
 
     constexpr inline void emplace(subindex_t hi, subindex_t lo, std::size_t& alloc) {
         if (cluster_data_ == nullptr) {
-            cluster_data_ = create(alloc, 1, hi, subnode_t{lo});
+            cluster_data_ = create(alloc, 1, hi, subnode_t::new_with(lo));
             set_cap(1);
             set_len(1);
             return;
@@ -176,7 +176,7 @@ private:
             const auto end{cluster_data_->clusters_ + len};
             std::move_backward(begin, end, end + 1);
         }
-        cluster_data_->clusters_[idx] = subnode_t{lo};
+        cluster_data_->clusters_[idx] = subnode_t::new_with(lo);
         cluster_data_->summary_.insert(hi);
         set_len(len + 1);
     }
@@ -201,21 +201,24 @@ private:
         len_ = static_cast<subindex_t>(s);
     }
 
+    constexpr inline explicit Node16() = default;
+
 public:
-    constexpr inline explicit Node16(index_t hi, index_t lo)
-        : key_{hi}, min_{lo}, max_{lo}, cap_{0}, len_{0}, cluster_data_{nullptr} {
+    static constexpr inline Node16 new_with(index_t hi, index_t lo) {
+        Node16 node{};
+        node.key_ = static_cast<std::uint16_t>(hi);
+        node.min_ = static_cast<index_t>(lo);
+        node.max_ = static_cast<index_t>(lo);
+        return node;
     }
 
-    constexpr inline Node16(subnode_t old_storage, std::size_t& alloc)
-        : key_{0}
-        , min_{old_storage.min()}
-        , max_{old_storage.max()}
-        , cap_{0}
-        , len_{0}
-        , cluster_data_{nullptr}
-    {
+    static constexpr inline Node16 new_from_node8(subnode_t old_storage, std::size_t& alloc) {
+        Node16 node{};
         const auto old_min{old_storage.min()};
         const auto old_max{old_storage.max()};
+
+        node.min_ = static_cast<index_t>(old_min);
+        node.max_ = static_cast<index_t>(old_max);
 
         old_storage.remove(old_min);
         if (old_min != old_max) {
@@ -223,10 +226,11 @@ public:
         }
 
         if (old_storage.size() > 0) {
-            cluster_data_ = create(alloc, 1, 0, old_storage);
-            set_cap(1);
-            set_len(1);
+            node.cluster_data_ = create(alloc, 1, 0, old_storage);
+            node.set_cap(1);
+            node.set_len(1);
         }
+        return node;
     }
 
     constexpr inline void destroy(std::size_t& alloc) {
@@ -240,7 +244,7 @@ public:
     }
 
     constexpr inline Node16 clone(std::size_t& alloc) const {
-        Node16 result{key_, min_};
+        auto result{new_with(key_, min_)};
         result.max_ = max_;
 
         if (cluster_data_ != nullptr) {

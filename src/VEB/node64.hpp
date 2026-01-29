@@ -37,7 +37,7 @@ private:
 
         cluster_data_t(subindex_t x, std::size_t& alloc)
             : clusters{allocator_t{alloc}}
-            , summary{x} {
+            , summary{subnode_t::new_with(x)} {
         }
 
         auto values() const { return std::views::values(clusters); }
@@ -56,16 +56,22 @@ private:
         return static_cast<index_t>(high) << 32 | low;
     }
 
+    constexpr inline explicit Node64() = default;
+
 public:
-    constexpr inline explicit Node64(index_t x)
-        : min_{x}, max_{x} {
+    static constexpr inline Node64 new_with(index_t x) {
+        Node64 node{};
+        node.min_ = x;
+        node.max_ = x;
+        return node;
     }
 
-    constexpr inline Node64(Node32&& old_storage, std::size_t& alloc)
-        : min_{old_storage.min()}, max_{old_storage.max()}
-    {
+    static constexpr inline Node64 new_from_node32(Node32&& old_storage, std::size_t& alloc) {
+        Node64 node{};
         const auto old_min{old_storage.min()};
         const auto old_max{old_storage.max()};
+        node.min_ = static_cast<index_t>(old_min);
+        node.max_ = static_cast<index_t>(old_max);
 
         old_storage.remove(old_min, alloc);
         if (old_min != old_max) {
@@ -74,10 +80,20 @@ public:
 
         if (old_storage.size() > 0) {
             allocator_t a{alloc};
-            cluster_data_ = a.allocate(1);
-            a.construct(cluster_data_, 0, alloc);
-            cluster_data_->clusters.emplace(0, std::move(old_storage));
+            node.cluster_data_ = a.allocate(1);
+            a.construct(node.cluster_data_, 0, alloc);
+            node.cluster_data_->clusters.emplace(0, std::move(old_storage));
         }
+        return node;
+    }
+
+    static constexpr inline Node64 new_from_node16(subnode_t::subnode_t&& old_storage, std::size_t& alloc) {
+        auto intermediate{Node32::new_from_node16(std::move(old_storage), alloc)};
+        return new_from_node32(std::move(intermediate), alloc);
+    }
+    static constexpr inline Node64 new_from_node8(subnode_t::subnode_t::subnode_t old_storage, std::size_t& alloc) {
+        auto intermediate{Node32::new_from_node8(old_storage, alloc)};
+        return new_from_node32(std::move(intermediate), alloc);
     }
 
     // Node64 is non-copyable. Copying would require deep copies of potentially large structures.
@@ -86,7 +102,7 @@ public:
     Node64& operator=(const Node64&) = delete;
 
     constexpr inline Node64 clone(std::size_t& alloc) const {
-        Node64 result{min_};
+        auto result{new_with(min_)};
         result.min_ = min_;
         result.max_ = max_;
 
@@ -168,12 +184,12 @@ public:
             allocator_t a{alloc};
             cluster_data_ = a.allocate(1);
             a.construct(cluster_data_, h, alloc);
-            cluster_data_->clusters.try_emplace(h, l);
+            cluster_data_->clusters.emplace(h, subnode_t::new_with(l));
         } else if (const auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end()) {
             it->second.insert(l, alloc);
         } else {
             cluster_data_->summary.insert(h, alloc);
-            cluster_data_->clusters.try_emplace(h, l);
+            cluster_data_->clusters.emplace(h, subnode_t::new_with(l));
         }
     }
 

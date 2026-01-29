@@ -56,11 +56,14 @@ private:
     constexpr inline bool empty() const {
         return xsimd::all(load() == 0);
     }
+
+    constexpr inline explicit Node8() = default;
     
 public:
-    constexpr inline explicit Node8(index_t x) {
-        const auto [word_idx, bit_idx] {decompose(x)};
-        bits_[word_idx] |= (1ULL << bit_idx);
+    static constexpr inline Node8 new_with(index_t x) {
+        Node8 node;
+        node.insert(x);
+        return node;
     }
 
     static constexpr inline std::size_t universe_size() {
