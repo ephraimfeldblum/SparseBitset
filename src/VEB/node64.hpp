@@ -120,7 +120,13 @@ public:
     }
 
     // Node64 must be destructed via `.destroy(alloc)`. Failure to do so will result in UB.
+#ifdef DEBUG
+    ~Node64() noexcept {
+        assert(cluster_data_ == nullptr && "Node64 must be destructed via `.destroy(alloc)` before going out of scope.");
+    }
+#else
     // ~Node64() noexcept = default;
+#endif
 
     constexpr inline void destroy(std::size_t& alloc) {
         if (cluster_data_) {
