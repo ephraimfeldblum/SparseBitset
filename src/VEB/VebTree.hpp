@@ -57,16 +57,17 @@ static_assert(sizeof(Node64) == 24, "Node64 size is incorrect");
  *
  * A van Emde Boas tree that automatically selects the appropriate node type
  * based on the universe size:
- * - Node8 for universe ≤ 256 (2^8)
- * - Node16 for universe ≤ 65536 (2^16)
- * - Node32 for universe ≤ 4294967296 (2^32)
- * - Node64 for larger universes
+ * - Node8 for universe < 256 (2^8)
+ * - Node16 for universe < 65536 (2^16)
+ * - Node32 for universe < 4294967296 (2^32)
+ * - Node64 for universe < 18446744073709551616 (2^64)
  */
 struct VebTree {
 private:
     using StorageType = std::variant<std::monostate, Node8, Node16, Node32, Node64>;
-    std::size_t allocated_{sizeof *this};
     StorageType storage_{std::monostate{}};
+    std::size_t allocated_{sizeof *this};
+    std::size_t max_seen_{0};
 
     static inline StorageType create_storage(std::size_t x) {
         if (x <= Node8::universe_size()) {
@@ -173,18 +174,18 @@ public:
     inline explicit VebTree() {}
 
     inline explicit VebTree(const VebTree& other)
-        : storage_{
-            std::visit(overload{
-                [](std::monostate) { return StorageType{std::monostate{}}; },
-                [](const Node8& s) { return StorageType{s}; },
-                [&](const auto& s) { return StorageType{s.clone(allocated_)}; },
-            }, other.storage_)
-        } {
+        : storage_{std::monostate{}} , allocated_{0} , max_seen_{other.max_seen_} {
+        storage_ = std::visit(overload{
+            [](std::monostate) { return StorageType{}; },
+            [](const Node8& s) { return StorageType{s}; },
+            [&](const auto& s) { return StorageType{s.clone(allocated_)}; },
+        }, other.storage_);
     }
 
     inline VebTree(VebTree&& other) noexcept
-        : allocated_{std::exchange(other.allocated_, 0)}
-        , storage_{std::exchange(other.storage_, std::monostate{})} {
+        : storage_{std::exchange(other.storage_, std::monostate{})}
+        , allocated_{std::exchange(other.allocated_, 0)}
+        , max_seen_{std::exchange(other.max_seen_, 0)} {
     }
 
     inline VebTree& operator=(VebTree&& other) noexcept {
@@ -192,6 +193,7 @@ public:
             destroy_storage();
             storage_ = std::exchange(other.storage_, std::monostate{});
             allocated_ = std::exchange(other.allocated_, 0);
+            max_seen_ = std::exchange(other.max_seen_, 0);
         }
         return *this;
     }
@@ -223,6 +225,9 @@ public:
                     }
                 },
             }, storage_);
+        if (x > max_seen_) {
+            max_seen_ = x;
+        }
     }
 
     /**
