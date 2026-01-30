@@ -79,13 +79,18 @@ private:
         constexpr inline std::size_t count(subindex_t lo, subindex_t hi) const {
             const auto* const data{reinterpret_cast<const std::uint64_t*>(clusters_ + lo)};
             const auto num_words{(hi + 1 - lo) * sizeof *clusters_ / sizeof *data};
-            return std::transform_reduce(
-#ifdef __cpp_lib_execution
-                std::execution::unseq,
-#endif
-                data, data + num_words, 0uz, std::plus<>{},
-                [](const auto word) { return std::popcount(word); }
-            );
+
+            std::size_t accum1{};
+            std::size_t accum2{};
+            std::size_t accum3{};
+            std::size_t accum4{};
+            for (auto i{0uz}; i < num_words; i += 4) {
+                accum1 += std::popcount(data[i + 0]);
+                accum2 += std::popcount(data[i + 1]);
+                accum3 += std::popcount(data[i + 2]);
+                accum4 += std::popcount(data[i + 3]);
+            }
+            return accum1 + accum2 + accum3 + accum4;
         }
     };
 

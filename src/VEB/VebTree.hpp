@@ -6,7 +6,7 @@
  * Each node is associated with a summary structure to indicate which clusters contain elements.
  *
  * The tree is extremely flat and can be visualized as shown below:
- * Node<log U = 32> 
+ * Node<log U = 32>
  * ┌───────────────────────────────┐
  * | min, max: u32                 | ← Lazily propagated. Not inserted into clusters.
  * | cluster_data: * {             | ← Lazily constructed only if non-empty.
@@ -85,7 +85,7 @@ private:
         std::visit(
             overload{
                 [&](Node8&& old_storage) {
-                    storage_ = Node16::new_from_node8(std::move(old_storage), alloc);
+                    storage_ = Node16::new_from_node8(old_storage, alloc);
                 },
                 [&](Node16&& old_storage) {
                     storage_ = Node32::new_from_node16(std::move(old_storage), alloc);

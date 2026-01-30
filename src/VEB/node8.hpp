@@ -61,7 +61,7 @@ private:
     
 public:
     static constexpr inline Node8 new_with(index_t x) {
-        Node8 node;
+        Node8 node{};
         node.insert(x);
         return node;
     }
