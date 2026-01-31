@@ -808,8 +808,9 @@ public:
         auto* int_data = (resident_count <= get_cap()) ? cluster_data_ : create(alloc, resident_count, int_summary);
         auto* int_clusters = int_data->clusters_;
 
-        std::size_t k{};
-
+        auto i{0uz};
+        auto j{0uz};
+        auto k{0uz};
         for (auto int_hi_o{std::make_optional(int_summary.min())}; int_hi_o.has_value(); int_hi_o = int_summary.successor(*int_hi_o)) {
             const auto int_hi{int_hi_o.value()};
 
@@ -822,28 +823,29 @@ public:
             const bool o_resident = other.cluster_data_->unfilled_.contains(int_hi);
             [[assume(s_resident || o_resident)]];
 
-            const subnode_t* s_cluster_ptr = s_resident ? &cluster_data_->clusters_[cluster_data_->index_of(int_hi)] : nullptr;
-            const subnode_t* o_cluster_ptr = o_resident ? &other.cluster_data_->clusters_[other.cluster_data_->index_of(int_hi)] : nullptr;
-
             if (s_resident && o_resident) {
-                auto tmp = *s_cluster_ptr;
-                if (tmp.and_inplace(*o_cluster_ptr)) {
+                auto tmp = cluster_data_->clusters_[i++];
+                if (tmp.and_inplace(other.cluster_data_->clusters_[j++])) {
                     if (int_summary.remove(int_hi)) {
                         // last element removed -> update min/max and return
+                        if (int_data != cluster_data_) {
+                            allocator_t a{alloc};
+                            a.deallocate(reinterpret_cast<subnode_t*>(int_data), resident_count + 2);
+                        }
                         return update_minmax();
                     }
                     continue;
                 }
                 int_clusters[k++] = tmp;
             } else if (s_resident) {
-                int_clusters[k++] = *s_cluster_ptr;
+                int_clusters[k++] = cluster_data_->clusters_[i++];
             } else if (o_resident) {
-                int_clusters[k++] = *o_cluster_ptr;
+                int_clusters[k++] = other.cluster_data_->clusters_[j++];
             } else {
                 std::unreachable();
             }
 
-            // cluster is non-empty. Check if we need to update min_. only happens once, at k==0.
+            // cluster is non-empty. check if we need to update min_. only happens once, at k==0.
             // which might not end up being the true 0'th cluster if it gets removed here.
             if (min_out) {
                 min_out = false;
@@ -853,6 +855,10 @@ public:
                     if (int_summary.remove(int_hi)) {
                         // node is now clusterless, but not empty since min_ at least exists.
                         // update max_ and exit.
+                        if (int_data != cluster_data_) {
+                            allocator_t a{alloc};
+                            a.deallocate(reinterpret_cast<subnode_t*>(int_data), resident_count + 2);
+                        }
                         destroy(alloc);
                         max_ = new_max.has_value() ? new_max.value() : min_;
                         return false;
@@ -864,16 +870,7 @@ public:
             }
         }
 
-        max_ = new_max.has_value() ? new_max.value() : index(int_summary.max(), int_clusters[k - 1].max());
-        if (max_ != s_max && int_clusters[k - 1].remove(static_cast<subindex_t>(max_))) {
-            if (int_summary.remove(int_summary.max())) {
-                destroy(alloc);
-                return false;
-            }
-            --k;
-        }
-
-        if (resident_count <= get_cap()) {
+        if (int_data == cluster_data_) {
             cluster_data_->summary_ = int_summary;
             cluster_data_->unfilled_ = int_unfilled;
         } else {
@@ -882,6 +879,16 @@ public:
             cluster_data_ = int_data;
             set_cap(resident_count);
         }
+
+        max_ = new_max.has_value() ? new_max.value() : index(int_summary.max(), int_clusters[k - 1].max());
+        if (max_ != s_max && cluster_data_->clusters_[k - 1].remove(static_cast<subindex_t>(max_))) {
+            if (cluster_data_->summary_.remove(int_summary.max())) {
+                destroy(alloc);
+                return false;
+            }
+            --k;
+        }
+
         set_len(k);
         return false;
     }
