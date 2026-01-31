@@ -712,15 +712,15 @@ public:
         resident.and_inplace(merge_unfilled);
         const auto new_size{resident.size()};
 
+        auto i{0uz};
+        auto j{0uz};
+        auto k{0uz};
         // Happy path. If predicted upper limit of resident clusters fits in current capacity, do in-place merge
         if (new_size <= get_cap()) {
-            std::size_t i{};
-            std::size_t j{};
-            std::size_t k{};
             for (auto idx{std::make_optional(resident.min())}; idx.has_value(); idx = resident.successor(*idx)) {
                 const auto h = *idx;
-                const bool in_s = s_summary.contains(h);
-                const bool in_o = o_summary.contains(h);
+                const auto in_s = s_summary.contains(h);
+                const auto in_o = o_summary.contains(h);
 
                 if (in_s && in_o) {
                     auto tmp = s_clusters[i++];
@@ -739,29 +739,22 @@ public:
                 }
             }
 
-            // write back summary & unfilled
             cluster_data_->summary_ = merge_summary;
             cluster_data_->unfilled_ = merge_unfilled;
             set_len(k);
             return false;
         }
 
-        // precompute a tighter allocation bound using resident counts as a fallback
+        // If number of resident clusters exceeds current capacity, allocate new cluster array
         auto* new_data = create(alloc, new_size, merge_summary);
         new_data->unfilled_ = merge_unfilled;
         auto* new_clusters{new_data->clusters_};
-
-        // iterate merged summary and build resident clusters only when necessary
-        std::size_t i{};
-        std::size_t j{};
-        std::size_t k{};
         for (auto idx{std::make_optional(resident.min())}; idx.has_value(); idx = resident.successor(*idx)) {
             const auto h = *idx;
-            const bool in_s = s_summary.contains(h);
-            const bool in_o = o_summary.contains(h);
+            const auto in_s = s_summary.contains(h);
+            const auto in_o = o_summary.contains(h);
 
             if (in_s && in_o) {
-                // both resident: OR them, materialize only if not full
                 auto tmp = s_clusters[i++];
                 tmp.or_inplace(o_clusters[j++]);
                 if (tmp.size() == 256) {
