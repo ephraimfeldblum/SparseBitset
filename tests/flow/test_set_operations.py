@@ -178,6 +178,60 @@ def test_or_with_compacted_source(env: Env):
     env.assertEqual(env.cmd("BITS.TOARRAY", dest), expected)
 
 
+def test_and_with_compacted_source(env: Env):
+    # AND where one source has a compacted (implicitly filled) cluster
+    src = "and_comp_src"
+    other = "and_comp_other"
+    dest = "and_comp_dest"
+
+    base_a = 1 * 256
+    base_b = 3 * 256
+    base_c = 5 * 256
+
+    # src has compacted cluster B (fill it)
+    env.cmd("BITS.INSERT", src, base_a)
+    env.cmd("BITS.INSERT", src, base_c)
+    env.cmd("BITS.INSERT", src, base_b)
+    env.cmd("BITS.INSERT", src, *list(range(base_b, base_b + 256))[1:])
+
+    # other has some values in B and some elsewhere
+    env.cmd("BITS.INSERT", other, base_c + 1, base_b + 13, base_b + 37)
+
+    env.cmd("BITS.OP", "AND", dest, src, other)
+    # result should contain only the values present in other (since src cluster B is full)
+    expected = sorted(set(env.cmd("BITS.TOARRAY", src)) & set(env.cmd("BITS.TOARRAY", other)))
+    env.assertEqual(env.cmd("BITS.TOARRAY", dest), expected)
+
+
+def test_and_compaction_merge(env: Env):
+    # If both sources have an implicitly-filled cluster B, AND should preserve that cluster as implicitly-filled
+    a = "and_comp_a"
+    b = "and_comp_b"
+    dest = "and_comp_dest2"
+
+    base_a = 1 * 256
+    base_b = 3 * 256
+    base_c = 5 * 256
+
+    # prepare both sources with cluster B fully filled, with min/max outside so compaction can occur
+    env.cmd("BITS.INSERT", a, base_a)
+    env.cmd("BITS.INSERT", a, base_c)
+    env.cmd("BITS.INSERT", a, base_b)
+    env.cmd("BITS.INSERT", a, *list(range(base_b, base_b + 256))[1:])
+
+    env.cmd("BITS.INSERT", b, base_a + 1)
+    env.cmd("BITS.INSERT", b, base_c + 1)
+    env.cmd("BITS.INSERT", b, base_b)
+    env.cmd("BITS.INSERT", b, *list(range(base_b, base_b + 256))[1:])
+
+    # AND them; result should keep cluster B implicitly-filled (no resident clusters)
+    env.cmd("BITS.OP", "AND", dest, a, b)
+    info = env.cmd("BITS.INFO", dest)
+    info_map = dict(zip(info[::2], info[1::2]))
+    env.assertEqual(info_map[b'total_clusters'], 0)
+    env.assertEqual(env.cmd("BITS.COUNT", dest), 258)
+
+
 def test_node32_and_corner_cases(env: Env):
     """Exercise values >= 2^16 to force node32 and cover edge cases."""
     # large values around 2^16 boundary and much larger values

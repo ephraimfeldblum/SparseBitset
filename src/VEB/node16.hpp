@@ -238,10 +238,7 @@ private:
         if (len_ == 0) {
             // len_ == 0 is overloaded to mean 256, but if we have zero resident clusters
             // (all clusters are implicitly-filled), we need to return 0 instead of 256.
-            if (cluster_data_->resident_count() == 0) {
-                return 0;
-            }
-            return 256uz;
+            return cluster_data_->resident_count() == 0 ? 0uz : 256uz;
         }
         return static_cast<std::size_t>(len_);
     }
@@ -789,9 +786,7 @@ public:
         }
 
         auto& s_summary{cluster_data_->summary_};
-        auto* s_clusters{cluster_data_->clusters_};
         const auto& o_summary{other.cluster_data_->summary_};
-        const auto* o_clusters{other.cluster_data_->clusters_};
 
         // reduce future work by pre computing summary intersection. if empty, we are done
         // makes iterating clusters easier as we only need to consider clusters that we know will survive intersection
@@ -801,65 +796,93 @@ public:
         if (int_summary.and_inplace(o_summary)) {
             return update_minmax();
         }
-        // iterate only clusters surviving the summary intersection
-        // writeback inplace from the start of the array, overwriting removed clusters
-        // avoids allocation of a new array
-        std::size_t i{};
+
+        // Predict resident clusters: clusters in the intersection that are resident in at least one side
+        auto int_unfilled{cluster_data_->unfilled_};
+        int_unfilled.or_inplace(other.cluster_data_->unfilled_);
+        auto resident{int_summary};
+        resident.and_inplace(int_unfilled);
+        const auto resident_count{resident.size()};
+
+        // If predicted resident clusters exceed capacity, allocate a new cluster_data_t and write into it
+        auto* int_data = (resident_count <= get_cap()) ? cluster_data_ : create(alloc, resident_count, int_summary);
+        auto* int_clusters = int_data->clusters_;
+
+        std::size_t k{};
+
         for (auto int_hi_o{std::make_optional(int_summary.min())}; int_hi_o.has_value(); int_hi_o = int_summary.successor(*int_hi_o)) {
             const auto int_hi{int_hi_o.value()};
-            // unconditionally access these clusters here. we know they must both exist. otherwise int_hi would not be set in the summary intersection
-            const auto s_i{cluster_data_->index_of(int_hi)};
-            const auto o_i{other.cluster_data_->index_of(int_hi)};
 
-            auto& int_cluster{s_clusters[s_i]};
-            // first check if the cluster intersection is empty
-            if (int_cluster.and_inplace(o_clusters[o_i])) {
-                if (int_summary.remove(int_hi)) {
-                    // this early exit isn't real. it can only happen on the last int_hi_o. doesn't save us from iterating.
-                    return update_minmax();
-                }
-                // cluster is empty, skip min check and writeback
+            // both implicit-filled -> result is implicitly-filled (full).
+            if (!resident.contains(int_hi)) {
                 continue;
             }
-            // cluster is non-empty. check if we need to update min_. only happens once, at i == 0.
-            // which might not end up being the true 0'th cluster if it gets removed here
+
+            const bool s_resident = cluster_data_->unfilled_.contains(int_hi);
+            const bool o_resident = other.cluster_data_->unfilled_.contains(int_hi);
+            [[assume(s_resident || o_resident)]];
+
+            const subnode_t* s_cluster_ptr = s_resident ? &cluster_data_->clusters_[cluster_data_->index_of(int_hi)] : nullptr;
+            const subnode_t* o_cluster_ptr = o_resident ? &other.cluster_data_->clusters_[other.cluster_data_->index_of(int_hi)] : nullptr;
+
+            if (s_resident && o_resident) {
+                auto tmp = *s_cluster_ptr;
+                if (tmp.and_inplace(*o_cluster_ptr)) {
+                    if (int_summary.remove(int_hi)) {
+                        // last element removed -> update min/max and return
+                        return update_minmax();
+                    }
+                    continue;
+                }
+                int_clusters[k++] = tmp;
+            } else if (s_resident) {
+                int_clusters[k++] = *s_cluster_ptr;
+            } else if (o_resident) {
+                int_clusters[k++] = *o_cluster_ptr;
+            } else {
+                std::unreachable();
+            }
+
+            // cluster is non-empty. Check if we need to update min_. only happens once, at k==0.
+            // which might not end up being the true 0'th cluster if it gets removed here.
             if (min_out) {
                 min_out = false;
-                min_ = index(int_hi, int_cluster.min());
-                // update new_min if we exit with the above update_minmax. we want to ensure min_ is kept correct there
+                min_ = index(int_hi, int_clusters[0].min());
                 new_min = std::make_optional(min_);
-                if (int_cluster.remove(static_cast<subindex_t>(min_))) {
+                if (int_clusters[0].remove(static_cast<subindex_t>(min_))) {
                     if (int_summary.remove(int_hi)) {
                         // node is now clusterless, but not empty since min_ at least exists.
-                        // update max_ and exit
+                        // update max_ and exit.
                         destroy(alloc);
                         max_ = new_max.has_value() ? new_max.value() : min_;
                         return false;
                     }
-                    // cluster is empty, skip writeback
+                    // cluster became empty after removing min
+                    --k;
                     continue;
                 }
             }
-            // writeback cluster to its new position, if gaps were created by removed clusters
-            // might be quicker to unconditionally writeback, but this avoids unnecessary writes in the case of highly overlapping clusters
-            if (s_i != i++) {
-                s_clusters[i - 1] = int_cluster;
-            }
         }
 
-        max_ = new_max.has_value() ? new_max.value() : index(int_summary.max(), s_clusters[i - 1].max());
-        if (max_ != s_max && s_clusters[i - 1].remove(static_cast<subindex_t>(max_))) {
+        max_ = new_max.has_value() ? new_max.value() : index(int_summary.max(), int_clusters[k - 1].max());
+        if (max_ != s_max && int_clusters[k - 1].remove(static_cast<subindex_t>(max_))) {
             if (int_summary.remove(int_summary.max())) {
-                // node is now clusterless, but not empty since min_ and max_ exist.
                 destroy(alloc);
                 return false;
             }
-            --i;
+            --k;
         }
-        
-        // now that we're done iterating, we can finally update the summary to the intersection
-        s_summary = int_summary;
-        set_len(i);
+
+        if (resident_count <= get_cap()) {
+            cluster_data_->summary_ = int_summary;
+            cluster_data_->unfilled_ = int_unfilled;
+        } else {
+            destroy(alloc);
+            int_data->unfilled_ = int_unfilled;
+            cluster_data_ = int_data;
+            set_cap(resident_count);
+        }
+        set_len(k);
         return false;
     }
 
