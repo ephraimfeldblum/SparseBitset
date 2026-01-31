@@ -845,13 +845,15 @@ public:
                 std::unreachable();
             }
 
-            // cluster is non-empty. check if we need to update min_. only happens once, at k==0.
+            // cluster is non-empty. check if we need to update min_. only happens once, at the 0'th cluster.
             // which might not end up being the true 0'th cluster if it gets removed here.
             if (min_out) {
                 min_out = false;
                 min_ = index(int_hi, int_clusters[0].min());
                 new_min = std::make_optional(min_);
                 if (int_clusters[0].remove(static_cast<subindex_t>(min_))) {
+                    // cluster became empty after removing min
+                    --k;
                     if (int_summary.remove(int_hi)) {
                         // node is now clusterless, but not empty since min_ at least exists.
                         // update max_ and exit.
@@ -863,9 +865,6 @@ public:
                         max_ = new_max.has_value() ? new_max.value() : min_;
                         return false;
                     }
-                    // cluster became empty after removing min
-                    --k;
-                    continue;
                 }
             }
         }
