@@ -66,6 +66,20 @@ public:
         return node;
     }
 
+    // Create a Node8 with all bits set except `x`.
+    static constexpr inline Node8 new_all_but(index_t x) {
+        Node8 node = new_with(x);
+        node.not_inplace();
+        return node;
+    }
+
+    // Create a Node8 with all bits set.
+    static constexpr inline Node8 new_all() {
+        Node8 node{};
+        node.not_inplace();
+        return node;
+    }
+
     static constexpr inline std::size_t universe_size() {
         return std::numeric_limits<index_t>::max();
     }
