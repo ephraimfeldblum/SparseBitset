@@ -642,12 +642,15 @@ public:
             return;
         }
 
-        const auto len{get_len()};
-        write_u16(out, static_cast<std::uint16_t>(len));
+        const auto resident_count{cluster_data_->resident_count()};
+        // encode resident count + 1 so 0 remains sentinel for no cluster data
+        write_u16(out, static_cast<std::uint16_t>(resident_count + 1));
 
+        // always serialize both summary and unfilled masks
         cluster_data_->summary_.serialize_payload(out);
+        cluster_data_->unfilled_.serialize_payload(out);
 
-        for (auto idx{0uz}; idx < len; ++idx) {
+        for (auto idx{0uz}; idx < resident_count; ++idx) {
             cluster_data_->clusters_[idx].serialize_payload(out);
         }
     }
@@ -657,18 +660,23 @@ public:
         node.min_ = read_u16(buf, pos);
         node.max_ = read_u16(buf, pos);
 
-        const auto len{read_u16(buf, pos)};
-        if (len == 0) {
+        const auto raw_len{read_u16(buf, pos)};
+        if (raw_len == 0) {
             return node;
         }
 
-        node.cluster_data_ = create(alloc, len, subnode_t::deserialize_from_payload(buf, pos));
-        for (auto idx{0uz}; idx < len; ++idx) {
+        const auto resident_count{static_cast<std::size_t>(raw_len - 1)};
+
+        node.cluster_data_ = create(alloc, resident_count, nullptr, 0);
+        node.cluster_data_->summary_ = subnode_t::deserialize_from_payload(buf, pos);
+        node.cluster_data_->unfilled_ = subnode_t::deserialize_from_payload(buf, pos);
+
+        for (auto idx{0uz}; idx < resident_count; ++idx) {
             node.cluster_data_->clusters_[idx] = subnode_t::deserialize_from_payload(buf, pos);
         }
 
-        node.set_cap(len);
-        node.set_len(len);
+        node.set_cap(resident_count);
+        node.set_len(resident_count);
         return node;
     }
 
