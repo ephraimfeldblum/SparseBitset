@@ -126,6 +126,58 @@ def test_bitop_multiple_sources(env: Env):
     env.assertEqual(env.cmd("BITS.TOARRAY", "multi_xor"), [1, 4])
 
 
+def test_or_compaction_merge(env: Env):
+    # Make two sets where combined cluster becomes full and should compact
+    a = "or_comp_a"
+    b = "or_comp_b"
+    dest = "or_comp_dest"
+
+    base_a = 1 * 256
+    base_b = 3 * 256
+    base_c = 5 * 256
+
+    # ensure min and max live outside target cluster (B)
+    env.cmd("BITS.INSERT", a, base_a)
+    env.cmd("BITS.INSERT", a, *[base_b + i for i in range(0, 128)])
+
+    env.cmd("BITS.INSERT", b, base_c)
+    env.cmd("BITS.INSERT", b, *[base_b + i for i in range(128, 256)])
+
+    # OR them; result should compact cluster B (become implicit)
+    env.cmd("BITS.OP", "OR", dest, a, b)
+    info = env.cmd("BITS.INFO", dest)
+    info_map = dict(zip(info[::2], info[1::2]))
+    env.assertEqual(info_map[b'total_clusters'], 0)
+    # membership and counts
+    env.assertEqual(env.cmd("BITS.COUNT", dest), 258)
+    env.assertEqual(env.cmd("BITS.GET", dest, base_b + 42), 1)
+
+
+def test_or_with_compacted_source(env: Env):
+    # OR where one source already has a compacted (implicitly filled) cluster
+    src = "comp_src"
+    other = "comp_other"
+    dest = "comp_or"
+
+    base_a = 1 * 256
+    base_b = 3 * 256
+    base_c = 5 * 256
+
+    # src has compacted cluster B (fill it)
+    env.cmd("BITS.INSERT", src, base_a)
+    env.cmd("BITS.INSERT", src, base_c)
+    env.cmd("BITS.INSERT", src, base_b)
+    env.cmd("BITS.INSERT", src, *list(range(base_b, base_b + 256))[1:])
+
+    # other has some values in B and some elsewhere
+    env.cmd("BITS.INSERT", other, base_c + 1, base_b + 13, base_b + 37)
+
+    env.cmd("BITS.OP", "OR", dest, src, other)
+    # result should contain union
+    expected = sorted(set(env.cmd("BITS.TOARRAY", src)) | set(env.cmd("BITS.TOARRAY", other)))
+    env.assertEqual(env.cmd("BITS.TOARRAY", dest), expected)
+
+
 def test_node32_and_corner_cases(env: Env):
     """Exercise values >= 2^16 to force node32 and cover edge cases."""
     # large values around 2^16 boundary and much larger values

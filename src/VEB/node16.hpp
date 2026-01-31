@@ -642,11 +642,10 @@ public:
             return;
         }
 
-        const auto resident_count{cluster_data_->resident_count()};
         // encode resident count + 1 so 0 remains sentinel for no cluster data
+        const auto resident_count{cluster_data_->resident_count()};
         write_u16(out, static_cast<std::uint16_t>(resident_count + 1));
 
-        // always serialize both summary and unfilled masks
         cluster_data_->summary_.serialize_payload(out);
         cluster_data_->unfilled_.serialize_payload(out);
 
@@ -699,46 +698,77 @@ public:
 
         auto& s_summary{cluster_data_->summary_};
         auto* s_clusters{cluster_data_->clusters_};
+        auto& s_unfilled{cluster_data_->unfilled_};
         const auto& o_summary{other.cluster_data_->summary_};
         const auto* o_clusters{other.cluster_data_->clusters_};
+        const auto& o_unfilled{other.cluster_data_->unfilled_};
 
-        // pre compute merged summary.
-        // if the size is the same as self's, we can do everything in place since we won't need to add any new clusters
-        // this probably isn't the common case, but it's worth optimizing for nonetheless to avoid unnecessary allocations and copies
+        // get a conservative set of clusters that can remain resident, and predict a resident upper bound
         auto merge_summary{s_summary};
         merge_summary.or_inplace(o_summary);
-        const auto new_size{merge_summary.size()};
-        if (new_size == get_len()) {
+        auto merge_unfilled{s_unfilled};
+        merge_unfilled.and_inplace(o_unfilled);
+        auto resident{merge_summary};
+        resident.and_inplace(merge_unfilled);
+        const auto new_size{resident.size()};
+
+        // Happy path. If predicted upper limit of resident clusters fits in current capacity, do in-place merge
+        if (new_size <= get_cap()) {
             std::size_t i{};
             std::size_t j{};
-            for (auto idx{std::make_optional(s_summary.min())}; idx.has_value(); idx = s_summary.successor(*idx)) {
-                // just because the merge summary contains this index doesn't mean other does
-                // we need to find it in other using idx to validate that j is the correct cluster
-                // regardless, we always advance i since self definitely contains this cluster
-                if (o_summary.contains(*idx)) {
-                    s_clusters[i].or_inplace(o_clusters[j]);
-                    ++j;
+            std::size_t k{};
+            for (auto idx{std::make_optional(resident.min())}; idx.has_value(); idx = resident.successor(*idx)) {
+                const auto h = *idx;
+                const bool in_s = s_summary.contains(h);
+                const bool in_o = o_summary.contains(h);
+
+                if (in_s && in_o) {
+                    auto tmp = s_clusters[i++];
+                    tmp.or_inplace(o_clusters[j++]);
+                    if (tmp.size() == 256) {
+                        merge_unfilled.remove(h);
+                    } else {
+                        cluster_data_->clusters_[k++] = tmp;
+                    }
+                } else if (in_s) {
+                    cluster_data_->clusters_[k++] = s_clusters[i++];
+                } else if (in_o) {
+                    cluster_data_->clusters_[k++] = o_clusters[j++];
+                } else {
+                    std::unreachable();
                 }
-                ++i;
             }
+
+            // write back summary & unfilled
+            cluster_data_->summary_ = merge_summary;
+            cluster_data_->unfilled_ = merge_unfilled;
+            set_len(k);
             return false;
         }
 
+        // precompute a tighter allocation bound using resident counts as a fallback
         auto* new_data = create(alloc, new_size, merge_summary);
-        const auto& new_summary{new_data->summary_};
+        new_data->unfilled_ = merge_unfilled;
         auto* new_clusters{new_data->clusters_};
 
+        // iterate merged summary and build resident clusters only when necessary
         std::size_t i{};
         std::size_t j{};
         std::size_t k{};
-        for (auto idx{std::make_optional(new_summary.min())}; idx.has_value(); idx = new_summary.successor(*idx)) {
-            // here we know that at least one of self or other contains idx, but we don't know which
-            // we need to check both summaries and advance only the corresponding cluster iterators
-            const bool in_s = s_summary.contains(*idx);
-            const bool in_o = o_summary.contains(*idx);
+        for (auto idx{std::make_optional(resident.min())}; idx.has_value(); idx = resident.successor(*idx)) {
+            const auto h = *idx;
+            const bool in_s = s_summary.contains(h);
+            const bool in_o = o_summary.contains(h);
+
             if (in_s && in_o) {
-                s_clusters[i].or_inplace(o_clusters[j++]);
-                new_clusters[k++] = s_clusters[i++];
+                // both resident: OR them, materialize only if not full
+                auto tmp = s_clusters[i++];
+                tmp.or_inplace(o_clusters[j++]);
+                if (tmp.size() == 256) {
+                    new_data->unfilled_.remove(h);
+                } else {
+                    new_clusters[k++] = tmp;
+                }
             } else if (in_s) {
                 new_clusters[k++] = s_clusters[i++];
             } else if (in_o) {
@@ -747,10 +777,11 @@ public:
                 std::unreachable();
             }
         }
+
         destroy(alloc);
         cluster_data_ = new_data;
         set_cap(new_size);
-        set_len(new_size);
+        set_len(k);
         return false;
     }
 
