@@ -64,19 +64,19 @@
 **Coding & PR Guidelines for the Agent**
 - Keep patches minimal and narrowly scoped.
 - Use C++23 and C11: Ensure all new code adheres to the C++23 standard for the core library and C11 for the Redis module wrapper.
- - C Interface: Follows standard Redis Module conventions using snake_case and explicit error handling via Redis return codes.
- - C++ Core: Utilizes modern C++23 features (std::variant, std::visit, templates) while maintaining low-level control over memory via custom allocators and manual object destruction.
+    - C Interface: Follows standard Redis Module conventions using snake_case and explicit error handling via Redis return codes.
+    - C++ Core: Utilizes modern C++23 features (std::variant, std::visit, templates) while maintaining low-level control over memory via custom allocators and manual object destruction.
 - Maintain Invariants: The min and max values must be stored in the node itself and never inside cluster containers. The summary is the authoritative source for cluster existence.
 - Optimization: Optimizing memory consumption is mission-critical! This bitset is designed to reside in-memory. It should go out of its way to ensure that users are not paying for more memory than they are using. Optimizing for time is very important, but not if the gains are low at the expense of increased memory usage.
- - Examples of specific optimizations used include: Extensive use of SIMD (via xsimd), Flexible Array Members (FAM), and bit manipulation to achieve $O(\log \log U)$ performance.
- - Performance First: Ensure operations maintain top speed. Avoid unnecessary allocations or scans that could degrade performance.
- - Manual Memory Management: All vEB nodes (Node16, Node32, Node64) must be manually destroyed using their .destroy(alloc) method before their lifetime ends.
- - SIMD & Bit Manipulation: When working with leaf nodes (Node8), use xsimd and bitwise intrinsics (like std::popcount) to optimize performance.
+    - Examples of specific optimizations used include: Extensive use of SIMD (via xsimd), Flexible Array Members (FAM), and bit manipulation to achieve $O(\log \log U)$ performance.
+    - Performance First: Ensure operations maintain top speed. Avoid unnecessary allocations or scans that could degrade performance.
+    - Manual Memory Management: All vEB nodes (Node16, Node32, Node64) must be manually destroyed using their .destroy(alloc) method before their lifetime ends.
+    - SIMD & Bit Manipulation: When working with leaf nodes (Node8), use xsimd and bitwise intrinsics (like std::popcount) to optimize performance.
 - Preserve existing style and APIs unless explicitly requested by the user.
- - Follow Naming Conventions: Use snake_case for all functions, methods, and variables (e.g., insert_value, cluster_data_).
- - No Unnecessary Comments: Code should be self-documenting. Avoid adding comments unless they explain complex algorithmic logic or non-obvious optimizations.
+    - Follow Naming Conventions: Use snake_case for all functions, methods, and variables (e.g., insert_value, cluster_data_).
+    - No Unnecessary Comments: Code should be self-documenting. Avoid adding comments unless they explain complex algorithmic logic or non-obvious optimizations.
 - Test-Driven Development: All new features or bug fixes must include functional tests in ./tests/flow/ using the RLTest framework.
- - Run only the tests relevant to your change before proposing broader test runs.
+    - Run only the tests relevant to your change before proposing broader test runs.
 - Build System Integrity: Maintain the Makefile and CMake configurations. Ensure the project builds with `make` and passes `make test QUICK=1` before submission.
 
 **Notes**

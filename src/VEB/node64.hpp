@@ -386,6 +386,55 @@ public:
         );
     }
 
+    // Serialization (Node64 record)
+    // Format: min(u64 LE), max(u64 LE), clusters_len(u32 LE)
+    // If clusters_len > 0 then follows: summary (Node32 record) then `clusters_len` entries of (cluster_key u32 LE + cluster_node record)
+    inline void serialize_payload(std::string &out) const {
+        write_u64(out, min_);
+        write_u64(out, max_);
+
+        if (cluster_data_ == nullptr) {
+            write_u64(out, 0);
+            return;
+        }
+
+        write_u64(out, static_cast<std::uint64_t>(cluster_data_->clusters.size()));
+
+        cluster_data_->summary.serialize_payload(out);
+
+        for (auto idx = std::make_optional(cluster_data_->summary.min()); idx.has_value(); idx = cluster_data_->summary.successor(idx.value())) {
+            [[assume(cluster_data_->summary.contains(idx.value()))]];
+            cluster_data_->clusters.find(idx.value())->second.serialize_payload(out);
+        }
+    }
+
+    static inline Node64 deserialize_from_payload(std::string_view buf, size_t &pos, std::size_t &alloc) {
+        Node64 node{};
+        node.min_ = read_u64(buf, pos);
+        node.max_ = read_u64(buf, pos);
+
+        const auto len = read_u64(buf, pos);
+        if (len == 0) {
+            return node;
+        }
+
+        allocator_t a{alloc};
+        node.cluster_data_ = a.allocate(1);
+        a.construct(node.cluster_data_, 0, alloc);
+        node.cluster_data_->summary = std::move(Node32::deserialize_from_payload(buf, pos, alloc));
+
+        node.cluster_data_->clusters.reserve(len);
+        auto key{std::make_optional(node.cluster_data_->summary.min())};
+        for (std::size_t i = 0; i < len; ++i) {
+            auto cluster = Node32::deserialize_from_payload(buf, pos, alloc);
+            [[assume(key.has_value())]];
+            node.cluster_data_->clusters.emplace(key.value(), std::move(cluster));
+            key = node.cluster_data_->summary.successor(key.value());
+        }
+
+        return node;
+    }
+
     constexpr inline bool or_inplace(const Node64& other, std::size_t& alloc) {
         insert(other.min_, alloc);
         insert(other.max_, alloc);

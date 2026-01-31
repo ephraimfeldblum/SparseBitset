@@ -23,33 +23,27 @@ static void *bitset_rdb_load(RedisModuleIO *rdb, int encver) {
     if (encver != 0) {
         return NULL;
     }
-    
-    size_t count = RedisModule_LoadUnsigned(rdb);
-    
-    VebTree_Handle_t handle = vebtree_create();
-    if (!handle) {
+    size_t len = 0;
+    char *buf = RedisModule_LoadStringBuffer(rdb, &len);
+    if (buf == NULL) {
         return NULL;
     }
-
-    for (size_t i = 0; i < count; i++) {
-        size_t value = RedisModule_LoadUnsigned(rdb);
-        veb_api->insert(handle, value);
-    }
-
+    VebTree_Handle_t handle = vebtree_deserialize(buf, len);
+    free(buf);
     return handle;
 }
 
 static void bitset_rdb_save(RedisModuleIO *rdb, void *value) {
     VebTree_Handle_t handle = value;
 
-    size_t size = veb_api->size(handle);
-    RedisModule_SaveUnsigned(rdb, size);
-
-    size_t *array = veb_api->to_array(handle);
-    for (size_t i = 0; i < size; i++) {
-        RedisModule_SaveUnsigned(rdb, array[i]);
+    size_t len = 0;
+    const char *buf = vebtree_serialize(handle, &len);
+    if (buf == NULL) {
+        RedisModule_SaveStringBuffer(rdb, "", 0);
+        return;
     }
-    free(array);
+    RedisModule_SaveStringBuffer(rdb, buf, len);
+    free((void *)buf);
 }
 
 static void bitset_aof_rewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {

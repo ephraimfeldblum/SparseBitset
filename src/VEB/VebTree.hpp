@@ -455,6 +455,88 @@ public:
             storage_);
     }
 
+    // Serialization API (supports monostate and Node8)
+    inline std::string serialize() const {
+        std::string out;
+        // magic "vebbitset" (9 bytes)
+        out.append("vebbitset", 9);
+        // encver
+        write_u8(out, 0);
+
+        std::visit(overload{
+            [&](std::monostate) {
+                write_tag(out, VebSerializeTag::NODE0);
+            },
+            [&](const Node8& n) {
+                write_tag(out, VebSerializeTag::NODE8);
+                n.serialize_payload(out);
+            },
+            [&](const Node16& n) {
+                write_tag(out, VebSerializeTag::NODE16);
+                n.serialize_payload(out);
+            },
+            [&](const Node32& n) {
+                write_tag(out, VebSerializeTag::NODE32);
+                n.serialize_payload(out);
+            },
+            [&](const Node64& n) {
+                write_tag(out, VebSerializeTag::NODE64);
+                n.serialize_payload(out);
+            },
+            [](auto&&) {
+                std::unreachable();
+            },
+        }, storage_);
+
+        return out;
+    }
+
+    static inline VebTree deserialize(std::string_view buf) {
+        size_t pos = 0;
+        if (buf.size() < 11) throw std::runtime_error("buffer too small");
+        // verify magic
+        const char *magic{"vebbitset"};
+        for (size_t i = 0; i < 9; ++i) {
+            if (buf[pos++] != magic[i]) {
+                throw std::runtime_error("magic mismatch");
+            }
+        }
+        // encver
+        const auto encver{read_u8(buf, pos)};
+        if (encver != 0) {
+            throw std::runtime_error("unsupported encver");
+        }
+
+        VebTree t{};
+        const auto node_tag{read_tag(buf, pos)};
+        switch (node_tag) {
+        case VebSerializeTag::NODE0: {
+            return t;
+        }
+        case VebSerializeTag::NODE8: {
+            t.storage_ = Node8::deserialize_from_payload(buf, pos);
+            break;
+        }
+        case VebSerializeTag::NODE16: {
+            t.storage_ = Node16::deserialize_from_payload(buf, pos, t.allocated_);
+            break;
+        }
+        case VebSerializeTag::NODE32: {
+            t.storage_ = Node32::deserialize_from_payload(buf, pos, t.allocated_);
+            break;
+        }
+        case VebSerializeTag::NODE64: {
+            t.storage_ = Node64::deserialize_from_payload(buf, pos, t.allocated_);
+            break;
+        }
+        default: {
+            throw std::runtime_error("deserialize: unsupported node_tag");
+        }
+        }
+        t.max_seen_ = t.max().value();
+        return t;
+    }
+
     /**
      * @brief Gets the current allocated bytes
      * @return The number of bytes currently allocated by this tree

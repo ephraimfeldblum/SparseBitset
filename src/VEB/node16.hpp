@@ -498,6 +498,9 @@ public:
     constexpr inline std::uint16_t key() const {
         return key_;
     }
+    constexpr inline void set_key(std::uint16_t new_key) {
+        key_ = new_key;
+    }
 
     constexpr inline VebTreeMemoryStats get_memory_stats() const {
         if (cluster_data_ == nullptr) {
@@ -517,6 +520,52 @@ public:
         }
 
         return stats;
+    }
+
+    // Serialization (Node16 record)
+    // Format: min(u16 LE), max(u16 LE), clusters_len(u8 LE)
+    // If clusters_len > 0 then follows: summary (Node8 record) then `clusters_len` Node8 records
+    inline void serialize_payload(std::string &out) const {
+        write_u16(out, min_);
+        write_u16(out, max_);
+
+        if (cluster_data_ == nullptr) {
+            write_u16(out, 0);
+            return;
+        }
+
+        const auto len{get_len()};
+        write_u16(out, static_cast<std::uint16_t>(len));
+
+        // write summary as a Node8 record
+        cluster_data_->summary_.serialize_payload(out);
+
+        // write clusters in the order of summary bits (lowest first)
+        for (auto idx{0uz}; idx < len; ++idx) {
+            cluster_data_->clusters_[idx].serialize_payload(out);
+        }
+    }
+
+    static inline Node16 deserialize_from_payload(std::string_view buf, std::size_t &pos, std::size_t &alloc) {
+        Node16 node{};
+        node.min_ = read_u16(buf, pos);
+        node.max_ = read_u16(buf, pos);
+
+        const auto len{read_u16(buf, pos)};
+        if (len == 0) {
+            return node;
+        }
+
+        // allocate cluster_data_t with space for clusters_len clusters and copy summary
+        node.cluster_data_ = create(alloc, len, Node8::deserialize_from_payload(buf, pos));
+        // deserialize clusters in the order implied by summary bits
+        for (auto idx{0uz}; idx < len; ++idx) {
+            node.cluster_data_->clusters_[idx] = Node8::deserialize_from_payload(buf, pos);
+        }
+
+        node.set_cap(len);
+        node.set_len(len);
+        return node;
     }
 
     constexpr inline bool or_inplace(const Node16& other, std::size_t& alloc) {
