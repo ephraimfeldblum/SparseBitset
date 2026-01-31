@@ -400,9 +400,6 @@ public:
         );
     }
 
-    // Serialization (Node32 record)
-    // Format: min(u32 LE), max(u32 LE), clusters_len(u16 LE)
-    // If clusters_len > 0 then follows: summary (Node16 record) then `clusters_len` entries of (cluster_key u16 LE + cluster_node record)
     inline void serialize_payload(std::string &out) const {
         write_u32(out, min_);
         write_u32(out, max_);
@@ -434,12 +431,12 @@ public:
         allocator_t a{alloc};
         node.cluster_data_ = a.allocate(1);
         a.construct(node.cluster_data_, 0, alloc);
-        node.cluster_data_->summary = Node16::deserialize_from_payload(buf, pos, alloc);
+        node.cluster_data_->summary = subnode_t::deserialize_from_payload(buf, pos, alloc);
 
         node.cluster_data_->clusters.reserve(len);
         auto key{std::make_optional(node.cluster_data_->summary.min())};
         for (std::size_t i = 0; i < len; ++i) {
-            auto cluster = Node16::deserialize_from_payload(buf, pos, alloc);
+            auto cluster = subnode_t::deserialize_from_payload(buf, pos, alloc);
             [[assume(key.has_value())]];
             cluster.set_key(key.value());
             node.cluster_data_->clusters.emplace(std::move(cluster));

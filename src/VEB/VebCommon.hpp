@@ -78,7 +78,7 @@ inline std::uint16_t read_u16(std::string_view buf, std::size_t &pos) {
     }
     std::uint16_t v = 0;
     for (auto i{0uz}; i < 2; ++i) {
-        v |= static_cast<std::uint16_t>(static_cast<std::uint64_t>(buf[pos++]) << (8 * i));
+        v |= static_cast<std::uint16_t>(static_cast<std::uint16_t>(read_u8(buf, pos)) << (8 * i));
     }
     return v;
 }
@@ -89,7 +89,7 @@ inline std::uint32_t read_u32(std::string_view buf, std::size_t &pos) {
     }
     std::uint32_t v = 0;
     for (auto i{0uz}; i < 4; ++i) {
-        v |= static_cast<std::uint32_t>(static_cast<std::uint64_t>(buf[pos++]) << (8 * i));
+        v |= static_cast<std::uint32_t>(read_u8(buf, pos)) << (8 * i);
     }
     return v;
 }
@@ -100,7 +100,7 @@ inline std::uint64_t read_u64(std::string_view buf, std::size_t &pos) {
     }
     std::uint64_t v = 0;
     for (auto i{0uz}; i < 8; ++i) {
-        v |= static_cast<std::uint64_t>(buf[pos++]) << (8 * i);
+        v |= static_cast<std::uint64_t>(read_u8(buf, pos)) << (8 * i);
     }
     return v;
 }

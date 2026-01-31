@@ -44,12 +44,13 @@ VebTree_Handle_t vebtree_deserialize(const char *buf, size_t len) {
     if (buf == nullptr) {
         return nullptr;
     }
+    std::string_view view{buf, len};
+    VebTree_Handle_t p = static_cast<VebTree_Handle_t>(malloc(sizeof *p));
     try {
-        std::string_view view{buf, len};
-        VebTree_Handle_t p = static_cast<VebTree_Handle_t>(malloc(sizeof *p));
         std::construct_at(p, VebTree::deserialize(view));
         return p;
     } catch (...) {
+        free(p);
         return nullptr;
     }
 }

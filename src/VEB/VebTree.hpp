@@ -174,7 +174,7 @@ public:
     inline explicit VebTree() {}
 
     inline explicit VebTree(const VebTree& other)
-        : storage_{std::monostate{}} , allocated_{0} , max_seen_{other.max_seen_} {
+        : max_seen_{other.max_seen_} {
         storage_ = std::visit(overload{
             [](std::monostate) { return StorageType{}; },
             [](const Node8& s) { return StorageType{s}; },
@@ -184,7 +184,7 @@ public:
 
     inline VebTree(VebTree&& other) noexcept
         : storage_{std::exchange(other.storage_, std::monostate{})}
-        , allocated_{std::exchange(other.allocated_, 0)}
+        , allocated_{std::exchange(other.allocated_, sizeof *this)}
         , max_seen_{std::exchange(other.max_seen_, 0)} {
     }
 
@@ -192,7 +192,7 @@ public:
         if (this != &other) {
             destroy_storage();
             storage_ = std::exchange(other.storage_, std::monostate{});
-            allocated_ = std::exchange(other.allocated_, 0);
+            allocated_ = std::exchange(other.allocated_, sizeof *this);
             max_seen_ = std::exchange(other.max_seen_, 0);
         }
         return *this;
