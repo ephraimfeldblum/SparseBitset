@@ -712,43 +712,14 @@ public:
         resident.and_inplace(merge_unfilled);
         const auto new_size{resident.size()};
 
+        // If predicted upper limit of resident clusters fits in current capacity, use original clusters and do in-place merge
+        auto* merge_data = (new_size <= get_cap()) ? cluster_data_ : create(alloc, new_size, merge_summary);
+        auto* merge_clusters = merge_data->clusters_;
+        merge_data->unfilled_ = merge_unfilled;
+
         auto i{0uz};
         auto j{0uz};
         auto k{0uz};
-        // Happy path. If predicted upper limit of resident clusters fits in current capacity, do in-place merge
-        if (new_size <= get_cap()) {
-            for (auto idx{std::make_optional(resident.min())}; idx.has_value(); idx = resident.successor(*idx)) {
-                const auto h = *idx;
-                const auto in_s = s_summary.contains(h);
-                const auto in_o = o_summary.contains(h);
-
-                if (in_s && in_o) {
-                    auto tmp = s_clusters[i++];
-                    tmp.or_inplace(o_clusters[j++]);
-                    if (tmp.size() == 256) {
-                        merge_unfilled.remove(h);
-                    } else {
-                        cluster_data_->clusters_[k++] = tmp;
-                    }
-                } else if (in_s) {
-                    cluster_data_->clusters_[k++] = s_clusters[i++];
-                } else if (in_o) {
-                    cluster_data_->clusters_[k++] = o_clusters[j++];
-                } else {
-                    std::unreachable();
-                }
-            }
-
-            cluster_data_->summary_ = merge_summary;
-            cluster_data_->unfilled_ = merge_unfilled;
-            set_len(k);
-            return false;
-        }
-
-        // If number of resident clusters exceeds current capacity, allocate new cluster array
-        auto* new_data = create(alloc, new_size, merge_summary);
-        new_data->unfilled_ = merge_unfilled;
-        auto* new_clusters{new_data->clusters_};
         for (auto idx{std::make_optional(resident.min())}; idx.has_value(); idx = resident.successor(*idx)) {
             const auto h = *idx;
             const auto in_s = s_summary.contains(h);
@@ -758,22 +729,25 @@ public:
                 auto tmp = s_clusters[i++];
                 tmp.or_inplace(o_clusters[j++]);
                 if (tmp.size() == 256) {
-                    new_data->unfilled_.remove(h);
+                    merge_data->unfilled_.remove(h);
                 } else {
-                    new_clusters[k++] = tmp;
+                    merge_clusters[k++] = tmp;
                 }
             } else if (in_s) {
-                new_clusters[k++] = s_clusters[i++];
+                merge_clusters[k++] = s_clusters[i++];
             } else if (in_o) {
-                new_clusters[k++] = o_clusters[j++];
+                merge_clusters[k++] = o_clusters[j++];
             } else {
                 std::unreachable();
             }
         }
-
-        destroy(alloc);
-        cluster_data_ = new_data;
-        set_cap(new_size);
+        if (new_size <= get_cap()) {
+            cluster_data_->summary_ = merge_summary;
+        } else {
+            destroy(alloc);
+            cluster_data_ = merge_data;
+            set_cap(new_size);
+        }
         set_len(k);
         return false;
     }
