@@ -956,6 +956,7 @@ public:
         return false;
     }
 
+    // TODO: implement handling unfilled_. Currently only works correctly if both nodes have all clusters resident and no clusters become full.
     constexpr inline bool xor_inplace(const Node16& other, std::size_t& alloc) {
         const auto s_min{min_};
         const auto s_max{max_};
