@@ -853,10 +853,11 @@ public:
         // predict if min/max will be removed from non-resident clusters, will we materialize new clusters for them?
         const auto materialize_min{!new_min.has_value() && resident.min() != int_summary.min()};
         const auto materialize_max{!new_max.has_value() && int_summary.min() != int_summary.max() && resident.max() != int_summary.max()};
-        auto resident_count{resident.size() + materialize_min + materialize_max};
+        const auto resident_count{resident.size() + materialize_min + materialize_max};
+        const auto safe_to_inplace{!materialize_min && resident_count <= get_cap()};
 
         // If predicted resident clusters exceed capacity, allocate a new cluster_data_t and write into it
-        auto* int_data = (resident_count <= get_cap()) ? cluster_data_ : create(alloc, resident_count, int_summary);
+        auto* int_data = safe_to_inplace ? cluster_data_ : create(alloc, resident_count, int_summary);
         auto* int_clusters = int_data->clusters_;
 
         auto i{0uz};
@@ -864,7 +865,6 @@ public:
         auto k{0uz};
         for (auto int_hi_o{std::make_optional(int_summary.min())}; int_hi_o.has_value(); int_hi_o = int_summary.successor(*int_hi_o)) {
             const auto int_hi{int_hi_o.value()};
-
             // both implicit-filled -> result is implicitly-filled (full).
             if (!resident.contains(int_hi)) {
                 if (min_out) {
