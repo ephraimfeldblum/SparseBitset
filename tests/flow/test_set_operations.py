@@ -214,12 +214,16 @@ def test_and_compaction_merge(env: Env):
     base_c = 5 * 256
 
     # prepare both sources with cluster B fully filled, with min/max outside so compaction can occur
+    env.cmd("BITS.INSERT", a, base_a - 1)
     env.cmd("BITS.INSERT", a, base_a)
+    env.cmd("BITS.INSERT", a, base_c - 1)
     env.cmd("BITS.INSERT", a, base_c)
     env.cmd("BITS.INSERT", a, base_b)
     env.cmd("BITS.INSERT", a, *list(range(base_b, base_b + 256))[1:])
 
+    env.cmd("BITS.INSERT", b, base_a)
     env.cmd("BITS.INSERT", b, base_a + 1)
+    env.cmd("BITS.INSERT", b, base_c)
     env.cmd("BITS.INSERT", b, base_c + 1)
     env.cmd("BITS.INSERT", b, base_b)
     env.cmd("BITS.INSERT", b, *list(range(base_b, base_b + 256))[1:])

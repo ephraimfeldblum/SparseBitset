@@ -785,15 +785,12 @@ public:
             min_ = new_min.value();
         }
 
-        auto& s_summary{cluster_data_->summary_};
-        const auto& o_summary{other.cluster_data_->summary_};
-
         // reduce future work by pre computing summary intersection. if empty, we are done
         // makes iterating clusters easier as we only need to consider clusters that we know will survive intersection
-        // unfortunately, we need to clone s_summary here because iterating below requires preserving the original state to find correct indices
+        // unfortunately, we need to clone our summary here because iterating below requires preserving the original state to find correct indices
         // cloning a node8 is cheap enough though
-        auto int_summary{s_summary};
-        if (int_summary.and_inplace(o_summary)) {
+        auto int_summary{cluster_data_->summary_};
+        if (int_summary.and_inplace(other.cluster_data_->summary_)) {
             return update_minmax();
         }
 
@@ -801,8 +798,62 @@ public:
         auto int_unfilled{cluster_data_->unfilled_};
         int_unfilled.or_inplace(other.cluster_data_->unfilled_);
         auto resident{int_summary};
-        resident.and_inplace(int_unfilled);
-        const auto resident_count{resident.size()};
+        if (resident.and_inplace(int_unfilled)) {
+            // intersection has no resident clusters, only implicit full clusters
+            // check if min/max require materialization and exit
+            std::optional<subnode_t> min_c_o{std::nullopt};
+            std::optional<subnode_t> max_c_o{std::nullopt};
+            const auto min_hi{int_summary.min()};
+            const auto max_hi{int_summary.max()};
+            if (min_out) {
+                min_ = index(min_hi, static_cast<subindex_t>(0));
+                min_c_o = std::make_optional(subnode_t::new_all_but(0));
+                int_unfilled.insert(min_hi);
+            }
+            if (!new_max.has_value()) {
+                max_ = index(max_hi, static_cast<subindex_t>(255));
+                if (min_hi == max_hi && min_c_o.has_value()) {
+                    // handle min/max collision in same cluster
+                    min_c_o.value().remove(static_cast<subindex_t>(255));
+                } else {
+                    max_c_o = std::make_optional(subnode_t::new_all_but(255));
+                }
+                int_unfilled.insert(max_hi);
+            }
+            // either min or max required materialization, might need to create new cluster_data
+            const auto new_len{static_cast<std::size_t>(min_c_o.has_value() + max_c_o.has_value())};
+            if (new_len > 0) {
+                auto* int_data{(new_len <= get_cap()) ? cluster_data_ : create(alloc, new_len, int_summary)};
+                int_data->summary_ = int_summary;
+                int_data->unfilled_ = int_unfilled;
+                auto* int_clusters{int_data->clusters_};
+                if (min_c_o.has_value()) {
+                    int_clusters[0] = *min_c_o;
+                }
+                if (max_c_o.has_value()) {
+                    int_clusters[new_len - 1] = *max_c_o;
+                }
+                if (int_data != cluster_data_) {
+                    destroy(alloc);
+                    cluster_data_ = int_data;
+                    set_cap(new_len);
+                }
+                set_len(new_len);
+                return false;
+            } else {
+                // min/max didn't require materializing new clusters, intersection contains only implicit clusters
+                // min must have already been set correctly above in order to reach here
+                max_ = new_max.value();
+                cluster_data_->summary_ = int_summary;
+                cluster_data_->unfilled_ = int_unfilled;
+                set_len(0);
+                return false;
+            }
+        }
+        // predict if min/max will be removed from non-resident clusters, will we materialize new clusters for them?
+        const auto materialize_min{!new_min.has_value() && resident.min() != int_summary.min()};
+        const auto materialize_max{!new_max.has_value() && int_summary.min() != int_summary.max() && resident.max() != int_summary.max()};
+        auto resident_count{resident.size() + materialize_min + materialize_max};
 
         // If predicted resident clusters exceed capacity, allocate a new cluster_data_t and write into it
         auto* int_data = (resident_count <= get_cap()) ? cluster_data_ : create(alloc, resident_count, int_summary);
@@ -816,15 +867,22 @@ public:
 
             // both implicit-filled -> result is implicitly-filled (full).
             if (!resident.contains(int_hi)) {
+                if (min_out) {
+                    min_out = false;
+                    min_ = index(int_hi, static_cast<subindex_t>(0));
+                    new_min = std::make_optional(min_);
+                    int_clusters[k++] = subnode_t::new_all_but(0);
+                    int_unfilled.insert(int_hi);
+                }
                 continue;
             }
 
-            const bool s_resident = cluster_data_->unfilled_.contains(int_hi);
-            const bool o_resident = other.cluster_data_->unfilled_.contains(int_hi);
+            const auto s_resident{cluster_data_->unfilled_.contains(int_hi)};
+            const auto o_resident{other.cluster_data_->unfilled_.contains(int_hi)};
             [[assume(s_resident || o_resident)]];
 
             if (s_resident && o_resident) {
-                auto tmp = cluster_data_->clusters_[i++];
+                auto tmp{cluster_data_->clusters_[i++]};
                 if (tmp.and_inplace(other.cluster_data_->clusters_[j++])) {
                     if (int_summary.remove(int_hi)) {
                         // last element removed -> update min/max and return
@@ -879,13 +937,19 @@ public:
             set_cap(resident_count);
         }
 
-        max_ = new_max.has_value() ? new_max.value() : index(int_summary.max(), int_clusters[k - 1].max());
-        if (max_ != s_max && cluster_data_->clusters_[k - 1].remove(static_cast<subindex_t>(max_))) {
-            if (cluster_data_->summary_.remove(int_summary.max())) {
-                destroy(alloc);
-                return false;
+        if (!new_max.has_value()) {
+            const auto max_hi{cluster_data_->summary_.max()};
+            if (!resident.contains(max_hi)) {
+                max_ = index(max_hi, static_cast<subindex_t>(255));
+                cluster_data_->unfilled_.insert(max_hi);
+                cluster_data_->clusters_[k++] = subnode_t::new_all_but(255);
+            } else if (max_ = index(max_hi, cluster_data_->clusters_[k - 1].max()); max_ != s_max && cluster_data_->clusters_[k - 1].remove(static_cast<subindex_t>(max_))) {
+                --k;
+                if (cluster_data_->summary_.remove(max_hi)) {
+                    destroy(alloc);
+                    return false;
+                }
             }
-            --k;
         }
 
         set_len(k);
