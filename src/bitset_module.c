@@ -24,24 +24,19 @@ static void *bitset_rdb_load(RedisModuleIO *rdb, int encver) {
         return NULL;
     }
     size_t len = 0;
-    char *buf = RedisModule_LoadStringBuffer(rdb, &len);
+    const char *buf = RedisModule_LoadStringBuffer(rdb, &len);
     if (buf == NULL) {
         return NULL;
     }
     VebTree_Handle_t handle = vebtree_deserialize(buf, len);
-    free(buf);
+    free((void *)buf);
     return handle;
 }
 
 static void bitset_rdb_save(RedisModuleIO *rdb, void *value) {
     VebTree_Handle_t handle = value;
-
     size_t len = 0;
     const char *buf = vebtree_serialize(handle, &len);
-    if (buf == NULL) {
-        RedisModule_SaveStringBuffer(rdb, "", 0);
-        return;
-    }
     RedisModule_SaveStringBuffer(rdb, buf, len);
     free((void *)buf);
 }

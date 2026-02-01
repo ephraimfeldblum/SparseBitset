@@ -1033,7 +1033,7 @@ public:
                         if (auto& xor_cluster{s_clusters[i++]}; xor_cluster.xor_inplace(o_clusters[j++])) {
                             if (new_summary.remove(*idx)) {
                                 allocator_t a{alloc};
-                                a.deallocate(reinterpret_cast<subnode_t*>(new_data), max_size + 1);
+                                a.deallocate(reinterpret_cast<subnode_t*>(new_data), max_size + 2);
                                 new_data = nullptr;
                                 max_size = 0;
                                 break;

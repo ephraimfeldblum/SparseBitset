@@ -455,7 +455,6 @@ public:
             storage_);
     }
 
-    // Serialization API (supports monostate and Node8)
     inline std::string serialize() const {
         std::string out;
         // magic "vebbitset" (9 bytes)
