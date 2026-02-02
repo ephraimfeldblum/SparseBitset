@@ -41,8 +41,7 @@ def test_or_with_compacted_source(env: Env):
     # src has compacted cluster B (fill it)
     env.cmd("BITS.INSERT", src, base_a)
     env.cmd("BITS.INSERT", src, base_c)
-    env.cmd("BITS.INSERT", src, base_b)
-    env.cmd("BITS.INSERT", src, *list(range(base_b, base_b + 256))[1:])
+    env.cmd("BITS.INSERT", src, *list(range(base_b, base_b + 256)))
 
     # other has some values in B and some elsewhere
     env.cmd("BITS.INSERT", other, base_c + 1, base_b + 13, base_b + 37)

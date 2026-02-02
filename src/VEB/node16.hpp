@@ -706,11 +706,11 @@ public:
         auto merge_summary{s_summary};
         merge_summary.or_inplace(o_summary);
         auto merge_unfilled{s_unfilled};
-        // checking return value is not necessary here. if all clusters become implicitly-filled, we handle that case below
-        merge_unfilled.and_inplace(o_unfilled);
+        merge_unfilled.and_inplace(o_unfilled); // no need to check return value, cannot be empty since min and max are not stored in clusters
         auto merge_resident{s_resident};
         if (merge_resident.and_inplace(o_resident)) {
-            // no resident clusters in the merged node, all clusters are implicitly-filled
+            // no resident clusters in merged node, all clusters are implicitly filled
+            // just update summary/unfilled and exit
             cluster_data_->summary_ = merge_summary;
             cluster_data_->unfilled_ = merge_unfilled;
             set_len(0);
@@ -727,9 +727,8 @@ public:
         auto k{0uz};
         for (auto idx{std::make_optional(merge_summary.min())}; idx.has_value(); idx = merge_summary.successor(*idx)) {
             const auto h = *idx;
-            const auto in_s = s_resident.contains(h);
-            const auto in_o = o_resident.contains(h);
-            [[assume(in_s || in_o)]];
+            const auto in_s{s_resident.contains(h)};
+            const auto in_o{o_resident.contains(h)};
 
             if (in_s && in_o) {
                 auto tmp{s_clusters[i++]};
@@ -743,17 +742,14 @@ public:
                 ++i;
             } else if (in_o) {
                 ++j;
-            } else {
-                std::unreachable();
             }
         }
-        if (new_size <= get_cap()) {
-            cluster_data_->summary_ = merge_summary;
-        } else {
+        if (merge_data != cluster_data_) {
             destroy(alloc);
             cluster_data_ = merge_data;
             set_cap(new_size);
         }
+        cluster_data_->summary_ = merge_summary;
         cluster_data_->unfilled_ = merge_unfilled;
         set_len(k);
         return false;
