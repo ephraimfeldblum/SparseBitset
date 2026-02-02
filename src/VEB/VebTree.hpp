@@ -455,6 +455,23 @@ public:
             storage_);
     }
 
+    // helper to get tag for serialization. couldn't put inside VebCommon.hpp due to circular dependency
+    template <typename S>
+    static constexpr auto tag_v = [] {
+        if constexpr (std::is_same_v<std::remove_cvref_t<S>, std::monostate>) {
+            return VebSerializeTag::NODE0;
+        } else if constexpr (std::is_same_v<std::remove_cvref_t<S>, struct Node8>) {
+            return VebSerializeTag::NODE8;
+        } else if constexpr (std::is_same_v<std::remove_cvref_t<S>, struct Node16>) {
+            return VebSerializeTag::NODE16;
+        } else if constexpr (std::is_same_v<std::remove_cvref_t<S>, struct Node32>) {
+            return VebSerializeTag::NODE32;
+        } else if constexpr (std::is_same_v<std::remove_cvref_t<S>, struct Node64>) {
+            return VebSerializeTag::NODE64;
+        } else {
+            static_assert(sizeof(S) == 0, "Unsupported type for tag_v");
+        }
+    }();
     inline std::string serialize() const {
         std::string out;
         // magic "vebbitset" (9 bytes)

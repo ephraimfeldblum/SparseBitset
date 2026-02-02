@@ -33,23 +33,6 @@ enum struct VebSerializeTag : std::uint8_t {
     NODE64 = 4,
 };
 
-template <typename S>
-constexpr auto tag_v = [] {
-    if constexpr (std::is_same_v<std::remove_cvref_t<S>, std::monostate>) {
-        return VebSerializeTag::NODE0;
-    } else if constexpr (std::is_same_v<std::remove_cvref_t<S>, struct Node8>) {
-        return VebSerializeTag::NODE8;
-    } else if constexpr (std::is_same_v<std::remove_cvref_t<S>, struct Node16>) {
-        return VebSerializeTag::NODE16;
-    } else if constexpr (std::is_same_v<std::remove_cvref_t<S>, struct Node32>) {
-        return VebSerializeTag::NODE32;
-    } else if constexpr (std::is_same_v<std::remove_cvref_t<S>, struct Node64>) {
-        return VebSerializeTag::NODE64;
-    } else {
-        static_assert(sizeof(S) == 0, "Unsupported type for tag_v");
-    }
-}();
-
 // serialization helpers (little-endian)
 inline void write_u8(std::string &out, std::uint8_t v) {
     out.push_back(static_cast<char>(v));
