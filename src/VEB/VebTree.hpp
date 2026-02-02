@@ -462,29 +462,11 @@ public:
         // encver
         write_u8(out, 0);
 
-        std::visit(overload{
-            [&](std::monostate) {
-                write_tag(out, VebSerializeTag::NODE0);
-            },
-            [&](const Node8& n) {
-                write_tag(out, VebSerializeTag::NODE8);
-                n.serialize_payload(out);
-            },
-            [&](const Node16& n) {
-                write_tag(out, VebSerializeTag::NODE16);
-                n.serialize_payload(out);
-            },
-            [&](const Node32& n) {
-                write_tag(out, VebSerializeTag::NODE32);
-                n.serialize_payload(out);
-            },
-            [&](const Node64& n) {
-                write_tag(out, VebSerializeTag::NODE64);
-                n.serialize_payload(out);
-            },
-            [](auto&&) {
-                std::unreachable();
-            },
+        std::visit([&](const auto& n) {
+            write_tag(out, tag_v<decltype(n)>);
+            if constexpr (!std::is_same_v<std::remove_cvref_t<decltype(n)>, std::monostate>) {
+                n.serialize(out);
+            }
         }, storage_);
 
         return out;
@@ -513,19 +495,19 @@ public:
             return t;
         }
         case VebSerializeTag::NODE8: {
-            t.storage_ = Node8::deserialize_from_payload(buf, pos);
+            t.storage_ = Node8::deserialize(buf, pos);
             break;
         }
         case VebSerializeTag::NODE16: {
-            t.storage_ = Node16::deserialize_from_payload(buf, pos, t.allocated_);
+            t.storage_ = Node16::deserialize(buf, pos, t.allocated_);
             break;
         }
         case VebSerializeTag::NODE32: {
-            t.storage_ = Node32::deserialize_from_payload(buf, pos, t.allocated_);
+            t.storage_ = Node32::deserialize(buf, pos, t.allocated_);
             break;
         }
         case VebSerializeTag::NODE64: {
-            t.storage_ = Node64::deserialize_from_payload(buf, pos, t.allocated_);
+            t.storage_ = Node64::deserialize(buf, pos, t.allocated_);
             break;
         }
         default: {

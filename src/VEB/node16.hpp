@@ -630,7 +630,7 @@ public:
         return stats;
     }
 
-    inline void serialize_payload(std::string &out) const {
+    inline void serialize(std::string &out) const {
         write_u16(out, min_);
         write_u16(out, max_);
 
@@ -643,15 +643,15 @@ public:
         const auto resident_count{cluster_data_->resident_count()};
         write_u16(out, static_cast<std::uint16_t>(resident_count + 1));
 
-        cluster_data_->summary_.serialize_payload(out);
-        cluster_data_->unfilled_.serialize_payload(out);
+        cluster_data_->summary_.serialize(out);
+        cluster_data_->unfilled_.serialize(out);
 
         for (auto idx{0uz}; idx < resident_count; ++idx) {
-            cluster_data_->clusters_[idx].serialize_payload(out);
+            cluster_data_->clusters_[idx].serialize(out);
         }
     }
 
-    static inline Node16 deserialize_from_payload(std::string_view buf, std::size_t &pos, std::size_t &alloc) {
+    static inline Node16 deserialize(std::string_view buf, std::size_t &pos, std::size_t &alloc) {
         Node16 node{};
         node.min_ = read_u16(buf, pos);
         node.max_ = read_u16(buf, pos);
@@ -664,11 +664,11 @@ public:
         const auto resident_count{static_cast<std::size_t>(raw_len - 1)};
 
         node.cluster_data_ = create(alloc, resident_count, nullptr, 0);
-        node.cluster_data_->summary_ = subnode_t::deserialize_from_payload(buf, pos);
-        node.cluster_data_->unfilled_ = subnode_t::deserialize_from_payload(buf, pos);
+        node.cluster_data_->summary_ = subnode_t::deserialize(buf, pos);
+        node.cluster_data_->unfilled_ = subnode_t::deserialize(buf, pos);
 
         for (auto idx{0uz}; idx < resident_count; ++idx) {
-            node.cluster_data_->clusters_[idx] = subnode_t::deserialize_from_payload(buf, pos);
+            node.cluster_data_->clusters_[idx] = subnode_t::deserialize(buf, pos);
         }
 
         node.set_cap(resident_count);

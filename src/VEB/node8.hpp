@@ -177,13 +177,13 @@ public:
     }
 
     // Serialization (32 bytes payload, little-endian u64 words)
-    inline void serialize_payload(std::string &out) const {
+    inline void serialize(std::string &out) const {
         for (std::uint64_t w : bits_) {
             write_u64(out, w);
         }
     }
 
-    static inline Node8 deserialize_from_payload(std::string_view buf, std::size_t &pos) {
+    static inline Node8 deserialize(std::string_view buf, std::size_t &pos) {
         Node8 node{};
         for (std::size_t i = 0; i < num_words; ++i) {
             node.bits_[i] = read_u64(buf, pos);

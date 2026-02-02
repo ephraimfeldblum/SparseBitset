@@ -94,7 +94,7 @@ def test_fuzz_set_ops(env: Env):
         env.cmd("BITS.INSERT", key, *list(ref_sets[key]))
 
     for i in range(num_iterations):
-        # op_type = random.choice(["AND", "OR", "XOR"])
+        # Use a weighted distribution to exercise AND more heavily than OR/XOR as it is more liable to produce edge cases.
         op_type = random.choices(["AND", "OR", "XOR"], weights=[0.6, 0.2, 0.2])[0]
         dest_idx = random.randint(0, num_sets + 2) # some new keys
         dest_key = f"{key_prefix}dest_{dest_idx}"

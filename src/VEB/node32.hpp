@@ -400,7 +400,7 @@ public:
         );
     }
 
-    inline void serialize_payload(std::string &out) const {
+    inline void serialize(std::string &out) const {
         write_u32(out, min_);
         write_u32(out, max_);
 
@@ -410,15 +410,15 @@ public:
         }
 
         write_u32(out, static_cast<std::uint32_t>(cluster_data_->clusters.size()));
-        cluster_data_->summary.serialize_payload(out);
+        cluster_data_->summary.serialize(out);
 
         for (auto idx = std::make_optional(cluster_data_->summary.min()); idx.has_value(); idx = cluster_data_->summary.successor(idx.value())) {
             [[assume(cluster_data_->summary.contains(idx.value()))]];
-            cluster_data_->clusters.find(idx.value())->serialize_payload(out);
+            cluster_data_->clusters.find(idx.value())->serialize(out);
         }
     }
 
-    static inline Node32 deserialize_from_payload(std::string_view buf, size_t &pos, std::size_t &alloc) {
+    static inline Node32 deserialize(std::string_view buf, size_t &pos, std::size_t &alloc) {
         Node32 node{};
         node.min_ = read_u32(buf, pos);
         node.max_ = read_u32(buf, pos);
@@ -431,12 +431,12 @@ public:
         allocator_t a{alloc};
         node.cluster_data_ = a.allocate(1);
         a.construct(node.cluster_data_, 0, alloc);
-        node.cluster_data_->summary = subnode_t::deserialize_from_payload(buf, pos, alloc);
+        node.cluster_data_->summary = subnode_t::deserialize(buf, pos, alloc);
 
         node.cluster_data_->clusters.reserve(len);
         auto key{std::make_optional(node.cluster_data_->summary.min())};
         for (std::size_t i = 0; i < len; ++i) {
-            auto cluster = subnode_t::deserialize_from_payload(buf, pos, alloc);
+            auto cluster = subnode_t::deserialize(buf, pos, alloc);
             [[assume(key.has_value())]];
             cluster.set_key(key.value());
             node.cluster_data_->clusters.emplace(std::move(cluster));
