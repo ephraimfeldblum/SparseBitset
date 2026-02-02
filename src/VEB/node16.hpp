@@ -999,149 +999,78 @@ public:
             auto o_resident = other.cluster_data_->resident_mask();
             auto resident_union = s_resident;
             resident_union.or_inplace(o_resident);
-            const auto predicted_resident_count = resident_union.size();
+            const auto resident_count = resident_union.size();
 
             // Prefer in-place merge if predicted resident clusters fit in current capacity
-            if (predicted_resident_count <= get_cap()) {
-                auto new_unfilled = subnode_t::new_all();
-                std::size_t si{};
-                std::size_t oi{};
-                std::size_t write{};
+            auto* merge_data = (resident_count <= get_cap()) ? cluster_data_ : create(alloc, resident_count, union_summary);
+            auto* merge_clusters = merge_data->clusters_;
+            auto merge_unfilled = subnode_t::new_all();
+            auto i{0uz};
+            auto j{0uz};
+            auto k{0uz};
 
-                // We'll mutate s_summary during the process to remove clusters that become empty
-                for (auto idx{std::make_optional(union_summary.min())}; idx.has_value(); idx = union_summary.successor(*idx)) {
-                    const auto h = *idx;
-                    const bool in_s = s_summary.contains(h);
-                    const bool in_o = o_summary.contains(h);
-                    const bool s_res = in_s && s_resident.contains(h);
-                    const bool o_res = in_o && o_resident.contains(h);
+            for (auto idx{std::make_optional(union_summary.min())}; idx.has_value(); idx = union_summary.successor(*idx)) {
+                const auto h = *idx;
+                const bool in_s = s_summary.contains(h);
+                const bool in_o = o_summary.contains(h);
+                const bool s_res = in_s && s_resident.contains(h);
+                const bool o_res = in_o && o_resident.contains(h);
 
-                    if (in_s && in_o) {
-                        if (!s_res && !o_res) {
-                            // both implicit -> empty result, remove
-                            s_summary.remove(h);
+                if (in_s && in_o) {
+                    if (!s_res && !o_res) {
+                        // both implicit -> empty result, remove from summary
+                        continue;
+                    }
+                    if (s_res && o_res) {
+                        auto tmp = s_clusters[i++];
+                        if (tmp.xor_inplace(o_clusters[j++])) {
+                            // became empty
                             continue;
                         }
-                        if (s_res && o_res) {
-                            auto tmp = s_clusters[si++];
-                            if (tmp.xor_inplace(o_clusters[oi++])) {
-                                s_summary.remove(h);
-                                continue;
-                            }
-                            if (tmp.size() == 256) {
-                                // became implicit
-                                new_unfilled.remove(h);
-                                continue;
-                            }
-                            cluster_data_->clusters_[write++] = tmp;
-                            new_unfilled.insert(h);
-                        } else if (s_res && !o_res) {
-                            // o implicit -> result = NOT(s)
-                            auto tmp = s_clusters[si++];
-                            tmp.not_inplace();
-                            // tmp cannot be empty or full if s_clusters non-empty
-                            cluster_data_->clusters_[write++] = tmp;
-                            new_unfilled.insert(h);
-                        } else { // !s_res && o_res
-                            auto tmp = o_clusters[oi++];
-                            tmp.not_inplace();
-                            cluster_data_->clusters_[write++] = tmp;
-                            new_unfilled.insert(h);
-                        }
-                    } else if (in_s) {
-                        // only s exists
-                        if (!s_res) {
-                            // s implicit remains implicit
-                            new_unfilled.remove(h);
-                        } else {
-                            cluster_data_->clusters_[write++] = s_clusters[si++];
-                            new_unfilled.insert(h);
-                        }
-                    } else if (in_o) {
-                        if (!o_res) {
-                            new_unfilled.remove(h);
-                        } else {
-                            cluster_data_->clusters_[write++] = o_clusters[oi++];
-                            new_unfilled.insert(h);
-                        }
-                    } else {
-                        std::unreachable();
-                    }
-                }
-
-                cluster_data_->summary_ = union_summary;
-                cluster_data_->unfilled_ = new_unfilled;
-                set_len(write);
-            } else {
-                // allocate new cluster_data sized to predicted_resident_count
-                auto* new_data = create(alloc, predicted_resident_count, union_summary);
-                auto* new_clusters = new_data->clusters_;
-                std::size_t si{};
-                std::size_t oi{};
-                std::size_t k{};
-                auto new_unfilled = subnode_t::new_all();
-
-                for (auto idx{std::make_optional(union_summary.min())}; idx.has_value(); idx = union_summary.successor(*idx)) {
-                    const auto h = *idx;
-                    const bool in_s = s_summary.contains(h);
-                    const bool in_o = o_summary.contains(h);
-                    const bool s_res = in_s && s_resident.contains(h);
-                    const bool o_res = in_o && o_resident.contains(h);
-
-                    if (in_s && in_o) {
-                        if (!s_res && !o_res) {
-                            // both implicit -> empty result, remove from summary
-                            new_data->summary_.remove(h);
+                        if (tmp.size() == 256) {
+                            // became implicit
                             continue;
                         }
-                        if (s_res && o_res) {
-                            auto tmp = s_clusters[si++];
-                            if (tmp.xor_inplace(o_clusters[oi++])) {
-                                new_data->summary_.remove(h);
-                                continue;
-                            }
-                            if (tmp.size() == 256) {
-                                new_unfilled.remove(h);
-                                continue;
-                            }
-                            new_clusters[k++] = tmp;
-                            new_unfilled.insert(h);
-                        } else if (s_res && !o_res) {
-                            auto tmp = s_clusters[si++];
-                            tmp.not_inplace();
-                            new_clusters[k++] = tmp;
-                            new_unfilled.insert(h);
-                        } else {
-                            auto tmp = o_clusters[oi++];
-                            tmp.not_inplace();
-                            new_clusters[k++] = tmp;
-                            new_unfilled.insert(h);
-                        }
-                    } else if (in_s) {
-                        if (!s_res) {
-                            new_data->unfilled_.remove(h);
-                        } else {
-                            new_clusters[k++] = s_clusters[si++];
-                            new_unfilled.insert(h);
-                        }
-                    } else if (in_o) {
-                        if (!o_res) {
-                            new_data->unfilled_.remove(h);
-                        } else {
-                            new_clusters[k++] = o_clusters[oi++];
-                            new_unfilled.insert(h);
-                        }
+                        merge_clusters[k++] = tmp;
+                        merge_unfilled.insert(h);
+                    } else if (s_res && !o_res) {
+                        auto tmp = s_clusters[i++];
+                        tmp.not_inplace();
+                        merge_clusters[k++] = tmp;
+                        merge_unfilled.insert(h);
                     } else {
-                        std::unreachable();
+                        auto tmp = o_clusters[j++];
+                        tmp.not_inplace();
+                        merge_clusters[k++] = tmp;
+                        merge_unfilled.insert(h);
                     }
+                } else if (in_s) {
+                    if (!s_res) {
+                        // s implicit remains implicit
+                    } else {
+                        merge_clusters[k++] = s_clusters[i++];
+                        merge_unfilled.insert(h);
+                    }
+                } else if (in_o) {
+                    if (!o_res) {
+                        // o implicit remains implicit
+                    } else {
+                        merge_clusters[k++] = o_clusters[j++];
+                        merge_unfilled.insert(h);
+                    }
+                } else {
+                    std::unreachable();
                 }
-
-                destroy(alloc);
-                cluster_data_ = new_data;
-                cluster_data_->unfilled_ = new_unfilled;
-                set_cap(predicted_resident_count);
-                set_len(k);
             }
+
+            merge_data->summary_ = union_summary;
+            merge_data->unfilled_ = merge_unfilled;
+            if (merge_data != cluster_data_) {
+                destroy(alloc);
+                cluster_data_ = merge_data;
+                set_cap(resident_count);
+            }
+            set_len(k);
         }
 
         // self must contain o_min if it was less than s_min due to the insert at the top of the function
