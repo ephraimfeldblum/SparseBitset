@@ -131,32 +131,31 @@ private:
     static constexpr inline cluster_data_t* create(std::size_t& alloc, std::size_t cap, const cluster_data_t* other, std::size_t other_size) {
         allocator_t a{alloc};
         auto* data = reinterpret_cast<cluster_data_t*>(a.allocate(cap + 2));
-        if (other != nullptr) {
-            data->summary_ = other->summary_;
-            data->unfilled_ = other->unfilled_;
-            const auto copy_count = std::min(cap, other_size);
-            std::copy_n(
+        data->summary_ = other->summary_;
+        data->unfilled_ = other->unfilled_;
+        const auto copy_count = std::min(cap, other_size);
+        std::copy_n(
 #ifdef __cpp_lib_execution
-                std::execution::unseq,
+            std::execution::unseq,
 #endif
-                other->clusters_, copy_count, data->clusters_
-            );
-        } else {
-            data->unfilled_ = subnode_t::new_all();
-        }
+            other->clusters_, copy_count, data->clusters_
+        );
         return data;
     }
     static constexpr inline cluster_data_t* create(std::size_t& alloc, std::size_t cap, subnode_t summary) {
-        auto* data = create(alloc, cap, nullptr, 0);
-        data->summary_ = summary;
-        return data;
+        const subnode_t dummy[] = {
+            summary,
+            subnode_t::new_all(),
+        };
+        return create(alloc, cap, reinterpret_cast<const cluster_data_t*>(&dummy), 0);
     }
     static constexpr inline cluster_data_t* create(std::size_t& alloc, std::size_t cap, subindex_t hi, subnode_t lo) {
-        auto* data = create(alloc, cap, nullptr, 0);
-        data->summary_ = subnode_t::new_with(hi);
-        data->unfilled_.insert(hi);
-        data->clusters_[0] = lo;
-        return data;
+        const subnode_t dummy[] = {
+            subnode_t::new_with(hi),
+            subnode_t::new_all(),
+            lo,
+        };
+        return create(alloc, cap, reinterpret_cast<const cluster_data_t*>(&dummy), 1);
     }
 
     constexpr inline subnode_t* find(subindex_t x) {
@@ -168,7 +167,7 @@ private:
 
     constexpr inline void grow(std::size_t& alloc) {
         const auto len{get_len()};
-        const auto cur_cap = get_cap();
+        const auto cur_cap{get_cap()};
         if (len < cur_cap) {
             return;
         }
@@ -707,10 +706,9 @@ public:
         merge_summary.or_inplace(o_summary);
         auto merge_unfilled{s_unfilled};
         merge_unfilled.and_inplace(o_unfilled); // no need to check return value, cannot be empty since min and max are not stored in clusters
-        auto merge_resident{s_resident};
-        if (merge_resident.and_inplace(o_resident)) {
-            // no resident clusters in merged node, all clusters are implicitly filled
-            // just update summary/unfilled and exit
+        auto merge_resident{merge_summary};
+        if (merge_resident.and_inplace(merge_unfilled)) {
+            // all clusters are implicitly filled, no resident clusters
             cluster_data_->summary_ = merge_summary;
             cluster_data_->unfilled_ = merge_unfilled;
             set_len(0);
@@ -727,10 +725,12 @@ public:
         auto k{0uz};
         for (auto idx{std::make_optional(merge_summary.min())}; idx.has_value(); idx = merge_summary.successor(*idx)) {
             const auto h = *idx;
-            const auto in_s{s_resident.contains(h)};
-            const auto in_o{o_resident.contains(h)};
+            const auto in_s{s_summary.contains(h)};
+            const auto in_o{o_summary.contains(h)};
+            const auto re_s{s_resident.contains(h)};
+            const auto re_o{o_resident.contains(h)};
 
-            if (in_s && in_o) {
+            if (re_s && re_o) {
                 auto tmp{s_clusters[i++]};
                 tmp.or_inplace(o_clusters[j++]);
                 if (tmp.size() == 256) {
@@ -738,10 +738,16 @@ public:
                 } else {
                     merge_clusters[k++] = tmp;
                 }
-            } else if (in_s) {
-                ++i;
-            } else if (in_o) {
-                ++j;
+            } else if (re_s) {
+                if (!in_o) {
+                    merge_clusters[k++] = s_clusters[i];
+                }
+                i++;
+            } else if (re_o) {
+                if (!in_s) {
+                    merge_clusters[k++] = o_clusters[j];
+                }
+                j++;
             }
         }
         if (merge_data != cluster_data_) {
