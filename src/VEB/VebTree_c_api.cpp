@@ -16,6 +16,7 @@
 
 #include "VebTree.h"
 #include "VebTree.hpp"
+#include "../redismodule.h"
 
 static VebTree_OptionalSize_t to_c_optional(std::optional<std::size_t> opt) {
     if (opt.has_value()) {
@@ -49,7 +50,8 @@ VebTree_Handle_t vebtree_deserialize(const char *buf, size_t len) {
     try {
         std::construct_at(p, VebTree::deserialize(view));
         return p;
-    } catch (...) {
+    } catch (const std::exception& e) {
+        RedisModule_ReplyWithError(nullptr, e.what());
         free(p);
         return nullptr;
     }

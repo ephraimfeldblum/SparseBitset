@@ -142,10 +142,10 @@ private:
         );
         return data;
     }
-    static constexpr inline cluster_data_t* create(std::size_t& alloc, std::size_t cap, subnode_t summary) {
+    static constexpr inline cluster_data_t* create(std::size_t& alloc, std::size_t cap, subnode_t summary, subnode_t unfilled) {
         const subnode_t dummy[] = {
             summary,
-            subnode_t::new_all(),
+            unfilled,
         };
         return create(alloc, cap, reinterpret_cast<const cluster_data_t*>(&dummy), 0);
     }
@@ -660,18 +660,22 @@ public:
             return node;
         }
 
-        const auto resident_count{static_cast<std::size_t>(raw_len - 1)};
+        // capacity may never be 0 because that is interpreted as 256. if raw_len == 1, allocate room for an unused dummy cluster
+        const auto dummy_resident{raw_len == 1};
+        const auto resident_count{static_cast<std::size_t>(raw_len - !dummy_resident)};
 
-        node.cluster_data_ = create(alloc, resident_count, nullptr, 0);
-        node.cluster_data_->summary_ = subnode_t::deserialize(buf, pos);
-        node.cluster_data_->unfilled_ = subnode_t::deserialize(buf, pos);
+        const auto summary{subnode_t::deserialize(buf, pos)};
+        const auto unfilled{subnode_t::deserialize(buf, pos)};
+        node.cluster_data_ = create(alloc, resident_count, summary, unfilled);
 
-        for (auto idx{0uz}; idx < resident_count; ++idx) {
-            node.cluster_data_->clusters_[idx] = subnode_t::deserialize(buf, pos);
+        if (!dummy_resident) {
+            for (auto idx{0uz}; idx < resident_count; ++idx) {
+                node.cluster_data_->clusters_[idx] = subnode_t::deserialize(buf, pos);
+            }
         }
 
         node.set_cap(resident_count);
-        node.set_len(resident_count);
+        node.set_len(resident_count - dummy_resident);
         return node;
     }
 
@@ -717,7 +721,7 @@ public:
         const auto new_size{merge_resident.size()};
 
         // If predicted upper limit of resident clusters fits in current capacity, use original clusters and do in-place merge
-        auto* merge_data = (new_size <= get_cap()) ? cluster_data_ : create(alloc, new_size, merge_summary);
+        auto* merge_data = (new_size <= get_cap()) ? cluster_data_ : create(alloc, new_size, merge_summary, merge_unfilled);
         auto* merge_clusters = merge_data->clusters_;
 
         auto i{0uz};
@@ -725,8 +729,6 @@ public:
         auto k{0uz};
         for (auto idx{std::make_optional(merge_summary.min())}; idx.has_value(); idx = merge_summary.successor(*idx)) {
             const auto h = *idx;
-            const auto in_s{s_summary.contains(h)};
-            const auto in_o{o_summary.contains(h)};
             const auto re_s{s_resident.contains(h)};
             const auto re_o{o_resident.contains(h)};
 
@@ -739,12 +741,12 @@ public:
                     merge_clusters[k++] = tmp;
                 }
             } else if (re_s) {
-                if (!in_o) {
+                if (!o_summary.contains(h)) {
                     merge_clusters[k++] = s_clusters[i];
                 }
                 i++;
             } else if (re_o) {
-                if (!in_s) {
+                if (!s_summary.contains(h)) {
                     merge_clusters[k++] = o_clusters[j];
                 }
                 j++;
@@ -844,7 +846,7 @@ public:
             // either min or max required materialization, might need to create new cluster_data
             const auto new_len{static_cast<std::size_t>(min_c_o.has_value() + max_c_o.has_value())};
             if (new_len > 0) {
-                auto* int_data{(new_len <= get_cap()) ? cluster_data_ : create(alloc, new_len, int_summary)};
+                auto* int_data{(new_len <= get_cap()) ? cluster_data_ : create(alloc, new_len, int_summary, int_unfilled)};
                 int_data->summary_ = int_summary;
                 int_data->unfilled_ = int_unfilled;
                 auto* int_clusters{int_data->clusters_};
@@ -878,7 +880,7 @@ public:
         const auto safe_to_inplace{resident_count <= get_cap()};
 
         // If predicted resident clusters exceed capacity, allocate a new cluster_data_t and write into it
-        auto* int_data = safe_to_inplace ? cluster_data_ : create(alloc, resident_count, int_summary);
+        auto* int_data = safe_to_inplace ? cluster_data_ : create(alloc, resident_count, int_summary, int_unfilled);
         auto* int_clusters = int_data->clusters_;
 
         auto i{0uz};
@@ -1040,7 +1042,7 @@ public:
             const auto resident_count{merge_resident_bound.size()};
 
             // Prefer in-place merge if predicted resident clusters fit in current capacity
-            auto* merge_data{(resident_count <= get_cap()) ? cluster_data_ : create(alloc, resident_count, merge_summary)};
+            auto* merge_data{(resident_count <= get_cap()) ? cluster_data_ : create(alloc, resident_count, merge_summary, merge_unfilled)};
             auto* merge_clusters{merge_data->clusters_};
             auto i{0uz};
             auto j{0uz};
@@ -1076,20 +1078,20 @@ public:
                         auto tmp = s_clusters[i++];
                         tmp.not_inplace();
                         if (tmp.size() == 256) { // can only happen if it was empty, but it wasn't
-                             merge_unfilled.remove(h);
+                            merge_unfilled.remove(h);
                         } else {
-                             merge_clusters[k++] = tmp;
-                             merge_unfilled.insert(h);
+                            merge_clusters[k++] = tmp;
+                            merge_unfilled.insert(h);
                         }
                     } else if (o_res) {
                         // s full, o resident -> o NOT (resident)
                         auto tmp = o_clusters[j++];
                         tmp.not_inplace();
                         if (tmp.size() == 256) {
-                             merge_unfilled.remove(h);
+                            merge_unfilled.remove(h);
                         } else {
-                             merge_clusters[k++] = tmp;
-                             merge_unfilled.insert(h);
+                            merge_clusters[k++] = tmp;
+                            merge_unfilled.insert(h);
                         }
                     }
                 } else if (in_s) {

@@ -458,15 +458,16 @@ public:
     // helper to get tag for serialization. couldn't put inside VebCommon.hpp due to circular dependency
     template <typename S>
     static constexpr auto tag_v = [] {
-        if constexpr (std::is_same_v<std::remove_cvref_t<S>, std::monostate>) {
+        using node_t = std::remove_cvref_t<S>;
+        if constexpr (std::is_same_v<node_t, std::monostate>) {
             return VebSerializeTag::NODE0;
-        } else if constexpr (std::is_same_v<std::remove_cvref_t<S>, struct Node8>) {
+        } else if constexpr (std::is_same_v<node_t, struct Node8>) {
             return VebSerializeTag::NODE8;
-        } else if constexpr (std::is_same_v<std::remove_cvref_t<S>, struct Node16>) {
+        } else if constexpr (std::is_same_v<node_t, struct Node16>) {
             return VebSerializeTag::NODE16;
-        } else if constexpr (std::is_same_v<std::remove_cvref_t<S>, struct Node32>) {
+        } else if constexpr (std::is_same_v<node_t, struct Node32>) {
             return VebSerializeTag::NODE32;
-        } else if constexpr (std::is_same_v<std::remove_cvref_t<S>, struct Node64>) {
+        } else if constexpr (std::is_same_v<node_t, struct Node64>) {
             return VebSerializeTag::NODE64;
         } else {
             static_assert(sizeof(S) == 0, "Unsupported type for tag_v");
@@ -490,11 +491,13 @@ public:
     }
 
     static inline VebTree deserialize(std::string_view buf) {
-        size_t pos = 0;
-        if (buf.size() < 11) throw std::runtime_error("buffer too small");
+        auto pos{0uz};
+        if (buf.size() < 11) {
+            throw std::runtime_error("buffer too small");
+        }
         // verify magic
         const char *magic{"vebbitset"};
-        for (size_t i = 0; i < 9; ++i) {
+        for (auto i{0uz}; i < 9; ++i) {
             if (buf[pos++] != magic[i]) {
                 throw std::runtime_error("magic mismatch");
             }
