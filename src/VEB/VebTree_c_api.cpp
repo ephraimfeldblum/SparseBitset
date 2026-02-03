@@ -11,9 +11,12 @@
 #include <cstdio>
 #include <cassert>
 #include <ranges>
+#include <string_view>
+#include <string>
 
 #include "VebTree.h"
 #include "VebTree.hpp"
+#include "../redismodule.h"
 
 static VebTree_OptionalSize_t to_c_optional(std::optional<std::size_t> opt) {
     if (opt.has_value()) {
@@ -27,6 +30,31 @@ VebTree_Handle_t vebtree_create() {
     VebTree_Handle_t p = static_cast<VebTree_Handle_t>(malloc(sizeof *p));
     std::construct_at(p);
     return p;
+}
+
+const char* vebtree_serialize(VebTree_Handle_t handle, size_t *out_len) {
+    assert(handle);
+    std::string buf = handle->serialize();
+    *out_len = buf.size();
+    char *out = static_cast<char*>(malloc(*out_len));
+    std::memcpy(out, buf.data(), *out_len);
+    return out;
+}
+
+VebTree_Handle_t vebtree_deserialize(const char *buf, size_t len) {
+    if (buf == nullptr) {
+        return nullptr;
+    }
+    std::string_view view{buf, len};
+    VebTree_Handle_t p = static_cast<VebTree_Handle_t>(malloc(sizeof *p));
+    try {
+        std::construct_at(p, VebTree::deserialize(view));
+        return p;
+    } catch (const std::exception& e) {
+        RedisModule_ReplyWithError(nullptr, e.what());
+        free(p);
+        return nullptr;
+    }
 }
 
 static void vebtree_insert(VebTree_Handle_t handle, size_t x) {

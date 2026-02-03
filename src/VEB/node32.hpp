@@ -51,7 +51,7 @@ private:
 
         cluster_data_t(subindex_t x, std::size_t& alloc)
             : clusters{allocator_t{alloc}}
-            , summary{0, x} {
+            , summary{subnode_t::new_with(0, x)} {
         }
     };
     using allocator_t = tracking_allocator<cluster_data_t>;
@@ -67,18 +67,22 @@ private:
         return static_cast<index_t>(high) << 16 | low;
     }
 
+    constexpr inline explicit Node32() = default;
+
 public:
-    constexpr inline explicit Node32(index_t x)
-        : min_{x}, max_{x} {
+    static constexpr inline Node32 new_with(index_t x) {
+        Node32 node{};
+        node.min_ = x;
+        node.max_ = x;
+        return node;
     }
 
-    constexpr inline Node32(subnode_t&& old_storage, std::size_t& alloc)
-        : cluster_data_{nullptr}
-        , min_{old_storage.min()}
-        , max_{old_storage.max()}
-    {
+    static constexpr inline Node32 new_from_node16(subnode_t&& old_storage, std::size_t& alloc) {
+        Node32 node{};
         auto old_min{old_storage.min()};
         auto old_max{old_storage.max()};
+        node.min_ = static_cast<index_t>(old_min);
+        node.max_ = static_cast<index_t>(old_max);
 
         old_storage.remove(old_min, alloc);
         if (old_min != old_max) {
@@ -87,10 +91,16 @@ public:
 
         if (old_storage.size() > 0) {
             allocator_t a{alloc};
-            cluster_data_ = a.allocate(1);
-            a.construct(cluster_data_, 0, alloc);
-            cluster_data_->clusters.emplace(std::move(old_storage));
+            node.cluster_data_ = a.allocate(1);
+            a.construct(node.cluster_data_, 0, alloc);
+            node.cluster_data_->clusters.emplace(std::move(old_storage));
         }
+        return node;
+    }
+
+    static constexpr inline Node32 new_from_node8(subnode_t::subnode_t old_storage, std::size_t& alloc) {
+        auto intermediate{Node16::new_from_node8(old_storage, alloc)};
+        return new_from_node16(std::move(intermediate), alloc);
     }
 
     // Node32 is non-copyable. Copying would require deep copies of potentially large structures.
@@ -99,8 +109,7 @@ public:
     Node32& operator=(const Node32&) = delete;
 
     constexpr inline Node32 clone(std::size_t& alloc) const {
-        Node32 result{min_};
-        result.min_ = min_;
+        auto result{new_with(min_)};
         result.max_ = max_;
 
         if (cluster_data_ != nullptr) {
@@ -181,13 +190,13 @@ public:
             allocator_t a{alloc};
             cluster_data_ = a.allocate(1);
             a.construct(cluster_data_, h, alloc);
-            cluster_data_->clusters.emplace(h, l);
+            cluster_data_->clusters.emplace(subnode_t::new_with(h, l));
         } else if (auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end()) {
             auto& cluster{const_cast<subnode_t&>(*it)};
             cluster.insert(l, alloc);
         } else {
             cluster_data_->summary.insert(h, alloc);
-            cluster_data_->clusters.emplace(h, l);
+            cluster_data_->clusters.emplace(subnode_t::new_with(h, l));
         }
     }
 
@@ -389,6 +398,52 @@ public:
                 return acc;
             }
         );
+    }
+
+    inline void serialize(std::string &out) const {
+        write_u32(out, min_);
+        write_u32(out, max_);
+
+        if (cluster_data_ == nullptr) {
+            write_u32(out, 0);
+            return;
+        }
+
+        write_u32(out, static_cast<std::uint32_t>(cluster_data_->clusters.size()));
+        cluster_data_->summary.serialize(out);
+
+        for (auto idx = std::make_optional(cluster_data_->summary.min()); idx.has_value(); idx = cluster_data_->summary.successor(idx.value())) {
+            [[assume(cluster_data_->summary.contains(idx.value()))]];
+            cluster_data_->clusters.find(idx.value())->serialize(out);
+        }
+    }
+
+    static inline Node32 deserialize(std::string_view buf, size_t &pos, std::size_t &alloc) {
+        Node32 node{};
+        node.min_ = read_u32(buf, pos);
+        node.max_ = read_u32(buf, pos);
+
+        const auto len = read_u32(buf, pos);
+        if (len == 0) {
+            return node;
+        }
+
+        allocator_t a{alloc};
+        node.cluster_data_ = a.allocate(1);
+        a.construct(node.cluster_data_, 0, alloc);
+        node.cluster_data_->summary = subnode_t::deserialize(buf, pos, alloc);
+
+        node.cluster_data_->clusters.reserve(len);
+        auto key{std::make_optional(node.cluster_data_->summary.min())};
+        for (std::size_t i = 0; i < len; ++i) {
+            auto cluster = subnode_t::deserialize(buf, pos, alloc);
+            [[assume(key.has_value())]];
+            cluster.set_key(key.value());
+            node.cluster_data_->clusters.emplace(std::move(cluster));
+            key = node.cluster_data_->summary.successor(key.value());
+        }
+
+        return node;
     }
 
     constexpr inline bool or_inplace(const Node32& other, std::size_t& alloc) {

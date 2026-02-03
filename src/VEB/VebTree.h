@@ -159,6 +159,12 @@ VebTree_Handle_t vebtree_create(void);
  */
 const VebTree_API_t* vebtree_get_api(void);
 
+/* Serialization helpers */
+/* Caller must free returned buffer with free() */
+const char* vebtree_serialize(VebTree_Handle_t handle, size_t *out_len);
+/* Caller does not transfer ownership of buf; returns NULL on error */
+VebTree_Handle_t vebtree_deserialize(const char *buf, size_t len);
+
 /**
  * @brief Safe destruction macro for VebTree handles
  *

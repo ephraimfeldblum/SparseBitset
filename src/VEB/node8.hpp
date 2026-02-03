@@ -56,11 +56,28 @@ private:
     constexpr inline bool empty() const {
         return xsimd::all(load() == 0);
     }
+
+    constexpr inline explicit Node8() = default;
     
 public:
-    constexpr inline explicit Node8(index_t x) {
-        const auto [word_idx, bit_idx] {decompose(x)};
-        bits_[word_idx] |= (1ULL << bit_idx);
+    static constexpr inline Node8 new_with(index_t x) {
+        Node8 node{};
+        node.insert(x);
+        return node;
+    }
+
+    // Create a Node8 with all bits set except `x`.
+    static constexpr inline Node8 new_all_but(index_t x) {
+        Node8 node = new_with(x);
+        node.not_inplace();
+        return node;
+    }
+
+    // Create a Node8 with all bits set.
+    static constexpr inline Node8 new_all() {
+        Node8 node{};
+        node.not_inplace();
+        return node;
     }
 
     static constexpr inline std::size_t universe_size() {
@@ -157,6 +174,21 @@ public:
     constexpr inline std::size_t size() const {
         return std::popcount(bits_[0]) + std::popcount(bits_[1]) +
                std::popcount(bits_[2]) + std::popcount(bits_[3]);
+    }
+
+    // Serialization (32 bytes payload, little-endian u64 words)
+    inline void serialize(std::string &out) const {
+        for (std::uint64_t w : bits_) {
+            write_u64(out, w);
+        }
+    }
+
+    static inline Node8 deserialize(std::string_view buf, std::size_t &pos) {
+        Node8 node{};
+        for (std::size_t i = 0; i < num_words; ++i) {
+            node.bits_[i] = read_u64(buf, pos);
+        }
+        return node;
     }
 
     // helper struct for count_range. allows passing either arg optionally
