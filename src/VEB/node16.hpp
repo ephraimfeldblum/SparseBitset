@@ -22,6 +22,7 @@
  * The layout of this node is as follows:
  *   - A pointer to a `cluster_data_t` structure containing:
  *       - An instance of a subnode, which serves as the summary.
+ *       - An instance of a subnode, which tracks unfilled clusters.
  *       - An array of subnodes representing individual clusters.
  *   - Two index fields (`min_` and `max_`) to lazily propagate the minimum and maximum elements.
  *   - An index field (`key_`) to identify which of the parent `Node32` clusters this node belongs to.
@@ -50,6 +51,7 @@ public:
 
 private:
     struct cluster_data_t {
+        alignas(2 * sizeof(subnode_t))
         subnode_t summary_;
         subnode_t unfilled_;
 #pragma GCC diagnostic push
@@ -696,12 +698,12 @@ public:
             return false;
         }
 
-        const auto s_summary{cluster_data_->summary_};
-        const auto s_unfilled{cluster_data_->unfilled_};
+        const auto& s_summary{cluster_data_->summary_};
+        const auto& s_unfilled{cluster_data_->unfilled_};
         const auto s_resident{cluster_data_->resident_mask()};
         const auto* s_clusters{cluster_data_->clusters_};
-        const auto o_summary{other.cluster_data_->summary_};
-        const auto o_unfilled{other.cluster_data_->unfilled_};
+        const auto& o_summary{other.cluster_data_->summary_};
+        const auto& o_unfilled{other.cluster_data_->unfilled_};
         const auto o_resident{other.cluster_data_->resident_mask()};
         const auto* o_clusters{other.cluster_data_->clusters_};
 
@@ -721,14 +723,14 @@ public:
         const auto new_size{merge_resident.size()};
 
         // If predicted upper limit of resident clusters fits in current capacity, use original clusters and do in-place merge
-        auto* merge_data = (new_size <= get_cap()) ? cluster_data_ : create(alloc, new_size, merge_summary, merge_unfilled);
-        auto* merge_clusters = merge_data->clusters_;
+        auto* merge_data{(new_size <= get_cap()) ? cluster_data_ : create(alloc, new_size, merge_summary, merge_unfilled)};
+        auto* merge_clusters{merge_data->clusters_};
 
         auto i{0uz};
         auto j{0uz};
         auto k{0uz};
         for (auto idx{std::make_optional(merge_summary.min())}; idx.has_value(); idx = merge_summary.successor(*idx)) {
-            const auto h = *idx;
+            const auto h{*idx};
             const auto re_s{s_resident.contains(h)};
             const auto re_o{o_resident.contains(h)};
 
@@ -808,12 +810,12 @@ public:
             return update_minmax();
         }
 
-        const auto s_summary{cluster_data_->summary_};
-        const auto s_unfilled{cluster_data_->unfilled_};
+        const auto& s_summary{cluster_data_->summary_};
+        const auto& s_unfilled{cluster_data_->unfilled_};
         const auto s_resident{cluster_data_->resident_mask()};
         const auto* s_clusters{cluster_data_->clusters_};
-        const auto o_summary{other.cluster_data_->summary_};
-        const auto o_unfilled{other.cluster_data_->unfilled_};
+        const auto& o_summary{other.cluster_data_->summary_};
+        const auto& o_unfilled{other.cluster_data_->unfilled_};
         const auto o_resident{other.cluster_data_->resident_mask()};
         const auto* o_clusters{other.cluster_data_->clusters_};
 
@@ -877,23 +879,21 @@ public:
         const auto materialize_min{!new_min.has_value() && resident.min() != int_summary.min()};
         const auto materialize_max{!new_max.has_value() && int_summary.min() != int_summary.max() && resident.max() != int_summary.max()};
         const auto resident_count{resident.size() + materialize_min + materialize_max};
-        const auto safe_to_inplace{resident_count <= get_cap()};
 
         // If predicted resident clusters exceed capacity, allocate a new cluster_data_t and write into it
-        auto* int_data = safe_to_inplace ? cluster_data_ : create(alloc, resident_count, int_summary, int_unfilled);
-        auto* int_clusters = int_data->clusters_;
+        auto* int_data{(resident_count <= get_cap()) ? cluster_data_ : create(alloc, resident_count, int_summary, int_unfilled)};
+        auto* int_clusters{int_data->clusters_};
 
         auto i{0uz};
         auto j{0uz};
         auto k{0uz};
-        auto merge_summary = s_summary;
+        auto merge_summary{s_summary};
         merge_summary.or_inplace(o_summary);
 
         for (auto idx{std::make_optional(merge_summary.min())}; idx.has_value(); idx = merge_summary.successor(*idx)) {
-            const auto h = *idx;
-            const bool in_s = s_resident.contains(h);
-            const bool in_o = o_resident.contains(h);
-            [[assume(in_s || in_o)]];
+            const auto h{*idx};
+            const bool in_s{s_resident.contains(h)};
+            const bool in_o{o_resident.contains(h)};
 
             // cluster not in intersection -> skip
             if (!int_summary.contains(h)) {
@@ -924,21 +924,20 @@ public:
                 continue;
             }
 
-            auto tmp = subnode_t::new_all();
-            if ((in_s && tmp.and_inplace(s_clusters[i++])) ||
+            if (auto tmp{subnode_t::new_all()};
+                (in_s && tmp.and_inplace(s_clusters[i++])) ||
                 (in_o && tmp.and_inplace(o_clusters[j++]))) {
                 if (int_summary.remove(h)) {
                     // last element removed -> update min/max and return
                     if (int_data != cluster_data_) {
-                        allocator_t a{alloc};
-                        a.deallocate(reinterpret_cast<subnode_t*>(int_data), resident_count + 2);
+                        allocator_t{alloc}.deallocate(reinterpret_cast<subnode_t*>(int_data), resident_count + 2);
                     }
                     return update_minmax();
                 }
                 continue;
+            } else {
+                int_clusters[k++] = tmp;
             }
-
-            int_clusters[k++] = tmp;
 
             // cluster is non-empty. check if we need to update min_. only happens once, at the 0'th cluster.
             // which might not end up being the true 0'th cluster if it gets removed here.
@@ -953,8 +952,7 @@ public:
                         // node is now clusterless, but not empty since min_ at least exists.
                         // update max_ and exit.
                         if (int_data != cluster_data_) {
-                            allocator_t a{alloc};
-                            a.deallocate(reinterpret_cast<subnode_t*>(int_data), resident_count + 2);
+                            allocator_t{alloc}.deallocate(reinterpret_cast<subnode_t*>(int_data), resident_count + 2);
                         }
                         destroy(alloc);
                         max_ = new_max.has_value() ? new_max.value() : min_;
@@ -973,12 +971,12 @@ public:
         }
 
         if (!new_max.has_value()) {
-            const auto max_hi{cluster_data_->summary_.max()};
-            if (!resident.contains(max_hi)) {
+            if (const auto max_hi{cluster_data_->summary_.max()}; !resident.contains(max_hi)) {
                 max_ = index(max_hi, static_cast<subindex_t>(255));
                 cluster_data_->unfilled_.insert(max_hi);
                 cluster_data_->clusters_[k++] = subnode_t::new_all_but(255);
-            } else if (max_ = index(max_hi, cluster_data_->clusters_[k - 1].max()); max_ != s_max && cluster_data_->clusters_[k - 1].remove(static_cast<subindex_t>(max_))) {
+            } else if (max_ = index(max_hi, cluster_data_->clusters_[k - 1].max());
+                       max_ != s_max && cluster_data_->clusters_[k - 1].remove(static_cast<subindex_t>(max_))) {
                 --k;
                 if (cluster_data_->summary_.remove(max_hi)) {
                     destroy(alloc);
@@ -1017,114 +1015,81 @@ public:
             set_cap(len);
             set_len(len);
         } else {
-            const auto s_summary{cluster_data_->summary_};
-            const auto s_unfilled{cluster_data_->unfilled_};
+            const auto& s_summary{cluster_data_->summary_};
+            const auto& s_unfilled{cluster_data_->unfilled_};
+            const auto s_resident{cluster_data_->resident_mask()};
             const auto* s_clusters{cluster_data_->clusters_};
-            const auto o_summary{other.cluster_data_->summary_};
-            const auto o_unfilled{other.cluster_data_->unfilled_};
+            const auto& o_summary{other.cluster_data_->summary_};
+            const auto& o_unfilled{other.cluster_data_->unfilled_};
+            const auto o_resident{other.cluster_data_->resident_mask()};
             const auto* o_clusters{other.cluster_data_->clusters_};
 
-            // pre compute maximal merged residency.
-            // if the size fits in capacity, we can do everything in place. since at most, we will be removing clusters
+            // pre compute maximal merged residency. if the size fits in capacity, we can do everything in place
             // this probably isn't the common case, but it's worth optimizing for nonetheless to avoid unnecessary allocations and copies
-            auto merge_summary{s_summary};
-            merge_summary.or_inplace(o_summary);
-            auto merge_unfilled{s_unfilled};
-            merge_unfilled.or_inplace(o_unfilled);
-            
-            auto s_resident{s_summary};
-            s_resident.and_inplace(s_unfilled);
-            auto o_resident{o_summary};
-            o_resident.and_inplace(o_unfilled);
-            
-            auto merge_resident_bound{s_resident};
-            merge_resident_bound.or_inplace(o_resident);
-            const auto resident_count{merge_resident_bound.size()};
+            auto diff_summary{s_summary};
+            diff_summary.or_inplace(o_summary);
+            auto diff_unfilled{s_unfilled};
+            diff_unfilled.or_inplace(o_unfilled);
+            auto diff_resident{s_resident};
+            diff_resident.or_inplace(o_resident);
+            const auto resident_count{diff_resident.size()};
 
-            // Prefer in-place merge if predicted resident clusters fit in current capacity
-            auto* merge_data{(resident_count <= get_cap()) ? cluster_data_ : create(alloc, resident_count, merge_summary, merge_unfilled)};
-            auto* merge_clusters{merge_data->clusters_};
+            auto* diff_data{(resident_count <= get_cap()) ? cluster_data_ : create(alloc, resident_count, diff_summary, diff_unfilled)};
+            auto* diff_clusters{diff_data->clusters_};
+
             auto i{0uz};
             auto j{0uz};
             auto k{0uz};
-
-            for (auto idx{std::make_optional(merge_summary.min())}; idx.has_value(); idx = merge_summary.successor(*idx)) {
-                const auto h = *idx;
-                const bool in_s = s_summary.contains(h);
-                const bool in_o = o_summary.contains(h);
-                const bool s_res = in_s && s_unfilled.contains(h);
-                const bool o_res = in_o && o_unfilled.contains(h);
+            for (auto idx{std::make_optional(diff_summary.min())}; idx.has_value(); idx = diff_summary.successor(*idx)) {
+                const auto h{*idx};
+                const bool in_s{s_summary.contains(h)};
+                const bool in_o{o_summary.contains(h)};
+                const bool re_s{s_resident.contains(h)};
+                const bool re_o{o_resident.contains(h)};
 
                 if (in_s && in_o) {
-                    if (!s_res && !o_res) {
-                        // both full -> empty result, remove from summary
-                        merge_summary.remove(h);
-                        merge_unfilled.insert(h);
-                    } else if (s_res && o_res) {
-                        auto tmp = s_clusters[i++];
-                        if (tmp.xor_inplace(o_clusters[j++])) {
-                            // became empty
-                            merge_summary.remove(h);
-                            merge_unfilled.insert(h);
-                        } else if (tmp.size() == 256) {
-                            // became full
-                            merge_unfilled.remove(h);
+                    if (re_s && re_o) {
+                        diff_clusters[k] = s_clusters[i++];
+                        if (diff_clusters[k].xor_inplace(o_clusters[j++])) {
+                            diff_summary.remove(h);
+                        } else if (diff_clusters[k].size() == 256) {
+                            diff_unfilled.remove(h);
                         } else {
-                            merge_clusters[k++] = tmp;
-                            merge_unfilled.insert(h);
+                            ++k;
                         }
-                    } else if (s_res) {
-                        // s resident, o full -> s NOT (resident)
-                        auto tmp = s_clusters[i++];
-                        tmp.not_inplace();
-                        if (tmp.size() == 256) { // can only happen if it was empty, but it wasn't
-                            merge_unfilled.remove(h);
-                        } else {
-                            merge_clusters[k++] = tmp;
-                            merge_unfilled.insert(h);
-                        }
-                    } else if (o_res) {
-                        // s full, o resident -> o NOT (resident)
-                        auto tmp = o_clusters[j++];
-                        tmp.not_inplace();
-                        if (tmp.size() == 256) {
-                            merge_unfilled.remove(h);
-                        } else {
-                            merge_clusters[k++] = tmp;
-                            merge_unfilled.insert(h);
-                        }
-                    }
-                } else if (in_s) {
-                    if (s_res) {
-                        merge_clusters[k++] = s_clusters[i++];
-                        merge_unfilled.insert(h);
+                    } else if (re_s) {
+                        diff_clusters[k] = s_clusters[i++];
+                        diff_clusters[k++].not_inplace();
+                    } else if (re_o) {
+                        diff_clusters[k] = o_clusters[j++];
+                        diff_clusters[k++].not_inplace();
                     } else {
-                        // s full, o empty -> full
-                        merge_unfilled.remove(h);
+                        // implicit in both. results empty
+                        diff_summary.remove(h);
+                        diff_unfilled.insert(h);
                     }
-                } else if (in_o) {
-                    if (o_res) {
-                        merge_clusters[k++] = o_clusters[j++];
-                        merge_unfilled.insert(h);
-                    } else {
-                        // s empty, o full -> full
-                        merge_unfilled.remove(h);
-                    }
+                } else if (re_s) {
+                    diff_clusters[k++] = s_clusters[i++];
+                } else if (re_o) {
+                    diff_clusters[k++] = o_clusters[j++];
+                } else {
+                    // in s or o but implicit full. remains full
+                    diff_unfilled.remove(h);
                 }
             }
 
-            merge_data->summary_ = merge_summary;
-            merge_data->unfilled_ = merge_unfilled;
-            if (merge_data != cluster_data_) {
+            diff_data->summary_ = diff_summary;
+            diff_data->unfilled_ = diff_unfilled;
+            if (diff_data != cluster_data_) {
                 destroy(alloc);
-                cluster_data_ = merge_data;
+                cluster_data_ = diff_data;
                 set_cap(resident_count);
             }
             set_len(k);
         }
 
-        // self must contain o_min if it was less than s_min due to the insert at the top of the function
-        // we handle the case where o_min == s_min below this handles the case where o_min > s_min
+        // self must contain o_min if s_min > o_min due to the insert at the top of the function
+        // we handle the case where s_min == o_min below. this handles the case where s_min < o_min
         // we do not need to check the return value here, as removing o_min cannot empty this node as s_min must exist
         if (s_min < o_min) {
             if (contains(o_min)) {
@@ -1140,9 +1105,10 @@ public:
                 insert(o_max, alloc);
             }
         }
-        // other contains s_min either if it was equal to o_min or in one of other's clusters.
+        // if other contains s_min then either it was equal to o_min or in one of other's clusters.
         // if it was equal to o_min, we pull up the next minimum from the clusters, which by now we know is not in other
         // if it was in one of the clusters, that cluster will still exist in self, so we need to remove it from the cluster
+        // if these removals empty the node, that means the node contained only s_min and s_max, and cluster_data was already nullptr
         return (other.contains(s_min) && remove(s_min, alloc)) ||
                (other.contains(s_max) && remove(s_max, alloc));
     }
@@ -1152,14 +1118,8 @@ public:
         constexpr inline bool operator()(const Node16& lhs, const Node16& rhs) const {
             return lhs.key_ == rhs.key_;
         }
-        constexpr inline bool operator()(const Node16& lhs, const index_t rhs) const {
-            return lhs.key_ == rhs;
-        }
         constexpr inline bool operator()(const index_t lhs, const Node16& rhs) const {
             return lhs == rhs.key_;
-        }
-        constexpr inline bool operator()(const index_t lhs, const index_t rhs) const {
-            return lhs == rhs;
         }
     };
     struct Hash {

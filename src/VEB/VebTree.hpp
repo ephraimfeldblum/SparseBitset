@@ -11,7 +11,7 @@
  * | min, max: u32                 | ← Lazily propagated. Not inserted into clusters.
  * | cluster_data: * {             | ← Lazily constructed only if non-empty.
  * |   summary : Node<16>          | ← Tracks which clusters are non-empty.
- * |   clusters: HashSet<Node<16>> | ← Up to √U clusters, each of size √U. Use HashSet to exploit cache locality.
+ * |   clusters: HashSet<Node<16>> | ← Up to √U clusters, each of size √U. Use HashSet to exploit padding bits in Node16 structure.
  * | }           |                 |
  * └─────────────|─────────────────┘
  * Node<16>      ▼
@@ -21,6 +21,7 @@
  * | cap, len: u8                  | ← Capacity and length of clusters array. 0 represents 256.
  * | cluster_data: * {             |
  * |   summary : Node<8>           | ← Used to index into clusters in constant time. Requires sorted clusters.
+ * |   unfilled: Node<8>           | ← Tracks which clusters are not full. Full clusters are implicit and not stored.
  * |   clusters: FAM<Node<8>>      | ← Up to 256 elements. Flexible array is more cache-friendly than HashMap.
  * | }           |                 |
  * └─────────────|─────────────────┘

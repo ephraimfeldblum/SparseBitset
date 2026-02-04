@@ -37,7 +37,8 @@ private:
     static constexpr int bits_per_word{std::numeric_limits<std::uint64_t>::digits};
     static constexpr int num_words{256 / bits_per_word};
 
-    alignas(xsimd::default_arch::alignment()) std::array<std::uint64_t, num_words> bits_{};
+    alignas(num_words * sizeof(std::uint64_t))
+    std::array<std::uint64_t, num_words> bits_{};
 
     static constexpr std::pair<subindex_t, subindex_t> decompose(index_t x) {
         return {x / bits_per_word, x % bits_per_word};
