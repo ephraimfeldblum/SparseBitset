@@ -173,7 +173,7 @@ private:
         if (len < cur_cap) {
             return;
         }
-        const auto new_cap{std::min(256uz, cur_cap + (cur_cap / 4) + 1)};
+        const auto new_cap{std::min(subnode_t::universe_size(), cur_cap + (cur_cap / 4) + 1)};
         auto* new_data = create(alloc, new_cap, cluster_data_, len);
         destroy(alloc);
         cluster_data_ = new_data;
@@ -197,7 +197,7 @@ private:
             }
             cluster_data_->clusters_[idx].insert(lo);
             // if the node becomes full, remove the resident node and mark it implicitly-filled
-            if (cluster_data_->clusters_[idx].size() == 256uz) {
+            if (cluster_data_->clusters_[idx].full()) {
                 const auto size{get_len()};
                 const auto begin{cluster_data_->clusters_ + idx + 1};
                 const auto end{cluster_data_->clusters_ + size};
@@ -226,7 +226,7 @@ private:
         if (cluster_data_ == nullptr) {
             return 0;
         }
-        return cap_ == 0 ? 256uz : static_cast<std::size_t>(cap_);
+        return cap_ == 0 ? subnode_t::universe_size() : cap_;
     }
     constexpr inline void set_cap(std::size_t c) {
         cap_ = static_cast<subindex_t>(c);
@@ -239,9 +239,9 @@ private:
         if (len_ == 0) {
             // len_ == 0 is overloaded to mean 256, but if we have zero resident clusters
             // (all clusters are implicitly-filled), we need to return 0 instead of 256.
-            return cluster_data_->resident_count() == 0 ? 0uz : 256uz;
+            return cluster_data_->resident_count() == 0 ? 0uz : subnode_t::universe_size();
         }
-        return static_cast<std::size_t>(len_);
+        return len_;
     }
     constexpr inline void set_len(std::size_t s) {
         len_ = static_cast<subindex_t>(s);
@@ -340,8 +340,21 @@ public:
 #endif
 
     static constexpr inline std::size_t universe_size() {
-        return std::numeric_limits<index_t>::max();
+        return 1uz + std::numeric_limits<index_t>::max();
     }
+
+    constexpr inline bool full() const {
+        // if the min and max are not the universe bounds, we cannot be full
+        if (min_ != 0 || max_ != universe_size() - 1 || cluster_data_ == nullptr) {
+            return false;
+        }
+        // we are full if all clusters are implicitly filled except min and max which are stored lazily
+        return get_len() == 2uz
+            && cluster_data_->summary_.full()
+            && cluster_data_->clusters_[0].size() == subnode_t::universe_size() - 1
+            && cluster_data_->clusters_[1].size() == subnode_t::universe_size() - 1;
+    }
+
     constexpr inline index_t min() const {
         return min_;
     }
@@ -541,7 +554,7 @@ public:
     // helper struct for count_range. allows passing either arg optionally
     struct count_range_args {
         index_t lo{static_cast<index_t>(0)};
-        index_t hi{static_cast<index_t>(universe_size())};
+        index_t hi{static_cast<index_t>(universe_size() - 1)};
     };
     constexpr inline std::size_t count_range(count_range_args args) const {
         const auto [lo, hi] {args};
@@ -569,7 +582,7 @@ public:
         // left cluster partial
         if (cluster_data_->summary_.contains(lcl)) {
             if (!cluster_data_->unfilled_.contains(lcl)) {
-                acc += 256uz - lidx;
+                acc += subnode_t::universe_size() - lidx;
             } else {
                 acc += find(lcl)->count_range({ .lo = lidx });
             }
@@ -597,7 +610,7 @@ public:
         auto nonresident_mask{cluster_data_->unfilled_};
         nonresident_mask.not_inplace();
         const auto nonresident{nonresident_mask.count_range({ .lo = lcl, .hi = hcl })};
-        acc += nonresident * 256uz;
+        acc += nonresident * subnode_t::universe_size();
 
         return acc;
     }
@@ -735,7 +748,7 @@ public:
             if (re_s && re_o) {
                 auto tmp{s_clusters[i++]};
                 tmp.or_inplace(o_clusters[j++]);
-                if (tmp.size() == 256uz) {
+                if (tmp.full()) {
                     merge_unfilled.remove(h);
                 } else {
                     merge_clusters[k++] = tmp;
@@ -1049,7 +1062,7 @@ public:
                     diff_clusters[k] = s_clusters[i++];
                     if (diff_clusters[k].xor_inplace(o_clusters[j++])) {
                         diff_summary.remove(h);
-                    } else if (diff_clusters[k].size() == 256uz) {
+                    } else if (diff_clusters[k].full()) {
                         diff_unfilled.remove(h);
                     } else {
                         ++k;

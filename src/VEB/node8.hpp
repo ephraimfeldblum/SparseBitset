@@ -35,7 +35,7 @@ private:
     using vec_type = xsimd::batch<std::uint64_t>;
 
     static constexpr int bits_per_word{std::numeric_limits<std::uint64_t>::digits};
-    static constexpr int num_words{256 / bits_per_word};
+    static constexpr int num_words{256uz / bits_per_word};
 
     alignas(num_words * sizeof(std::uint64_t))
     std::array<std::uint64_t, num_words> bits_{};
@@ -82,7 +82,7 @@ public:
     }
 
     static constexpr inline std::size_t universe_size() {
-        return std::numeric_limits<index_t>::max();
+        return 1uz + std::numeric_limits<index_t>::max();
     }
 
     constexpr inline index_t min() const {
@@ -177,6 +177,10 @@ public:
                std::popcount(bits_[2]) + std::popcount(bits_[3]);
     }
 
+    constexpr inline bool full() const {
+        return xsimd::all(load() == ~0ULL);
+    }
+
     // Serialization (32 bytes payload, little-endian u64 words)
     inline void serialize(std::string &out) const {
         for (std::uint64_t w : bits_) {
@@ -195,7 +199,7 @@ public:
     // helper struct for count_range. allows passing either arg optionally
     struct count_range_args {
         index_t lo{static_cast<index_t>(0)};
-        index_t hi{static_cast<index_t>(universe_size())};
+        index_t hi{static_cast<index_t>(universe_size() - 1)};
     };
     constexpr inline std::size_t count_range(count_range_args args) const {
         const auto [lo, hi] {args};

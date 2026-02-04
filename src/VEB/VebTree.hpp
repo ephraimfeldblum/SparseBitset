@@ -59,9 +59,9 @@ static_assert(sizeof(Node64) == 24, "Node64 size is incorrect");
  * A van Emde Boas tree that automatically selects the appropriate node type
  * based on the universe size:
  * - Node8 for universe < 256 (2^8)
- * - Node16 for universe < 65536 (2^16)
- * - Node32 for universe < 4294967296 (2^32)
- * - Node64 for universe < 18446744073709551616 (2^64)
+ * - Node16 for universe < 65,536 (2^16)
+ * - Node32 for universe < 4,294,967,296 (2^32)
+ * - Node64 for universe < 9,223,372,036,854,775,808 (2^63)
  */
 struct VebTree {
 private:
@@ -71,11 +71,11 @@ private:
     std::size_t max_seen_{0};
 
     static inline StorageType create_storage(std::size_t x) {
-        if (x <= Node8::universe_size()) {
+        if (x < Node8::universe_size()) {
             return Node8::new_with(static_cast<Node8::index_t>(x));
-        } else if (x <= Node16::universe_size()) {
+        } else if (x < Node16::universe_size()) {
             return Node16::new_with(0, static_cast<Node16::index_t>(x));
-        } else if (x <= Node32::universe_size()) {
+        } else if (x < Node32::universe_size()) {
             return Node32::new_with(static_cast<Node32::index_t>(x));
         } else {
             return Node64::new_with(static_cast<Node64::index_t>(x));
@@ -212,14 +212,14 @@ public:
                     storage_ = create_storage(x);
                 },
                 [&](Node8& s) {
-                    if (x > s.universe_size()) {
+                    if (x >= s.universe_size()) {
                         grow_storage(x, allocated_);
                     } else {
                         s.insert(static_cast<Node8::index_t>(x));
                     }
                 },
                 [&](auto& s) {
-                    if (x > s.universe_size()) {
+                    if (x >= s.universe_size()) {
                         grow_storage(x, allocated_);
                     } else {
                         s.insert(static_cast<index_t<decltype(s)>>(x), allocated_);
@@ -242,12 +242,12 @@ public:
             overload{
                 [](std::monostate) {},
                 [&](Node8& s) {
-                    if (x <= s.universe_size() && s.remove(static_cast<Node8::index_t>(x))) {
+                    if (x < s.universe_size() && s.remove(static_cast<Node8::index_t>(x))) {
                         storage_ = std::monostate{};
                     }
                 },
                 [&](auto& s) {
-                    if (x <= s.universe_size() && s.remove(static_cast<index_t<decltype(s)>>(x), allocated_)) {
+                    if (x < s.universe_size() && s.remove(static_cast<index_t<decltype(s)>>(x), allocated_)) {
                         s.destroy(allocated_);
                         storage_ = std::monostate{};
                     }
@@ -268,7 +268,7 @@ public:
             overload{
                 [](std::monostate) { return false; },
                 [&](const auto& s) {
-                    return x <= s.universe_size() && s.contains(static_cast<index_t<decltype(s)>>(x));
+                    return x < s.universe_size() && s.contains(static_cast<index_t<decltype(s)>>(x));
                 },
             },
             storage_);
@@ -314,7 +314,7 @@ public:
                     if (x == 0) {
                         return std::nullopt;
                     }
-                    if (x > s.universe_size()) {
+                    if (x >= s.universe_size()) {
                         return s.max();
                     }
                     return s.predecessor(static_cast<index_t<decltype(s)>>(x))
@@ -411,7 +411,7 @@ public:
                     if (start > maxv || end < minv) {
                         return 0;
                     }
-                    end = std::min(end, n.universe_size());
+                    end = std::min(end, n.universe_size() - 1);
                     const auto lo = std::max(static_cast<index_t<NodeType>>(start), minv);
                     const auto hi = std::min(static_cast<index_t<NodeType>>(end), maxv);
                     return n.count_range({ .lo = lo, .hi = hi });
