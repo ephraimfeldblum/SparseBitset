@@ -91,7 +91,7 @@ private:
 
         // range is inclusive: [lo, hi] to handle 256-element array counts correctly
         // This counts raw bits across the packed resident clusters starting at `lo`/`hi` indices.
-        constexpr inline std::size_t count(subindex_t lo, subindex_t hi) const {
+        constexpr inline std::size_t count_resident_bits(subindex_t lo, subindex_t hi) const {
             const auto* const data{reinterpret_cast<const std::uint64_t*>(clusters_ + lo)};
             const auto num_words{(hi + 1 - lo) * sizeof *clusters_ / sizeof *data};
 
@@ -197,7 +197,7 @@ private:
             }
             cluster_data_->clusters_[idx].insert(lo);
             // if the node becomes full, remove the resident node and mark it implicitly-filled
-            if (cluster_data_->clusters_[idx].size() == 256) {
+            if (cluster_data_->clusters_[idx].size() == 256uz) {
                 const auto size{get_len()};
                 const auto begin{cluster_data_->clusters_ + idx + 1};
                 const auto end{cluster_data_->clusters_ + size};
@@ -535,14 +535,7 @@ public:
     }
 
     constexpr inline std::size_t size() const {
-        const auto base_count{(min_ == max_) ? 1uz : 2uz};
-        if (cluster_data_ == nullptr) {
-            return base_count;
-        }
-        const auto resident_count = cluster_data_->resident_count();
-        const auto resident_bits = resident_count == 0 ? 0 : cluster_data_->count(static_cast<subindex_t>(0), static_cast<subindex_t>(get_len() - 1));
-        const auto implicit_clusters = cluster_data_->summary_.size() - resident_count;
-        return base_count + resident_bits + implicit_clusters * static_cast<std::size_t>(256);
+        return count_range({});
     }
 
     // helper struct for count_range. allows passing either arg optionally
@@ -565,9 +558,9 @@ public:
         if (lcl == hcl) {
             if (cluster_data_->summary_.contains(lcl)) {
                 if (!cluster_data_->unfilled_.contains(lcl)) {
-                    acc += static_cast<std::size_t>(hidx - lidx + 1);
-                } else if (const auto* cluster{find(lcl)}; cluster != nullptr) {
-                    acc += cluster->count_range({ .lo = lidx, .hi = hidx});
+                    acc += 1uz + hidx - lidx;
+                } else {
+                    acc += find(lcl)->count_range({ .lo = lidx, .hi = hidx });
                 }
             }
             return acc;
@@ -576,30 +569,35 @@ public:
         // left cluster partial
         if (cluster_data_->summary_.contains(lcl)) {
             if (!cluster_data_->unfilled_.contains(lcl)) {
-                acc += static_cast<std::size_t>(256 - lidx);
-            } else if (const auto* cluster{find(lcl)}; cluster != nullptr) {
-                acc += cluster->count_range({ .lo = lidx });
+                acc += 256uz - lidx;
+            } else {
+                acc += find(lcl)->count_range({ .lo = lidx });
             }
         }
 
         // right cluster partial
         if (cluster_data_->summary_.contains(hcl)) {
             if (!cluster_data_->unfilled_.contains(hcl)) {
-                acc += static_cast<std::size_t>(hidx + 1);
-            } else if (const auto* cluster{find(hcl)}; cluster != nullptr) {
-                acc += cluster->count_range({ .hi = hidx });
+                acc += 1uz + hidx;
+            } else {
+                acc += find(hcl)->count_range({ .hi = hidx });
             }
         }
 
-        // fully covered internal clusters: iterate summary between lcl and hcl
-        for (auto ci{cluster_data_->summary_.successor(lcl)}; ci.has_value() && *ci < hcl; ci = cluster_data_->summary_.successor(*ci)) {
-            if (!cluster_data_->unfilled_.contains(*ci)) {
-                acc += static_cast<std::size_t>(256);
-            } else {
-                const auto idx = cluster_data_->index_of(*ci);
-                acc += cluster_data_->clusters_[idx].size();
-            }
+        const auto resident_mask{cluster_data_->resident_mask()};
+        const auto from{resident_mask.successor(lcl)};
+        const auto to{resident_mask.predecessor(hcl)};
+        if (from.has_value() && to.has_value() && from.value() <= to.value()) {
+            acc += cluster_data_->count_resident_bits(
+                cluster_data_->index_of(from.value()),
+                cluster_data_->index_of(to.value())
+            );
         }
+
+        auto nonresident_mask{cluster_data_->unfilled_};
+        nonresident_mask.not_inplace();
+        const auto nonresident{nonresident_mask.count_range({ .lo = lcl, .hi = hcl })};
+        acc += nonresident * 256uz;
 
         return acc;
     }
@@ -737,7 +735,7 @@ public:
             if (re_s && re_o) {
                 auto tmp{s_clusters[i++]};
                 tmp.or_inplace(o_clusters[j++]);
-                if (tmp.size() == 256) {
+                if (tmp.size() == 256uz) {
                     merge_unfilled.remove(h);
                 } else {
                     merge_clusters[k++] = tmp;
@@ -1051,7 +1049,7 @@ public:
                     diff_clusters[k] = s_clusters[i++];
                     if (diff_clusters[k].xor_inplace(o_clusters[j++])) {
                         diff_summary.remove(h);
-                    } else if (diff_clusters[k].size() == 256) {
+                    } else if (diff_clusters[k].size() == 256uz) {
                         diff_unfilled.remove(h);
                     } else {
                         ++k;
