@@ -207,7 +207,7 @@ public:
             } else {
                 const auto min_cluster{cluster_data_->summary.min()};
                 [[assume(cluster_data_->summary.contains(min_cluster))]];
-                const auto it_min = cluster_data_->clusters.find(min_cluster);
+                const auto it_min{cluster_data_->clusters.find(min_cluster)};
                 [[assume(it_min != cluster_data_->clusters.end())]];
                 const auto min_element{it_min->min()};
                 x = min_ = index(min_cluster, min_element);
@@ -220,7 +220,7 @@ public:
             } else {
                 const auto max_cluster{cluster_data_->summary.max()};
                 [[assume(cluster_data_->summary.contains(max_cluster))]];
-                const auto it_max = cluster_data_->clusters.find(max_cluster);
+                const auto it_max{cluster_data_->clusters.find(max_cluster)};
                 [[assume(it_max != cluster_data_->clusters.end())]];
                 const auto max_element{it_max->max()};
                 x = max_ = index(max_cluster, max_element);
@@ -250,7 +250,9 @@ public:
             return true;
         }
 
-        if (cluster_data_ == nullptr) return false;
+        if (cluster_data_ == nullptr) {
+            return false;
+        }
 
         const auto [h, l] {decompose(x)};
         if (auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end()) {
@@ -281,7 +283,7 @@ public:
 
         if (auto succ_cluster{cluster_data_->summary.successor(h)}; succ_cluster.has_value()) {
             [[assume(cluster_data_->summary.contains(*succ_cluster))]];
-            const auto it = cluster_data_->clusters.find(*succ_cluster);
+            const auto it{cluster_data_->clusters.find(*succ_cluster)};
             [[assume(it != cluster_data_->clusters.end())]];
             const auto min_element{it->min()};
             return index(*succ_cluster, min_element);
@@ -312,7 +314,7 @@ public:
 
         if (auto pred_cluster{cluster_data_->summary.predecessor(h)}; pred_cluster.has_value()) {
             [[assume(cluster_data_->summary.contains(*pred_cluster))]];
-            const auto it = cluster_data_->clusters.find(*pred_cluster);
+            const auto it{cluster_data_->clusters.find(*pred_cluster)};
             [[assume(it != cluster_data_->clusters.end())]];
             const auto max_element{it->max()};
             return index(*pred_cluster, max_element);
@@ -412,7 +414,7 @@ public:
         write_u32(out, static_cast<std::uint32_t>(cluster_data_->clusters.size()));
         cluster_data_->summary.serialize(out);
 
-        for (auto idx = std::make_optional(cluster_data_->summary.min()); idx.has_value(); idx = cluster_data_->summary.successor(idx.value())) {
+        for (auto idx{std::make_optional(cluster_data_->summary.min())}; idx.has_value(); idx = cluster_data_->summary.successor(idx.value())) {
             [[assume(cluster_data_->summary.contains(idx.value()))]];
             cluster_data_->clusters.find(idx.value())->serialize(out);
         }
@@ -423,7 +425,7 @@ public:
         node.min_ = read_u32(buf, pos);
         node.max_ = read_u32(buf, pos);
 
-        const auto len = read_u32(buf, pos);
+        const auto len{read_u32(buf, pos)};
         if (len == 0) {
             return node;
         }
@@ -436,8 +438,7 @@ public:
         node.cluster_data_->clusters.reserve(len);
         auto key{std::make_optional(node.cluster_data_->summary.min())};
         for (std::size_t i = 0; i < len; ++i) {
-            auto cluster = subnode_t::deserialize(buf, pos, alloc);
-            [[assume(key.has_value())]];
+            auto cluster{subnode_t::deserialize(buf, pos, alloc)};
             cluster.set_key(key.value());
             node.cluster_data_->clusters.emplace(std::move(cluster));
             key = node.cluster_data_->summary.successor(key.value());
@@ -530,7 +531,7 @@ public:
             // if the summary no longer contains this cluster, it was removed during the intersection
             auto& cluster{const_cast<subnode_t&>(*it)};
             const auto key{cluster.key()};
-            if (auto o_it = o_clusters.find(key); !s_summary.contains(key) || cluster.and_inplace(*o_it, alloc)) {
+            if (auto o_it{o_clusters.find(key)}; !s_summary.contains(key) || cluster.and_inplace(*o_it, alloc)) {
                 cluster.destroy(alloc);
                 it = s_clusters.erase(it);
                 if (s_summary.remove(key, alloc)) {
@@ -542,14 +543,14 @@ public:
             }
         }
 
-        const auto sum_max = s_summary.max();
+        const auto sum_max{s_summary.max()};
         [[assume(s_summary.contains(sum_max))]];
-        const auto it_max = s_clusters.find(sum_max);
+        const auto it_max{s_clusters.find(sum_max)};
         [[assume(it_max != s_clusters.end())]];
         auto& c_max = const_cast<subnode_t&>(*it_max);
-        const auto sum_min = s_summary.min();
+        const auto sum_min{s_summary.min()};
         [[assume(s_summary.contains(sum_min))]];
-        const auto it_min = s_clusters.find(sum_min);
+        const auto it_min{s_clusters.find(sum_min)};
         [[assume(it_min != s_clusters.end())]];
         auto& c_min = const_cast<subnode_t&>(*it_min);
 

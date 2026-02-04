@@ -400,7 +400,9 @@ public:
      * of over each element via repeated `successor` calls.
      */
     inline std::size_t count_range(std::size_t start, std::size_t end) const {
-        if (start > end) return 0;
+        if (start > end) {
+            return 0;
+        }
         return std::visit(
             overload{
                 [](std::monostate) -> std::size_t { return 0; },
@@ -412,8 +414,8 @@ public:
                         return 0;
                     }
                     end = std::min(end, n.universe_size() - 1);
-                    const auto lo = std::max(static_cast<index_t<NodeType>>(start), minv);
-                    const auto hi = std::min(static_cast<index_t<NodeType>>(end), maxv);
+                    const auto lo{std::max(static_cast<index_t<NodeType>>(start), minv)};
+                    const auto hi{std::min(static_cast<index_t<NodeType>>(end), maxv)};
                     return n.count_range({ .lo = lo, .hi = hi });
                 },
             },

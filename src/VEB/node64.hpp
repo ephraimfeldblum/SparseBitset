@@ -400,8 +400,7 @@ public:
 
         cluster_data_->summary.serialize(out);
 
-        for (auto idx = std::make_optional(cluster_data_->summary.min()); idx.has_value(); idx = cluster_data_->summary.successor(idx.value())) {
-            [[assume(cluster_data_->summary.contains(idx.value()))]];
+        for (auto idx{std::make_optional(cluster_data_->summary.min())}; idx.has_value(); idx = cluster_data_->summary.successor(idx.value())) {
             cluster_data_->clusters.find(idx.value())->second.serialize(out);
         }
     }
@@ -411,7 +410,7 @@ public:
         node.min_ = read_u64(buf, pos);
         node.max_ = read_u64(buf, pos);
 
-        const auto len = read_u64(buf, pos);
+        const auto len{read_u64(buf, pos)};
         if (len == 0) {
             return node;
         }
@@ -424,8 +423,7 @@ public:
         node.cluster_data_->clusters.reserve(len);
         auto key{std::make_optional(node.cluster_data_->summary.min())};
         for (std::size_t i = 0; i < len; ++i) {
-            auto cluster = subnode_t::deserialize(buf, pos, alloc);
-            [[assume(key.has_value())]];
+            auto cluster{subnode_t::deserialize(buf, pos, alloc)};
             node.cluster_data_->clusters.emplace(key.value(), std::move(cluster));
             key = node.cluster_data_->summary.successor(key.value());
         }
@@ -525,10 +523,10 @@ public:
             }
         }
 
-        const auto sum_max = s_summary.max();
+        const auto sum_max{s_summary.max()};
         [[assume(s_summary.contains(sum_max))]];
         auto& c_max = s_clusters.at(sum_max);
-        const auto sum_min = s_summary.min();
+        const auto sum_min{s_summary.min()};
         [[assume(s_summary.contains(sum_min))]];
         auto& c_min = s_clusters.at(sum_min);
 

@@ -61,7 +61,7 @@ private:
 
         // resident mask = summary_ & unfilled_
         constexpr inline subnode_t resident_mask() const {
-            auto r = summary_;
+            auto r{summary_};
             r.and_inplace(unfilled_);
             return r;
         }
@@ -73,14 +73,14 @@ private:
             if (x == 0) {
                 return 0;
             }
-            const auto resident = resident_mask();
+            const auto resident{resident_mask()};
             return static_cast<subindex_t>(resident.count_range({ .hi = static_cast<subindex_t>(x - 1) }));
         }
         constexpr inline subnode_t* find(subindex_t x) {
-            return (summary_.contains(x) && unfilled_.contains(x)) ? &clusters_[index_of(x)] : nullptr;
+            return resident_mask().contains(x) ? &clusters_[index_of(x)] : nullptr;
         }
         constexpr inline const subnode_t* find(subindex_t x) const {
-            return (summary_.contains(x) && unfilled_.contains(x)) ? &clusters_[index_of(x)] : nullptr;
+            return resident_mask().contains(x) ? &clusters_[index_of(x)] : nullptr;
         }
         constexpr inline std::size_t size() const {
             return summary_.size();
@@ -135,7 +135,7 @@ private:
         auto* data = reinterpret_cast<cluster_data_t*>(a.allocate(cap + 2));
         data->summary_ = other->summary_;
         data->unfilled_ = other->unfilled_;
-        const auto copy_count = std::min(cap, other_size);
+        const auto copy_count{std::min(cap, other_size)};
         std::copy_n(
 #ifdef __cpp_lib_execution
             std::execution::unseq,
@@ -414,8 +414,6 @@ public:
 
         // If cluster exists implicitly (filled) we need to materialize it as all-but-l and mark it resident
         if (cluster_data_->summary_.contains(h) && !cluster_data_->unfilled_.contains(h)) {
-            // materialize an all-but-l node
-            auto node = subnode_t::new_all_but(l);
             grow(alloc);
             const auto idx{cluster_data_->index_of(h)};
             const auto size{get_len()};
@@ -424,7 +422,7 @@ public:
                 const auto end{cluster_data_->clusters_ + size};
                 std::move_backward(begin, end, end + 1);
             }
-            cluster_data_->clusters_[idx] = node;
+            cluster_data_->clusters_[idx] = subnode_t::new_all_but(l);
             cluster_data_->unfilled_.insert(h);
             set_len(size + 1);
             return false;
@@ -500,7 +498,7 @@ public:
             if (!cluster_data_->unfilled_.contains(*succ_cluster)) {
                 return std::make_optional(index(*succ_cluster, static_cast<subindex_t>(0)));
             }
-            const auto idx = cluster_data_->index_of(*succ_cluster);
+            const auto idx{cluster_data_->index_of(*succ_cluster)};
             const auto min_element{cluster_data_->clusters_[idx].min()};
             return std::make_optional(index(*succ_cluster, min_element));
         }
@@ -539,7 +537,7 @@ public:
             if (!cluster_data_->unfilled_.contains(*pred_cluster)) {
                 return std::make_optional(index(*pred_cluster, static_cast<subindex_t>(255)));
             }
-            const auto idx = cluster_data_->index_of(*pred_cluster);
+            const auto idx{cluster_data_->index_of(*pred_cluster)};
             const auto max_element{cluster_data_->clusters_[idx].max()};
             return std::make_optional(index(*pred_cluster, max_element));
         }

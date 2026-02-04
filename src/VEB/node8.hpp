@@ -234,37 +234,37 @@ public:
     //  1 | 1 |  0 |   1   |   1   |   0   |   0
 
     constexpr inline bool not_inplace() {
-        auto v = load();
+        auto v{load()};
         store(~v);
         return empty();
     }
 
     constexpr inline bool or_inplace(const Node8& other) {
-        auto v1 = load();
-        auto v2 = other.load();
+        auto v1{load()};
+        auto v2{other.load()};
         store(v1 | v2);
         // no need to check for emptiness, or can only ever grow a set
         return false;
     }
 
     constexpr inline bool xor_inplace(const Node8& other) {
-        auto v1 = load();
-        auto v2 = other.load();
+        auto v1{load()};
+        auto v2{other.load()};
         store(v1 ^ v2);
         return empty();
     }
 
     constexpr inline bool and_inplace(const Node8& other) {
-        auto v1 = load();
-        auto v2 = other.load();
+        auto v1{load()};
+        auto v2{other.load()};
         store(v1 & v2);
         return empty();
     }
 
     // difference: A \ B
     constexpr inline bool andnot_inplace(const Node8& other) {
-        auto v1 = load();
-        auto v2 = other.load();
+        auto v1{load()};
+        auto v2{other.load()};
         store(xsimd::bitwise_andnot(v2, v1));
         return empty();
     }

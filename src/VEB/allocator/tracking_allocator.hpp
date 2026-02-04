@@ -84,7 +84,9 @@ public:
      * @return Pointer to the allocated memory, or nullptr if allocation fails
      */
     pointer allocate(size_type n) noexcept {
-        if (n == 0) return nullptr;
+        if (n == 0) {
+            return nullptr;
+        }
 
         // Check for overflow
         if (n > max_size()) {
@@ -109,7 +111,9 @@ public:
      * @param n Number of objects that were allocated
      */
     void deallocate(pointer ptr, size_type n) noexcept {
-        if (ptr == nullptr || n == 0) return;
+        if (ptr == nullptr || n == 0) {
+            return;
+        }
 
         const size_type bytes = n * sizeof(T);
         bytes_allocated_ -= bytes;
