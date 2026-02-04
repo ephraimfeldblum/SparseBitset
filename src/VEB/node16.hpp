@@ -1047,33 +1047,31 @@ public:
                 const bool re_s{s_resident.contains(h)};
                 const bool re_o{o_resident.contains(h)};
 
-                if (in_s && in_o) {
-                    if (re_s && re_o) {
-                        diff_clusters[k] = s_clusters[i++];
-                        if (diff_clusters[k].xor_inplace(o_clusters[j++])) {
-                            diff_summary.remove(h);
-                        } else if (diff_clusters[k].size() == 256) {
-                            diff_unfilled.remove(h);
-                        } else {
-                            ++k;
-                        }
-                    } else if (re_s) {
-                        diff_clusters[k] = s_clusters[i++];
-                        diff_clusters[k++].not_inplace();
-                    } else if (re_o) {
-                        diff_clusters[k] = o_clusters[j++];
-                        diff_clusters[k++].not_inplace();
-                    } else {
-                        // implicit in both. results empty
+                if (re_s && re_o) {
+                    diff_clusters[k] = s_clusters[i++];
+                    if (diff_clusters[k].xor_inplace(o_clusters[j++])) {
                         diff_summary.remove(h);
-                        diff_unfilled.insert(h);
+                    } else if (diff_clusters[k].size() == 256) {
+                        diff_unfilled.remove(h);
+                    } else {
+                        ++k;
                     }
-                } else if (re_s) {
-                    diff_clusters[k++] = s_clusters[i++];
-                } else if (re_o) {
-                    diff_clusters[k++] = o_clusters[j++];
-                } else {
-                    // in s or o but implicit full. remains full
+                } else if (re_s) {         // resident in s only
+                    diff_clusters[k] = s_clusters[i++];
+                    if (in_o) {            // implicit in o
+                        diff_clusters[k].not_inplace();
+                    }
+                    ++k;
+                } else if (re_o) {         // resident in o only
+                    diff_clusters[k] = o_clusters[j++];
+                    if (in_s) {            // implicit in s
+                        diff_clusters[k].not_inplace();
+                    }
+                    ++k;
+                } else if (in_s && in_o) { // implicit in s and o. results empty
+                    diff_summary.remove(h);
+                    diff_unfilled.insert(h);
+                } else {                   // implicit in s xor o. remains implicit
                     diff_unfilled.remove(h);
                 }
             }
