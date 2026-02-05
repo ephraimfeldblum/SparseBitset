@@ -194,6 +194,15 @@ public:
         } else if (auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end()) {
             auto& cluster{const_cast<subnode_t&>(*it)};
             cluster.insert(l, alloc);
+            if (cluster.full()) {
+                // convert to implicit representation
+                cluster.destroy(alloc);
+                cluster_data_->clusters.erase(it);
+            }
+        } else if (cluster_data_->summary.contains(h)) {
+            // cluster is already implicit; nothing to do
+            return;
+
         } else {
             cluster_data_->summary.insert(h, alloc);
             cluster_data_->clusters.emplace(subnode_t::new_with(h, l));
@@ -239,6 +248,11 @@ public:
                         destroy(alloc);
                     }
                 }
+            } else if (cluster_data_->summary.contains(h)) {
+                // cluster is implicitly full; removing `l` means we need to materialize all-but-l
+                auto c{subnode_t::new_all_but(l, alloc)};
+                c.set_key(h);
+                cluster_data_->clusters.emplace(std::move(c));
             }
         }
 
@@ -258,7 +272,8 @@ public:
         if (auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end()) {
             return it->contains(l);
         }
-        return false;
+        // if summary says cluster exists but no resident child present, it is implicit
+        return cluster_data_->summary.contains(h);
     }
 
     constexpr inline std::optional<index_t> successor(index_t x) const {
@@ -275,18 +290,20 @@ public:
 
         const auto [h, l] {decompose(x)};
 
+        // if cluster is resident
         if (auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end() && l < it->max()) {
             if (auto succ{it->successor(l)}; succ.has_value()) {
-                return index(h, *succ);
+                return std::make_optional(index(h, *succ));
             }
+        } else if (cluster_data_->summary.contains(h) && l < static_cast<subindex_t>(subnode_t::universe_size() - 1)) {
+            // if cluster is full, next is x+1
+            return std::make_optional(x + 1);
         }
 
         if (auto succ_cluster{cluster_data_->summary.successor(h)}; succ_cluster.has_value()) {
-            [[assume(cluster_data_->summary.contains(*succ_cluster))]];
             const auto it{cluster_data_->clusters.find(*succ_cluster)};
-            [[assume(it != cluster_data_->clusters.end())]];
-            const auto min_element{it->min()};
-            return index(*succ_cluster, min_element);
+            const auto min_element{it != cluster_data_->clusters.end() ? it->min() : static_cast<subindex_t>(0)};
+            return std::make_optional(index(*succ_cluster, min_element));
         }
 
         return std::make_optional(max_);
@@ -308,34 +325,31 @@ public:
 
         if (auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end() && l > it->min()) {
             if (auto pred{it->predecessor(l)}; pred.has_value()) {
-                return index(h, *pred);
+                return std::make_optional(index(h, *pred));
             }
+        } else if (cluster_data_->summary.contains(h) && l > static_cast<subindex_t>(0)) {
+            return std::make_optional(x - 1);
         }
 
         if (auto pred_cluster{cluster_data_->summary.predecessor(h)}; pred_cluster.has_value()) {
-            [[assume(cluster_data_->summary.contains(*pred_cluster))]];
             const auto it{cluster_data_->clusters.find(*pred_cluster)};
-            [[assume(it != cluster_data_->clusters.end())]];
-            const auto max_element{it->max()};
-            return index(*pred_cluster, max_element);
+            const auto max_element{it != cluster_data_->clusters.end() ? it->max() : static_cast<subindex_t>(subnode_t::universe_size() - 1)};
+            return std::make_optional(index(*pred_cluster, max_element));
         }
 
         return std::make_optional(min_);
     }
 
     constexpr inline std::size_t size() const {
-        std::size_t base_count = (min_ == max_) ? 1uz : 2uz;
+        auto acc{(min_ == max_) ? 1uz : 2uz};
 
         if (cluster_data_ == nullptr) {
-            return base_count;
+            return acc;
         }
-
+        acc += (cluster_data_->summary.size() - cluster_data_->clusters.size()) * subnode_t::universe_size();
         return std::transform_reduce(
-#ifdef __cpp_lib_execution
-            std::execution::par_unseq,
-#endif
             cluster_data_->clusters.begin(), cluster_data_->clusters.end(),
-            base_count, std::plus<>{}, [](const auto& cluster) { return cluster.size(); }
+            acc, std::plus<>{}, [](const auto& cluster) { return cluster.size(); }
         );
     }
 
@@ -346,12 +360,12 @@ public:
     };
     constexpr inline std::size_t count_range(count_range_args args) const {
         const auto [lo, hi] {args};
-        auto total{static_cast<std::size_t>(
+        auto acc{static_cast<std::size_t>(
             (lo <= min_ && min_ <= hi) + (max_ != min_ && lo <= max_ && max_ <= hi)
         )};
 
         if (cluster_data_ == nullptr) {
-            return total;
+            return acc;
         }
 
         const auto& summary{cluster_data_->summary};
@@ -360,24 +374,40 @@ public:
         const auto [lcl, lidx] {decompose(lo)};
         const auto [hcl, hidx] {decompose(hi)};
         if (lcl == hcl) {
-            if (const auto it{clusters.find(lcl)}; it != clusters.end()) {
-                total += it->count_range({ .lo = lidx, .hi = hidx });
+            if (summary.contains(lcl)) {
+                if (const auto it{clusters.find(lcl)}; it != clusters.end()) {
+                    acc += it->count_range({ .lo = lidx, .hi = hidx });
+                } else {
+                    acc += 1uz + hidx - lidx;
+                }
             }
-            return total;
+            return acc;
         }
 
-        if (const auto it{clusters.find(lcl)}; it != clusters.end()) {
-            total += it->count_range({ .lo = lidx });
+        if (summary.contains(lcl)) {
+            if (const auto it{clusters.find(lcl)}; it != clusters.end()) {
+                acc += it->count_range({ .lo = lidx });
+            } else {
+                acc += subnode_t::universe_size() - lidx;
+            }
         }
-        if (const auto it{clusters.find(hcl)}; it != clusters.end()) {
-            total += it->count_range({ .hi = hidx });
+        if (summary.contains(hcl)) {
+            if (const auto it{clusters.find(hcl)}; it != clusters.end()) {
+                acc += it->count_range({ .hi = hidx });
+            } else {
+                acc += 1uz + hidx;
+            }
         }
 
-        for (auto i{summary.successor(lcl)}; i.has_value() && i.value() < hcl; i = summary.successor(i.value())) {
-            total += clusters.find(i.value())->size();
+        for (auto idx{summary.successor(lcl)}; idx.has_value() && idx.value() < hcl; idx = summary.successor(idx.value())) {
+            if (const auto it{clusters.find(idx.value())}; it != clusters.end()) {
+                acc += it->size();
+            } else {
+                acc += subnode_t::universe_size();
+            }
         }
 
-        return total;
+        return acc;
     }
 
     constexpr inline VebTreeMemoryStats get_memory_stats() const {
@@ -411,12 +441,18 @@ public:
             return;
         }
 
-        write_u32(out, static_cast<std::uint32_t>(cluster_data_->clusters.size()));
+        // write number of summary entries so deserializer knows how many summary positions to expect
+        write_u32(out, static_cast<std::uint32_t>(cluster_data_->summary.size()));
         cluster_data_->summary.serialize(out);
 
         for (auto idx{std::make_optional(cluster_data_->summary.min())}; idx.has_value(); idx = cluster_data_->summary.successor(idx.value())) {
             [[assume(cluster_data_->summary.contains(idx.value()))]];
-            cluster_data_->clusters.find(idx.value())->serialize(out);
+            if (auto it{cluster_data_->clusters.find(idx.value())}; it != cluster_data_->clusters.end()) {
+                write_u8(out, 1);
+                it->serialize(out);
+            } else {
+                write_u8(out, 0);
+            }
         }
     }
 
@@ -438,9 +474,12 @@ public:
         node.cluster_data_->clusters.reserve(len);
         auto key{std::make_optional(node.cluster_data_->summary.min())};
         for (std::size_t i = 0; i < len; ++i) {
-            auto cluster{subnode_t::deserialize(buf, pos, alloc)};
-            cluster.set_key(key.value());
-            node.cluster_data_->clusters.emplace(std::move(cluster));
+            auto flag{read_u8(buf, pos)};
+            if (flag) {
+                auto cluster{subnode_t::deserialize(buf, pos, alloc)};
+                cluster.set_key(key.value());
+                node.cluster_data_->clusters.emplace(std::move(cluster));
+            }
             key = node.cluster_data_->summary.successor(key.value());
         }
 

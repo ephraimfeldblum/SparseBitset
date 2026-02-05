@@ -279,6 +279,39 @@ public:
         return node;
     }
 
+    // Create a Node16 with all bits set except `x`.
+    static constexpr inline Node16 new_all_but(index_t x, std::size_t& alloc) {
+        const auto [hi, lo] {decompose(x)};
+        Node16 node{};
+        node.min_ = static_cast<index_t>(0);
+        node.max_ = static_cast<index_t>(universe_size() - 1);
+
+        const auto summary{subnode_t::new_all()};
+
+        // unfilled: resident clusters must include cluster 0 and cluster 255 always,
+        // plus the cluster containing `x` if it is not one of those.
+        auto unfilled{subnode_t::new_with(static_cast<subindex_t>(0))};
+        unfilled.insert(static_cast<subindex_t>(subnode_t::universe_size() - 1));
+        unfilled.insert(hi);
+
+        const auto resident_count{2uz + (hi != 0 && hi != subnode_t::universe_size() - 1)};
+        node.cluster_data_ = create(alloc, resident_count, summary, unfilled);
+        node.set_cap(resident_count);
+
+        node.cluster_data_->clusters_[0] = subnode_t::new_all_but(static_cast<subindex_t>(0));
+        node.cluster_data_->clusters_[resident_count - 1] = subnode_t::new_all_but(static_cast<subindex_t>(subnode_t::universe_size() - 1));
+        if (hi == 0) {
+            node.cluster_data_->clusters_[0].remove(lo);
+        } else if (hi == subnode_t::universe_size() - 1) {
+            node.cluster_data_->clusters_[resident_count - 1].remove(lo);
+        } else {
+            node.cluster_data_->clusters_[1] = subnode_t::new_all_but(lo);
+        }
+        node.set_len(resident_count);
+
+        return node;
+    }
+
     constexpr inline void destroy(std::size_t& alloc) {
         if (cluster_data_ != nullptr) {
             allocator_t a{alloc};
