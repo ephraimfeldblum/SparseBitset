@@ -111,15 +111,16 @@ def run_all_benchmarks(data1, data2, i):
     #     start_time = time.time(); pipe.execute(); s_iter_time = time.time() - start_time
     # table.add_row(["Iteration", f"{s_iter_time:.2f}s", "N/A", f"{d_iter_time:.2f}s", get_stats('bits.successor'), "N/A", get_stats('bitpos'), "N/A"])
 
-    # --- SET OPERATIONS ---
-    print("Benchmarking set operations...")
     # Load second dataset
     with r.pipeline() as pipe:
         for val in data2: pipe.execute_command('BITS.INSERT', KEYS['veb2'], val)
         for val in data2: pipe.setbit(KEYS['dense2'], val, 1)
         for val in data2: pipe.execute_command('R.SETBIT', KEYS['compressed2'], val, 1)
         pipe.execute()
-    
+
+    # --- SET OPERATIONS ---
+    print("Benchmarking set operations...")
+
     # OR
     r.bitop('OR', KEYS['dest_d'], KEYS['dense1'], KEYS['dense2'])
     r.execute_command('R.BITOP', 'OR', KEYS['dest_c'], KEYS['compressed1'], KEYS['compressed2'])

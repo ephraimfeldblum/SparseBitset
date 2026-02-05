@@ -448,7 +448,7 @@ public:
                 it->serialize(cl_str);
             } else {
                 if (resident.remove(idx.value(), tmp_alloc)) {
-                    // all clusters are full. none resident
+                    // all clusters are full. none resident. just write summary and exit.
                     write_u32(out, 1);
                     cluster_data_->summary.serialize(out);
                     resident.destroy(tmp_alloc);
@@ -461,8 +461,8 @@ public:
         write_u32(out, static_cast<std::uint32_t>(resident.size() + 1)); // +1 because 0 is reserved for empty
         cluster_data_->summary.serialize(out);
         resident.serialize(out);
-        out.append(cl_str);
         resident.destroy(tmp_alloc);
+        out.append(cl_str);
     }
 
     static inline Node32 deserialize(std::string_view buf, size_t &pos, std::size_t &alloc) {
@@ -485,16 +485,15 @@ public:
             return node;
         }
 
-        // read temporary resident bitset marking which summary slots have resident clusters
-        const auto resident{subnode_t::deserialize(buf, pos, alloc)};
+        // read resident bitset marking which summary slots have resident clusters
+        auto resident{subnode_t::deserialize(buf, pos, alloc)};
         node.cluster_data_->clusters.reserve(cluster_count);
-        for (auto key{std::make_optional(resident.min())}; 
-             key.has_value(); 
-             key = resident.successor(key.value())) {
+        for (auto key{std::make_optional(resident.min())}; key.has_value(); key = resident.successor(key.value())) {
             auto cluster{subnode_t::deserialize(buf, pos, alloc)};
             cluster.set_key(key.value());
             node.cluster_data_->clusters.emplace(std::move(cluster));
         }
+        resident.destroy(alloc);
 
         return node;
     }
