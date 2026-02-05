@@ -440,20 +440,29 @@ public:
             write_u32(out, 0);
             return;
         }
-
-        // write number of summary entries so deserializer knows how many summary positions to expect
-        write_u32(out, static_cast<std::uint32_t>(cluster_data_->summary.size()));
-        cluster_data_->summary.serialize(out);
-
+        auto tmp_alloc{0uz};
+        auto resident{cluster_data_->summary.clone(tmp_alloc)};
+        std::string cl_str{};
         for (auto idx{std::make_optional(cluster_data_->summary.min())}; idx.has_value(); idx = cluster_data_->summary.successor(idx.value())) {
-            [[assume(cluster_data_->summary.contains(idx.value()))]];
             if (auto it{cluster_data_->clusters.find(idx.value())}; it != cluster_data_->clusters.end()) {
-                write_u8(out, 1);
-                it->serialize(out);
+                it->serialize(cl_str);
             } else {
-                write_u8(out, 0);
+                if (resident.remove(idx.value(), tmp_alloc)) {
+                    // all clusters are full. none resident
+                    write_u32(out, 1);
+                    cluster_data_->summary.serialize(out);
+                    resident.destroy(tmp_alloc);
+                    return;
+                }
             }
         }
+
+        // write number of summary entries so deserializer knows how many clusters to expect
+        write_u32(out, static_cast<std::uint32_t>(resident.size() + 1)); // +1 because 0 is reserved for empty
+        cluster_data_->summary.serialize(out);
+        resident.serialize(out);
+        out.append(cl_str);
+        resident.destroy(tmp_alloc);
     }
 
     static inline Node32 deserialize(std::string_view buf, size_t &pos, std::size_t &alloc) {
@@ -465,22 +474,26 @@ public:
         if (len == 0) {
             return node;
         }
+        const auto cluster_count{len - 1}; // -1 because 0 is reserved for empty
 
         allocator_t a{alloc};
         node.cluster_data_ = a.allocate(1);
         a.construct(node.cluster_data_, 0, alloc);
         node.cluster_data_->summary = subnode_t::deserialize(buf, pos, alloc);
 
-        node.cluster_data_->clusters.reserve(len);
-        auto key{std::make_optional(node.cluster_data_->summary.min())};
-        for (std::size_t i = 0; i < len; ++i) {
-            auto flag{read_u8(buf, pos)};
-            if (flag) {
-                auto cluster{subnode_t::deserialize(buf, pos, alloc)};
-                cluster.set_key(key.value());
-                node.cluster_data_->clusters.emplace(std::move(cluster));
-            }
-            key = node.cluster_data_->summary.successor(key.value());
+        if (cluster_count == 0) {
+            return node;
+        }
+
+        // read temporary resident bitset marking which summary slots have resident clusters
+        const auto resident{subnode_t::deserialize(buf, pos, alloc)};
+        node.cluster_data_->clusters.reserve(cluster_count);
+        for (auto key{std::make_optional(resident.min())}; 
+             key.has_value(); 
+             key = resident.successor(key.value())) {
+            auto cluster{subnode_t::deserialize(buf, pos, alloc)};
+            cluster.set_key(key.value());
+            node.cluster_data_->clusters.emplace(std::move(cluster));
         }
 
         return node;
