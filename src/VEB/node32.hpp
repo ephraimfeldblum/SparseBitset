@@ -21,7 +21,7 @@
  * This node uses `uint32_t` as its index type and `Node16` as its subnodes.
  *
  * The layout of this node is as follows:
- *   - A pointer to a `cluster_data_t` structure containing:.
+ *   - A pointer to a `cluster_data_t` structure containing:
  *       - An instance of a subnode serving as the summary.
  *       - A hash map of subnodes representing individual clusters.
  *         - The map is implemented as an `unordered_set` with keys inlined in the nodes to optimize memory usage.
@@ -457,7 +457,6 @@ public:
             }
         }
 
-        // write number of summary entries so deserializer knows how many clusters to expect
         write_u32(out, static_cast<std::uint32_t>(resident.size() + 1)); // +1 because 0 is reserved for empty
         cluster_data_->summary.serialize(out);
         resident.serialize(out);
@@ -474,18 +473,17 @@ public:
         if (len == 0) {
             return node;
         }
-        const auto cluster_count{len - 1}; // -1 because 0 is reserved for empty
 
         allocator_t a{alloc};
         node.cluster_data_ = a.allocate(1);
         a.construct(node.cluster_data_, 0, alloc);
         node.cluster_data_->summary = subnode_t::deserialize(buf, pos, alloc);
 
+        const auto cluster_count{len - 1}; // -1 because 0 is reserved for empty
         if (cluster_count == 0) {
             return node;
         }
 
-        // read resident bitset marking which summary slots have resident clusters
         auto resident{subnode_t::deserialize(buf, pos, alloc)};
         node.cluster_data_->clusters.reserve(cluster_count);
         for (auto key{std::make_optional(resident.min())}; key.has_value(); key = resident.successor(key.value())) {
@@ -518,19 +516,28 @@ public:
             return false;
         }
 
-        auto& s_summary{cluster_data_->summary};
+        const auto& s_summary{cluster_data_->summary};
         auto& s_clusters{cluster_data_->clusters};
         const auto& o_summary{other.cluster_data_->summary};
         const auto& o_clusters{other.cluster_data_->clusters};
-        
-        s_summary.or_inplace(o_summary, alloc);
+
+        auto merge_summary{s_summary.clone(alloc)};
+        merge_summary.or_inplace(o_summary, alloc);
         for (const auto& o_cluster : o_clusters) {
-            if (auto it{s_clusters.find(o_cluster)}; it != s_clusters.end()) {
-                const_cast<subnode_t&>(*it).or_inplace(o_cluster, alloc);
-            } else {
+            if (const auto it{s_clusters.find(o_cluster.key())}; it != s_clusters.end()) {
+                auto& s_cluster{const_cast<subnode_t&>(*it)};
+                s_cluster.or_inplace(o_cluster, alloc);
+                if (s_cluster.full()) {
+                    s_cluster.destroy(alloc);
+                    s_clusters.erase(it);
+                }
+            } else if (!s_summary.contains(o_cluster.key())) {
+                // avoid inserting clusters that are already implicit
                 s_clusters.emplace(o_cluster.clone(alloc));
             }
         }
+        cluster_data_->summary.destroy(alloc);
+        cluster_data_->summary = std::move(merge_summary);
         return false;
     }
 
