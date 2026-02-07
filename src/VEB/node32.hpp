@@ -543,7 +543,7 @@ public:
                     s_summary.insert(key, alloc);
                 }
                 if (const auto it{s_clusters.find(key)}; it != s_clusters.end()) {
-                    // cluster is resident in self but implicitly full in other; remove resident and rely on summary
+                    // cluster is resident in self but implicitly full in other
                     auto& s_cluster{const_cast<subnode_t&>(*it)};
                     s_cluster.destroy(alloc);
                     s_clusters.erase(it);
@@ -553,6 +553,7 @@ public:
         return false;
     }
 
+    // TODO: cluster compaction not handled yet. next on the chopping block. do not review until then.
     constexpr inline bool and_inplace(const Node32& other, std::size_t& alloc) {
         const auto s_min{min_};
         const auto s_max{max_};
