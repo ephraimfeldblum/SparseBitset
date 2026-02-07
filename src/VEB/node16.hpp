@@ -422,7 +422,7 @@ public:
             } else {
                 const auto min_cluster{cluster_data_->summary_.min()};
                 const auto min_element{cluster_data_->unfilled_.contains(min_cluster) ?
-                    cluster_data_->clusters_[cluster_data_->index_of(min_cluster)].min() : static_cast<subindex_t>(0)};
+                    cluster_data_->clusters_[0].min() : static_cast<subindex_t>(0)};
                 x = min_ = index(min_cluster, min_element);
             }
         }
@@ -721,6 +721,43 @@ public:
         node.set_cap(resident_count);
         node.set_len(resident_count - dummy_resident);
         return node;
+    }
+
+    constexpr inline bool not_inplace(std::size_t& alloc) {
+        const auto s_min{min_};
+        const auto s_max{max_};
+
+        if (cluster_data_ == nullptr) {
+            *this = new_all_but(s_min, alloc);
+            remove(s_max, alloc);
+            return false;
+        }
+
+        auto& s_summary{cluster_data_->summary_};
+        auto& s_unfilled{cluster_data_->unfilled_};
+        auto* clusters{cluster_data_->clusters_};
+
+        auto compl_summary{s_summary};
+        compl_summary.not_inplace();
+        compl_summary.or_inplace(cluster_data_->resident_mask());
+        s_unfilled = s_summary;  // ensure all clusters that were previously present are set in the compl unfilled
+        s_summary = compl_summary; // ensure all resident clusters are set in the compl summary
+
+        auto h{0uz};
+        for (; h < get_len(); ++h) {
+            clusters[h].not_inplace();
+        }
+
+        // if 0 wasn't the old min, then it is now the new min,
+        // similarly if universe_size() - 1 wasn't the old max, then it is now the new max,
+        // we can safely set min and max to universe bounds and remove old min and max from clusters
+        // without risk of removing the new min and max
+        min_ = 0;
+        max_ = universe_size() - 1;
+        remove(s_min, alloc);
+        remove(s_max, alloc);
+
+        return false;
     }
 
     constexpr inline bool or_inplace(const Node16& other, std::size_t& alloc) {

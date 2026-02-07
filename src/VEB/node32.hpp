@@ -509,6 +509,7 @@ public:
             cluster_data_ = a.allocate(1);
             a.construct(cluster_data_, 0, alloc);
             cluster_data_->summary = other.cluster_data_->summary.clone(alloc);
+            cluster_data_->clusters.reserve(other.cluster_data_->clusters.size());
             for (const auto& cluster : other.cluster_data_->clusters) {
                 cluster_data_->clusters.emplace(cluster.clone(alloc));
             }
@@ -516,28 +517,39 @@ public:
             return false;
         }
 
-        const auto& s_summary{cluster_data_->summary};
+        auto& s_summary{cluster_data_->summary};
         auto& s_clusters{cluster_data_->clusters};
-        const auto& o_summary{other.cluster_data_->summary};
         const auto& o_clusters{other.cluster_data_->clusters};
 
-        auto merge_summary{s_summary.clone(alloc)};
-        merge_summary.or_inplace(o_summary, alloc);
-        for (const auto& o_cluster : o_clusters) {
-            if (const auto it{s_clusters.find(o_cluster.key())}; it != s_clusters.end()) {
-                auto& s_cluster{const_cast<subnode_t&>(*it)};
-                s_cluster.or_inplace(o_cluster, alloc);
-                if (s_cluster.full()) {
+        for (auto o{std::make_optional(other.cluster_data_->summary.min())}; o.has_value(); o = other.cluster_data_->summary.successor(o.value())) {
+            const auto key{o.value()};
+            if (const auto it{o_clusters.find(key)}; it != o_clusters.end()) {
+                const auto& o_cluster{*it};
+                if (const auto it{s_clusters.find(key)}; it != s_clusters.end()) {
+                    auto& s_cluster{const_cast<subnode_t&>(*it)};
+                    s_cluster.or_inplace(o_cluster, alloc);
+                    if (s_cluster.full()) {
+                        s_cluster.destroy(alloc);
+                        s_clusters.erase(it);
+                    }
+                } else if (!s_summary.contains(key)) {
+                    // avoid inserting over an existing implicit cluster
+                    s_summary.insert(key, alloc);
+                    s_clusters.emplace(o_cluster.clone(alloc));
+                }
+            } else {
+                // cluster is implicitly full in other; ensure it is full in self
+                if (!s_summary.contains(key)) {
+                    s_summary.insert(key, alloc);
+                }
+                if (const auto it{s_clusters.find(key)}; it != s_clusters.end()) {
+                    // cluster is resident in self but implicitly full in other; remove resident and rely on summary
+                    auto& s_cluster{const_cast<subnode_t&>(*it)};
                     s_cluster.destroy(alloc);
                     s_clusters.erase(it);
                 }
-            } else if (!s_summary.contains(o_cluster.key())) {
-                // avoid inserting clusters that are already implicit
-                s_clusters.emplace(o_cluster.clone(alloc));
             }
         }
-        cluster_data_->summary.destroy(alloc);
-        cluster_data_->summary = std::move(merge_summary);
         return false;
     }
 
@@ -654,31 +666,54 @@ public:
             cluster_data_ = a.allocate(1);
             a.construct(cluster_data_, 0, alloc);
             cluster_data_->summary = other.cluster_data_->summary.clone(alloc);
+            cluster_data_->clusters.reserve(other.cluster_data_->clusters.size());
             for (const auto& cluster : other.cluster_data_->clusters) {
                 cluster_data_->clusters.emplace(cluster.clone(alloc));
             }
         } else {
             auto& s_summary{cluster_data_->summary};
             auto& s_clusters{cluster_data_->clusters};
+            const auto& o_summary{other.cluster_data_->summary};
             const auto& o_clusters{other.cluster_data_->clusters};
 
-            for (const auto& o_cluster : o_clusters) {
-                if (auto it{s_clusters.find(o_cluster.key())}; it != s_clusters.end()) {
-                    auto& s_cluster{const_cast<subnode_t&>(*it)};
-                    if (s_cluster.xor_inplace(o_cluster, alloc)) {
-                        s_cluster.destroy(alloc);
-                        s_clusters.erase(it);
-                        // don't destroy early here, as other clusters might still be created
-                        s_summary.remove(o_cluster.key(), alloc);
+            bool summary_empty{false};
+            for (auto o{std::make_optional(o_summary.min())}; o.has_value(); o = o_summary.successor(o.value())) {
+                const auto key{o.value()};
+                if (const auto oit{o_clusters.find(key)}; oit != o_clusters.end()) {
+                    const auto& o_cluster{*oit};
+                    if (const auto sit{s_clusters.find(key)}; sit != s_clusters.end()) {
+                        if (auto& s_cluster{const_cast<subnode_t&>(*sit)}; s_cluster.xor_inplace(o_cluster, alloc)) {
+                            s_cluster.destroy(alloc);
+                            s_clusters.erase(sit);
+                            // don't destroy early here, as other clusters might yet be created
+                            if (s_summary.remove(key, alloc)) {
+                                summary_empty = true;
+                            }
+                        } else if (s_cluster.full()) {
+                            s_cluster.destroy(alloc);
+                            s_clusters.erase(sit);
+                        }
+                    } else if (summary_empty || !s_summary.contains(key)) {
+                        s_summary.insert(key, alloc);
+                        s_clusters.emplace(o_cluster.clone(alloc));
+                        summary_empty = false;
+                    }
+                } else if (!summary_empty && s_summary.contains(key)) {
+                    if (const auto sit{s_clusters.find(key)}; sit != s_clusters.end()) {
+                        auto& s_cluster{const_cast<subnode_t&>(*sit)};
+                        s_cluster.not_inplace(alloc);
+                    } else {
+                        if (s_summary.remove(key, alloc)) {
+                            summary_empty = true;
+                        }
                     }
                 } else {
-                    s_summary.insert(o_cluster.key(), alloc);
-                    s_clusters.emplace(o_cluster.clone(alloc));
+                    s_summary.insert(key, alloc);
+                    summary_empty = false;
                 }
             }
-
-            // now that all xors are done, check if we need to destroy the cluster_data
-            if (s_clusters.empty()) {
+            // now that all xors are done, check if we need to destroy cluster_data
+            if (summary_empty) {
                 destroy(alloc);
             }
         }

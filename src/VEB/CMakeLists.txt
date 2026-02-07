@@ -25,8 +25,8 @@ endif()
 set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "Valgrind")
 
 # Compiler flags
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wconversion -Wsign-compare -Wpointer-arith -Wno-missing-braces -Wno-missing-field-initializers -Wno-missing-attributes -march=native -fPIC")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wpedantic -Wconversion -Wsign-compare -Wpointer-arith -Wno-missing-braces -Wno-missing-field-initializers -Wno-missing-attributes -march=native -fPIC")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wconversion -Wsign-compare -Wpointer-arith -Wno-missing-braces -Wno-missing-field-initializers -Wno-missing-attributes -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -fPIC")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wpedantic -Wconversion -Wsign-compare -Wpointer-arith -Wno-missing-braces -Wno-missing-field-initializers -Wno-missing-attributes -march=native -mavx512f -mavx512cd -mavx512dq -mavx512bw -fPIC")
 
 # Build type specific flags
 set(CMAKE_CXX_FLAGS_DEBUG "-g3 -DDEBUG -Og")

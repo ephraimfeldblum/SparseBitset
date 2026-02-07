@@ -32,11 +32,11 @@ public:
     using index_t = std::uint8_t;
 
 private:
-    using vec_type = xsimd::batch<std::uint64_t>;
 
     static constexpr int bits_per_word{std::numeric_limits<std::uint64_t>::digits};
     static constexpr int num_words{256uz / bits_per_word};
 
+    using vec_type = xsimd::make_sized_batch_t<std::uint64_t, num_words>;
     alignas(num_words * sizeof(std::uint64_t))
     std::array<std::uint64_t, num_words> bits_{};
 
