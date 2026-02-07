@@ -215,10 +215,8 @@ public:
                 return true;
             } else {
                 const auto min_cluster{cluster_data_->summary.min()};
-                [[assume(cluster_data_->summary.contains(min_cluster))]];
                 const auto it_min{cluster_data_->clusters.find(min_cluster)};
-                [[assume(it_min != cluster_data_->clusters.end())]];
-                const auto min_element{it_min->min()};
+                const auto min_element{it_min == cluster_data_->clusters.end() ? static_cast<subindex_t>(0) : it_min->min()};
                 x = min_ = index(min_cluster, min_element);
             }
         }
@@ -228,10 +226,8 @@ public:
                 max_ = min_;
             } else {
                 const auto max_cluster{cluster_data_->summary.max()};
-                [[assume(cluster_data_->summary.contains(max_cluster))]];
                 const auto it_max{cluster_data_->clusters.find(max_cluster)};
-                [[assume(it_max != cluster_data_->clusters.end())]];
-                const auto max_element{it_max->max()};
+                const auto max_element{it_max == cluster_data_->clusters.end() ? static_cast<subindex_t>(subnode_t::universe_size() - 1) : it_max->max()};
                 x = max_ = index(max_cluster, max_element);
             }
         }

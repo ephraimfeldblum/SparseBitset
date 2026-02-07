@@ -281,13 +281,14 @@ public:
 
     // Create a Node16 with all bits set except `x`.
     static constexpr inline Node16 new_all_but(index_t x, std::size_t& alloc) {
-        const auto [hi, lo] {decompose(x)};
         Node16 node{};
-        node.min_ = static_cast<index_t>(0);
-        node.max_ = static_cast<index_t>(universe_size() - 1);
-
+        const auto umax{universe_size() - 1};
+        node.min_ = static_cast<index_t>(x == 0 ? 1 : 0);
+        node.max_ = static_cast<index_t>(x == umax ? umax - 1 : umax);
+        
         const auto summary{subnode_t::new_all()};
-
+        
+        const auto [hi, lo] {decompose(x)};
         // unfilled: resident clusters must include cluster 0 and cluster 255 always,
         // plus the cluster containing `x` if it is not one of those.
         auto unfilled{subnode_t::new_with(static_cast<subindex_t>(0))};
