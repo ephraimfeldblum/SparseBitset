@@ -144,10 +144,7 @@ def test_node32_and_corner_cases(env: Env):
     # AND
     res_and = env.cmd("BITS.OP", "AND", "n32_and", "n32_a", "n32_b")
     expected_and = sorted(set(a).intersection(set(b)))
-    if not expected_and:
-        env.assertEqual(res_and, 0)
-    else:
-        env.assertGreater(res_and, 0)
+    env.assertGreater(res_and, 0)
     env.assertEqual(env.cmd("BITS.TOARRAY", "n32_and"), expected_and)
 
     # XOR of identical large sets -> empty

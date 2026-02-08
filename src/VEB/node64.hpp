@@ -472,22 +472,22 @@ public:
         const auto s_max{max_};
         const auto i_min{std::max(s_min, other.min_)};
         const auto i_max{std::min(s_max, other.max_)};
-        const auto new_min{contains(i_min) && other.contains(i_min) ? std::make_optional(i_min) : std::nullopt};
-        const auto new_max{contains(i_max) && other.contains(i_max) ? std::make_optional(i_max) : std::nullopt};
+        const auto new_min{contains(i_min) && other.contains(i_min)};
+        const auto new_max{contains(i_max) && other.contains(i_max)};
 
         const auto update_minmax = [&] {
             destroy(alloc);
-            if (new_min.has_value() && new_max.has_value()) {
-                min_ = new_min.value();
-                max_ = new_max.value();
+            if (new_min && new_max) {
+                min_ = i_min;
+                max_ = i_max;
                 return false;
             }
-            if (new_min.has_value()) {
-                min_ = max_ = new_min.value();
+            if (new_min) {
+                min_ = max_ = i_min;
                 return false;
             }
-            if (new_max.has_value()) {
-                min_ = max_ = new_max.value();
+            if (new_max) {
+                min_ = max_ = i_max;
                 return false;
             }
             return true;
@@ -510,9 +510,7 @@ public:
 
         // iterate only clusters surviving the summary intersection
         for (auto s_it{s_clusters.begin()}; s_it != s_clusters.end(); ) {
-            auto& [key, cluster] = *s_it;
-            [[assume(!s_summary.contains(key) || o_summary.contains(key))]];
-            if (!s_summary.contains(key) || cluster.and_inplace(o_clusters.at(key), alloc)) {
+            if (auto& [key, cluster] = *s_it; !s_summary.contains(key) || cluster.and_inplace(o_clusters.at(key), alloc)) {
                 cluster.destroy(alloc);
                 s_it = s_clusters.erase(s_it);
                 if (s_summary.remove(key, alloc)) {
@@ -523,34 +521,23 @@ public:
             }
         }
 
-        const auto sum_max{s_summary.max()};
-        [[assume(s_summary.contains(sum_max))]];
-        auto& c_max = s_clusters.at(sum_max);
-        const auto sum_min{s_summary.min()};
-        [[assume(s_summary.contains(sum_min))]];
-        auto& c_min = s_clusters.at(sum_min);
-
-        max_ = new_max.has_value() ? new_max.value() : index(sum_max, c_max.max());
-        min_ = new_min.has_value() ? new_min.value() : index(sum_min, c_min.min());
-
-        if (max_ != s_max && c_max.remove(static_cast<subindex_t>(max_), alloc)) {
-            c_max.destroy(alloc);
-            s_clusters.erase(sum_max);
-            if (s_summary.remove(sum_max, alloc)) {
-                destroy(alloc);
-                return false;
-            }
+        if (new_min && new_max) {
+            remove(s_min, alloc);
+            insert(i_min, alloc);
+            remove(s_max, alloc);
+            insert(i_max, alloc);
+            return false;
+        } else if (new_min) {
+            remove(s_min, alloc);
+            insert(i_min, alloc);
+            return remove(s_max, alloc);
+        } else if (new_max) {
+            remove(s_max, alloc);
+            insert(i_max, alloc);
+            return remove(s_min, alloc);
+        } else {
+            return remove(s_min, alloc) || remove(s_max, alloc);
         }
-        if (min_ != s_min && c_min.remove(static_cast<subindex_t>(min_), alloc)) {
-            c_min.destroy(alloc);
-            s_clusters.erase(sum_min);
-            if (s_summary.remove(sum_min, alloc)) {
-                destroy(alloc);
-                return false;
-            }
-        }
-
-        return false;
     }
 
     constexpr inline bool xor_inplace(const Node64& other, std::size_t& alloc) {
