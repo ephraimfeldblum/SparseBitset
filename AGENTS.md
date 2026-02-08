@@ -16,12 +16,12 @@
 - [tests/flow](tests/flow): python test suite (rltest) exercising module behavior and persistence.
 
 **How to Build & Test (quick reference)**
-- Build locally (using WSL or docker is required on Windows): `make`
-- Run full tests: `make test`
+- Build locally: `make`
+- Run full tests (using WSL or docker is required on Windows): `make test`
 - Run a single test file: `make test TEST=test_basic_mutations`
 - Run a single flow test: `make test TEST=test_toarray_order:test_toarray_order_large`
 - Example Windows/WSL invocation used in this workspace:
-  `wsl -e bash -lc "make clean && make test QUICK=1"`
+  `wsl -e bash -lc "cd src/VEB && make release && cd ../.. && make test QUICK=1"`
 
 **Agent (You) — Working Rules and Instructions**
 - ALWAYS start with a short todo entry via the project's todo tool to track the change.
@@ -32,7 +32,7 @@
 - If creating new files, include concise documentation and update relevant READMEs if necessary.
 - Prefer running tests inside WSL or Docker if on Windows. Redis is not Windows-compatible.
 - Emit logs using `RedisModule_Log` only; do not use `fprintf`, `std::cerr`, `std::cout`, or other stdio/iostream channels in module or VEB code. This ensures logs are captured consistently by Redis and test harnesses.
-- VEB nodes (`Node16`, `Node32`, `Node64`) **MUST** be manually destroyed using their `.destroy(alloc)` method before they go out of scope or are reassigned. Failure to do so will cause memory leaks and, in debug builds, trigger an assertion.
+- VEB nodes (`Node16`, `Node32`, `Node64`) **MUST** be manually destroyed using their `.destroy(alloc)` method before they go out of scope or are reassigned. Failure to do so will cause memory leaks and, in debug builds, trigger assertions.
 
 **Testing Strategy**
 - Reproduce failing tests locally using QUICK mode and using the specific test with TEST to limit runtime.
@@ -50,22 +50,21 @@
 **VEB Node Invariants**
 - **Min/Max ownership:** The `min` and `max` values must be stored in the node itself and must never be stored inside cluster containers. If an operation would remove a node's `min` or `max`, the node must promote a replacement value from its clusters (for example, pull the next `min`/`max` from the appropriate cluster) so the node's `min`/`max` remain authoritative. These in-node `min`/`max` values are the single source of truth and are not copies.
 - **Nodes are never empty:** A node is never considered empty except during the fleeting moment between an operation that removed its last elements and the call site that destroys the node. Assume nodes always contain at least the stored `min`/`max`.
-- **Summary is the source of truth:** The `summary` index is authoritative for which clusters exist. If the `summary` indicates a cluster exists at a key, callers do not need to re-validate that by checking `find()` return values or similar — rely on the summary's membership operations (e.g., `contains`, `min`, `max`, `successor`, `predecessor`) to reason about clusters.
-- **Summary is itself non-empty:** The `summary` is a proper node and therefore must contain at least one element whenever `cluster_data_` exists. Treat `summary` as non-empty — its `min`/`max` and membership ops are valid.
+- **Summary is the source of truth:** The `summary` index is authoritative for which clusters logically exist. If the `summary` indicates a cluster exists at a key, and the node-specific residency operations indicate that the node is resident, callers do not need to re-validate that by checking `find()` return values or similar — rely on the node's membership and residency operations to reason about clusters.
+- **Summary is itself non-empty:** The `summary` (and any other relevant indexes) is a proper node and therefore must contain at least one element whenever it exists. Treat `summary` (and `unfilled`) as non-empty — its `min`/`max` and membership ops are valid.
 - **Clusterless does not mean empty:** A node with no clusters still contains valid `min` and `max` values and therefore must be treated as non-empty. Do not infer emptiness solely from the absence of clusters.
-- **Summary implies clusters exist and are non-empty:** Because `summary` is authoritative for cluster membership, and `summary` is non-empty, it can be assumed that clusters are also non-empty rather than defensively re-checking cluster containers.
 
 **Node-Specific Behavior**
-- **Node8:** Node8 de facto is a PoD 256-bit bitset, conceptually `alignas(32) uint64_t[4]`. The implementation is de jure based on the API provided by `xsimd` for handling 256-bit data in batches of 64 bits. Operations on it should be optimized using SIMD instructions provided by the `xsimd` library.
-- **Node16:** A bitset that can store up to 2^16 = 6.5e4 bits. Is used by the Tree as its underlying storage iff the range of values stored within exceeds the max value storable in a `Node8`. Uses `Node8` as subnodes. Clusters are stored in a packed dynamic array to minimize memory overhead. It avoids a Map by using the `summary` to compute the physical index of a cluster via `summary.count_range`. This keeps the structure at exactly 16 bytes.
-- **Node32:** A bitset that can store up to 2^32 = 4.3e9 bits. Is used by the Tree as its underlying storage iff the range of values stored within exceeds the max value storable in a `Node16`. Uses `Node16` as subnodes. For a sparse 32-bit universe, it uses a HashSet of `Node16` clusters. Each `Node16` cluster inlines its own `key` to serve as the hash/equality key, avoiding the overhead of separate key-value pairs. Total size is 16 bytes.
-- **Node64:** A bitset that can store up to 2^64 = 1.8e19 bits. Is used by the Tree as its underlying storage iff the range of values stored within exceeds the max value storable in a `Node32`. Uses `Node32` as subnodes. It utilizes a HashMap to manage `Node32` clusters. A `Node32` summary tracks which clusters are non-empty. Total size is 24 bytes. Remains largely unused, as Redis's Bitmap data structure - that this bitset module is competing with - can itself store only up to 2^32 bits.
+- **Node8:** Node8 de facto is a PoD 256-bit bitset, conceptually `alignas(32) uint64_t[4]`. The implementation is de jure based on the API provided by `xsimd` for handling 256-bit data in batches of 64 bits irrespective of the specific architecture this library is built on. eg, if avx512 is available, Node8 does not change to using 512 bit batches. alternatively, if there is no appropriate 256 bit SIMD type available, this library should fail to compile. Operations on Node8 should be optimized using SIMD instructions provided by the `xsimd` library.
+- **Node16:** A bitset that can store up to 2^16 = 6.5e4 bits. Is used by the Tree as its underlying storage if the range of values stored within exceeds the max value storable in a `Node8`. `Node16` uses `Node8` as subnodes. Clusters are stored in a packed dynamic array to minimize memory overhead. It avoids using a Map by utilizing the `summary` and `unfilled` indexes to compute the physical index of a cluster via `resident.count_range`. This keeps the structure at exactly 16 bytes inside the structure itself and sizeof(Node8) * (2 + n) bytes in its cluster_data.
+- **Node32:** A bitset that can store up to 2^32 = 4.3e9 bits. Is used by the Tree as its underlying storage if the range of values stored within exceeds the max value storable in a `Node16`. `Node32` uses `Node16` as subnodes. It uses a HashSet of `Node16` clusters. Each `Node16` cluster inlines its own `key` to serve as the hash/equality key, avoiding the overhead of separate key-value pairs. The Set utilizes tranparent lookup, enabling us to lookup by `key` rather than constructing a dummy `Node16` with which to search. Total size is 16 bytes inside the structure itself.
+- **Node64:** A bitset that can store up to 2^63 = 9.2e18 bits. Is used by the Tree as its underlying storage if the range of values stored within exceeds the max value storable in a `Node32`. Uses `Node32` as subnodes. It utilizes a HashMap to manage `Node32` clusters. A `Node32` summary tracks which clusters are non-empty. Total size is 24 bytes inside the structure itself. Remains largely unused, as Redis's Bitmap data structure - that this bitset module is competing with - can itself store only up to 2^32 bits.
 
 **Coding & PR Guidelines for the Agent**
 - Keep patches minimal and narrowly scoped.
 - Use C++23 and C11: Ensure all new code adheres to the C++23 standard for the core library and C11 for the Redis module wrapper.
     - C Interface: Follows standard Redis Module conventions using snake_case and explicit error handling via Redis return codes.
-    - C++ Core: Utilizes modern C++23 features (std::variant, std::visit, templates) while maintaining low-level control over memory via custom allocators and manual object destruction.
+    - C++ Core: Utilizes modern C++23 features while maintaining low-level control over memory via custom allocators and manual object destruction.
 - Maintain Invariants: The min and max values must be stored in the node itself and never inside cluster containers. The summary is the authoritative source for cluster existence.
 - Optimization: Optimizing memory consumption is mission-critical! This bitset is designed to reside in-memory. It should go out of its way to ensure that users are not paying for more memory than they are using. Optimizing for time is very important, but not if the gains are low at the expense of increased memory usage.
     - Examples of specific optimizations used include: Extensive use of SIMD (via xsimd), Flexible Array Members (FAM), and bit manipulation to achieve $O(\log \log U)$ performance.
@@ -75,6 +74,10 @@
 - Preserve existing style and APIs unless explicitly requested by the user.
     - Follow Naming Conventions: Use snake_case for all functions, methods, and variables (e.g., insert_value, cluster_data_).
     - No Unnecessary Comments: Code should be self-documenting. Avoid adding comments unless they explain complex algorithmic logic or non-obvious optimizations.
+    - No implicit conversions may be done unless those conversions are non-narrowing conversions (eg uint8_t to uint16_t).
+    - No implicit conversions to bool may be done in if/for/while conditions. Always provide an explicit boolean test.
+        eg, `if (ptr == nullptr)` instead of `if (!ptr)`, or `if (opt.has_value())` instead of `if (opt)`.
+    - Never elide optional braces. In this code base there is no such thing as optional braces for compound expressions.
 - Test-Driven Development: All new features or bug fixes must include functional tests in ./tests/flow/ using the RLTest framework.
     - Run only the tests relevant to your change before proposing broader test runs.
 - Build System Integrity: Maintain the Makefile and CMake configurations. Ensure the project builds with `make` and passes `make test QUICK=1` before submission.
