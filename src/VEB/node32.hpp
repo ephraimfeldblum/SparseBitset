@@ -285,14 +285,16 @@ public:
         }
 
         const auto [h, l] {decompose(x)};
+        const auto it{cluster_data_->clusters.find(h)};
+        const auto resident{it != cluster_data_->clusters.end()};
+        const auto compacted{!resident && cluster_data_->summary.contains(h)};
 
         // if cluster is resident
-        if (auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end() && l < it->max()) {
-            if (auto succ{it->successor(l)}; succ.has_value()) {
-                return std::make_optional(index(h, *succ));
-            }
-        } else if (cluster_data_->summary.contains(h) && l < static_cast<subindex_t>(subnode_t::universe_size() - 1)) {
-            // if cluster is full, next is x+1
+        if (resident && l < it->max()) {
+            return std::make_optional(index(h, it->successor(l).value()));
+        }
+        // if cluster is full, next is x+1
+        if (compacted && l < static_cast<subindex_t>(subnode_t::universe_size() - 1)) {
             return std::make_optional(x + 1);
         }
 
@@ -318,12 +320,13 @@ public:
         }
 
         const auto [h, l] {decompose(x)};
+        const auto it{cluster_data_->clusters.find(h)};
+        const auto resident{it != cluster_data_->clusters.end()};
+        const auto compacted{!resident && cluster_data_->summary.contains(h)};
 
-        if (auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end() && l > it->min()) {
-            if (auto pred{it->predecessor(l)}; pred.has_value()) {
-                return std::make_optional(index(h, *pred));
-            }
-        } else if (cluster_data_->summary.contains(h) && l > static_cast<subindex_t>(0)) {
+        if (resident && l > it->min()) {
+            return std::make_optional(index(h, it->predecessor(l).value()));
+        } else if (compacted && l > static_cast<subindex_t>(0)) {
             return std::make_optional(x - 1);
         }
 
