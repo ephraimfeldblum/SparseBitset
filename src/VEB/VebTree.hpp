@@ -522,7 +522,7 @@ public:
             break;
         }
         case VebSerializeTag::NODE16: {
-            t.storage_ = Node16::deserialize(buf, pos, t.allocated_);
+            t.storage_ = Node16::deserialize(buf, pos, 0, t.allocated_);
             break;
         }
         case VebSerializeTag::NODE32: {

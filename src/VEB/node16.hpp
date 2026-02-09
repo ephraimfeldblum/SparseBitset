@@ -252,9 +252,9 @@ private:
 public:
     static constexpr inline Node16 new_with(index_t hi, index_t lo) {
         Node16 node{};
-        node.key_ = static_cast<std::uint16_t>(hi);
-        node.min_ = static_cast<index_t>(lo);
-        node.max_ = static_cast<index_t>(lo);
+        node.key_ = hi;
+        node.min_ = lo;
+        node.max_ = lo;
         return node;
     }
 
@@ -263,8 +263,8 @@ public:
         const auto old_min{old_storage.min()};
         const auto old_max{old_storage.max()};
 
-        node.min_ = static_cast<index_t>(old_min);
-        node.max_ = static_cast<index_t>(old_max);
+        node.min_ = old_min;
+        node.max_ = old_max;
 
         old_storage.remove(old_min);
         if (old_min != old_max) {
@@ -280,9 +280,10 @@ public:
     }
 
     // Create a Node16 with all bits set except `x`.
-    static constexpr inline Node16 new_all_but(index_t x, std::size_t& alloc) {
+    static constexpr inline Node16 new_all_but(index_t key, index_t x, std::size_t& alloc) {
+        static const auto umax{universe_size() - 1};
         Node16 node{};
-        const auto umax{universe_size() - 1};
+        node.key_ = key;
         node.min_ = static_cast<index_t>(x == 0 ? 1 : 0);
         node.max_ = static_cast<index_t>(x == umax ? umax - 1 : umax);
         
@@ -650,9 +651,6 @@ public:
     constexpr inline std::uint16_t key() const {
         return key_;
     }
-    constexpr inline void set_key(std::uint16_t new_key) {
-        key_ = new_key;
-    }
 
     constexpr inline VebTreeMemoryStats get_memory_stats() const {
         if (cluster_data_ == nullptr) {
@@ -695,8 +693,9 @@ public:
         }
     }
 
-    static inline Node16 deserialize(std::string_view buf, std::size_t &pos, std::size_t &alloc) {
+    static inline Node16 deserialize(std::string_view buf, std::size_t &pos, index_t key, std::size_t &alloc) {
         Node16 node{};
+        node.key_ = key;
         node.min_ = read_u16(buf, pos);
         node.max_ = read_u16(buf, pos);
 
@@ -729,7 +728,7 @@ public:
         const auto s_max{max_};
 
         if (cluster_data_ == nullptr) {
-            *this = new_all_but(s_min, alloc);
+            *this = new_all_but(key_, s_min, alloc);
             remove(s_max, alloc);
             return false;
         }
@@ -1148,7 +1147,7 @@ public:
                         diff_clusters[k].not_inplace();
                     }
                     ++k;
-                } else if (in_s && in_o) { // implicit in s and o. results empty
+                } else if (in_s && in_o) { // implicit in s and o. result is empty
                     diff_summary.remove(h);
                     diff_unfilled.insert(h);
                 } else {                   // implicit in s xor o. remains implicit
