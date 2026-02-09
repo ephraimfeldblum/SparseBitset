@@ -640,11 +640,15 @@ public:
             );
         }
 
-        auto nonresident_mask{cluster_data_->unfilled_};
-        nonresident_mask.not_inplace();
-        const auto nonresident{nonresident_mask.count_range({ .lo = lcl, .hi = hcl })};
-        acc += nonresident * subnode_t::universe_size();
-
+        if (lcl + 1 <= hcl - 1) {
+            // need to check return value of not_inplace here because there might not be any nonresident clusters
+            if (auto nonresident_mask{cluster_data_->unfilled_}; !nonresident_mask.not_inplace()) {
+                acc += subnode_t::universe_size() * nonresident_mask.count_range({
+                    .lo = static_cast<subindex_t>(lcl + 1),
+                    .hi = static_cast<subindex_t>(hcl - 1)
+                });
+            }
+        }
         return acc;
     }
 

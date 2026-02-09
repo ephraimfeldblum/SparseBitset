@@ -372,36 +372,24 @@ public:
         const auto [hcl, hidx] {decompose(hi)};
         if (lcl == hcl) {
             if (summary.contains(lcl)) {
-                if (const auto it{clusters.find(lcl)}; it != clusters.end()) {
-                    acc += it->count_range({ .lo = lidx, .hi = hidx });
-                } else {
-                    acc += 1uz + hidx - lidx;
-                }
+                const auto it{clusters.find(lcl)};
+                acc += it == clusters.end() ? 1uz + hidx - lidx : it->count_range({ .lo = lidx, .hi = hidx });
             }
             return acc;
         }
 
         if (summary.contains(lcl)) {
-            if (const auto it{clusters.find(lcl)}; it != clusters.end()) {
-                acc += it->count_range({ .lo = lidx });
-            } else {
-                acc += subnode_t::universe_size() - lidx;
-            }
+            const auto it{clusters.find(lcl)};
+            acc += it == clusters.end() ? subnode_t::universe_size() - lidx : it->count_range({ .lo = lidx });
         }
         if (summary.contains(hcl)) {
-            if (const auto it{clusters.find(hcl)}; it != clusters.end()) {
-                acc += it->count_range({ .hi = hidx });
-            } else {
-                acc += 1uz + hidx;
-            }
+            const auto it{clusters.find(hcl)};
+            acc += it == clusters.end() ? 1uz + hidx : it->count_range({ .hi = hidx });
         }
 
         for (auto idx{summary.successor(lcl)}; idx.has_value() && idx.value() < hcl; idx = summary.successor(idx.value())) {
-            if (const auto it{clusters.find(idx.value())}; it != clusters.end()) {
-                acc += it->size();
-            } else {
-                acc += subnode_t::universe_size();
-            }
+            const auto it{clusters.find(idx.value())};
+            acc += it == clusters.end() ? subnode_t::universe_size() : it->size();
         }
 
         return acc;
