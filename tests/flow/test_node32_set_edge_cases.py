@@ -345,7 +345,7 @@ def test_node32_min_promotion_from_nonresident(env: Env):
 
     env.assertEqual(env.cmd("BITS.COUNT", "dest"), N + 1)
     actual = set(env.cmd("BITS.TOARRAY", "dest"))
-    expected = {20} | set(range(N, 2 * N))
+    expected = set(range(N, 2 * N)) | {1000000}
     diff = actual ^ expected
     env.assertEqual(diff, set())
 

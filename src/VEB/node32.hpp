@@ -582,7 +582,6 @@ public:
 
         // intersect summaries; if empty we're done
         if (s_summary.and_inplace(o_summary, alloc)) {
-            s_summary.destroy(alloc);
             return update_minmax();
         }
 
