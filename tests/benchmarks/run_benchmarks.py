@@ -14,9 +14,9 @@ KEYS = {
     'veb1': 'veb1', 'dense1': 'dense1',
     'veb2': 'veb2', 'dense2': 'dense2',
     'compressed1': 'compressed1', 'compressed2': 'compressed2',
-    'dest_s_or': 'dest_veb_union', 'dest_s_and': 'dest_veb_inter', 'dest_s_xor': 'dest_veb_diff',
-    'dest_d_or': 'dest_dense_union', 'dest_d_and': 'dest_dense_inter', 'dest_d_xor': 'dest_dense_diff',
-    'dest_c_or': 'dest_compressed_union', 'dest_c_and': 'dest_compressed_inter', 'dest_c_xor': 'dest_compressed_diff',
+    's_or': 'veb_union', 's_and': 'veb_inter', 's_xor': 'veb_diff',
+    'd_or': 'dense_union', 'd_and': 'dense_inter', 'd_xor': 'dense_diff',
+    'c_or': 'compressed_union', 'c_and': 'compressed_inter', 'c_xor': 'compressed_diff',
 }
 
 # --- HELPER FUNCTIONS ---
@@ -123,30 +123,30 @@ def run_all_benchmarks(data1, data2, i):
     print("Benchmarking set operations...")
 
     # OR
-    r.bitop('OR', KEYS['dest_d_or'], KEYS['dense1'], KEYS['dense2'])
-    r.execute_command('R.BITOP', 'OR', KEYS['dest_c_or'], KEYS['compressed1'], KEYS['compressed2'])
-    r.execute_command('BITS.OP', 'OR', KEYS['dest_s_or'], KEYS['veb1'], KEYS['veb2'])
-    s_or_size = r.execute_command('BITS.COUNT', KEYS['dest_s_or'])
-    d_or_size = r.bitcount(KEYS['dest_d_or'])
-    c_or_size = r.execute_command('R.BITCOUNT', KEYS['dest_c_or'])
+    r.bitop('OR', KEYS['d_or'], KEYS['dense1'], KEYS['dense2'])
+    r.execute_command('R.BITOP', 'OR', KEYS['c_or'], KEYS['compressed1'], KEYS['compressed2'])
+    r.execute_command('BITS.OP', 'OR', KEYS['s_or'], KEYS['veb1'], KEYS['veb2'])
+    s_or_size = r.execute_command('BITS.COUNT', KEYS['s_or'])
+    d_or_size = r.bitcount(KEYS['d_or'])
+    c_or_size = r.execute_command('R.BITCOUNT', KEYS['c_or'])
     table.add_row(["OR", f"{s_or_size}", f"{c_or_size}", f"{d_or_size}", get_stats('bits.op'), get_stats('R.BITOP'), get_stats('bitop'), compare_results(s_or_size, d_or_size)])
 
     # AND
-    r.bitop('AND', KEYS['dest_d_and'], KEYS['dense1'], KEYS['dense2'])
-    r.execute_command('R.BITOP', 'AND', KEYS['dest_c_and'], KEYS['compressed1'], KEYS['compressed2'])
-    r.execute_command('BITS.OP', 'AND', KEYS['dest_s_and'], KEYS['veb1'], KEYS['veb2'])
-    s_and_size = r.execute_command('BITS.COUNT', KEYS['dest_s_and'])
-    d_and_size = r.bitcount(KEYS['dest_d_and'])
-    c_and_size = r.execute_command('R.BITCOUNT', KEYS['dest_c_and'])
+    r.bitop('AND', KEYS['d_and'], KEYS['dense1'], KEYS['dense2'])
+    r.execute_command('R.BITOP', 'AND', KEYS['c_and'], KEYS['compressed1'], KEYS['compressed2'])
+    r.execute_command('BITS.OP', 'AND', KEYS['s_and'], KEYS['veb1'], KEYS['veb2'])
+    s_and_size = r.execute_command('BITS.COUNT', KEYS['s_and'])
+    d_and_size = r.bitcount(KEYS['d_and'])
+    c_and_size = r.execute_command('R.BITCOUNT', KEYS['c_and'])
     table.add_row(["AND", f"{s_and_size}", f"{c_and_size}", f"{d_and_size}", get_stats('bits.op'), get_stats('R.BITOP'), get_stats('bitop'), compare_results(s_and_size, d_and_size)])
 
     # XOR
-    r.bitop('XOR', KEYS['dest_d_xor'], KEYS['dense1'], KEYS['dense2'])
-    r.execute_command('R.BITOP', 'XOR', KEYS['dest_c_xor'], KEYS['compressed1'], KEYS['compressed2'])
-    r.execute_command('BITS.OP', 'XOR', KEYS['dest_s_xor'], KEYS['veb1'], KEYS['veb2'])
-    s_xor_size = r.execute_command('BITS.COUNT', KEYS['dest_s_xor'])
-    d_xor_size = r.bitcount(KEYS['dest_d_xor'])
-    c_xor_size = r.execute_command('R.BITCOUNT', KEYS['dest_c_xor'])
+    r.bitop('XOR', KEYS['d_xor'], KEYS['dense1'], KEYS['dense2'])
+    r.execute_command('R.BITOP', 'XOR', KEYS['c_xor'], KEYS['compressed1'], KEYS['compressed2'])
+    r.execute_command('BITS.OP', 'XOR', KEYS['s_xor'], KEYS['veb1'], KEYS['veb2'])
+    s_xor_size = r.execute_command('BITS.COUNT', KEYS['s_xor'])
+    d_xor_size = r.bitcount(KEYS['d_xor'])
+    c_xor_size = r.execute_command('R.BITCOUNT', KEYS['c_xor'])
     table.add_row(["XOR", f"{s_xor_size}", f"{c_xor_size}", f"{d_xor_size}", get_stats('bits.op'), get_stats('R.BITOP'), get_stats('bitop'), compare_results(s_xor_size, d_xor_size)])
 
     # # --- TOARRAY ---
@@ -160,14 +160,8 @@ def run_all_benchmarks(data1, data2, i):
     s_mem1 = r.memory_usage(KEYS['veb1']); s_mem2 = r.memory_usage(KEYS['veb2'])
     d_mem1 = r.memory_usage(KEYS['dense1']); d_mem2 = r.memory_usage(KEYS['dense2'])
     c_mem1 = r.memory_usage(KEYS['compressed1']); c_mem2 = r.memory_usage(KEYS['compressed2'])
-    s_mem_or = r.memory_usage(KEYS['dest_s_or']); s_mem_and = r.memory_usage(KEYS['dest_s_and']); s_mem_xor = r.memory_usage(KEYS['dest_s_xor'])
-    d_mem_or = r.memory_usage(KEYS['dest_d_or']); d_mem_and = r.memory_usage(KEYS['dest_d_and']); d_mem_xor = r.memory_usage(KEYS['dest_d_xor'])
-    c_mem_or = r.memory_usage(KEYS['dest_c_or']); c_mem_and = r.memory_usage(KEYS['dest_c_and']); c_mem_xor = r.memory_usage(KEYS['dest_c_xor'])
     table.add_row(["Memory (1)", f"{s_mem1} B", f"{c_mem1} B", f"{d_mem1} B", "N/A", "N/A", "N/A", "N/A"])
     table.add_row(["Memory (2)", f"{s_mem2} B", f"{c_mem2} B", f"{d_mem2} B", "N/A", "N/A", "N/A", "N/A"])
-    table.add_row(["Memory (OR)", f"{s_mem_or} B", f"{c_mem_or} B", f"{d_mem_or} B", "N/A", "N/A", "N/A", "N/A"])
-    table.add_row(["Memory (AND)", f"{s_mem_and} B", f"{c_mem_and} B", f"{d_mem_and} B", "N/A", "N/A", "N/A", "N/A"])
-    table.add_row(["Memory (XOR)", f"{s_mem_xor} B", f"{c_mem_xor} B", f"{d_mem_xor} B", "N/A", "N/A", "N/A", "N/A"])
 
     
     print(f"\n--- BENCHMARK RESULTS for {i/20} density ---")
