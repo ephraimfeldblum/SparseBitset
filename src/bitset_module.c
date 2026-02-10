@@ -72,7 +72,9 @@ static int bitset_defrag(RedisModuleDefragCtx *ctx, RedisModuleString *key, void
 }
 
 static VebTree_Handle_t get_bitset_key(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode, int *err) {
-    if (err) *err = 0;
+    if (err) {
+        *err = 0;
+    }
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyname, mode);
     int type = RedisModule_KeyType(key);
 
@@ -92,7 +94,9 @@ static VebTree_Handle_t get_bitset_key(RedisModuleCtx *ctx, RedisModuleString *k
         }
     } else if (RedisModule_ModuleTypeGetType(key) != BitsetType) {
         RedisModule_CloseKey(key);
-        if (err) *err = 1;
+        if (err) {
+            *err = 1;
+        }
         return NULL;
     }
 
@@ -234,8 +238,12 @@ static long long count_elements_in_range(VebTree_Handle_t handle, long long star
     long long bit_start = is_bit_range ? start : start * 8;
     long long bit_end = is_bit_range ? end : (end * 8) + 7;
 
-    if (bit_start < 0) bit_start = 0;
-    if (bit_end < 0) return 0;
+    if (bit_start < 0) {
+        bit_start = 0;
+    }
+    if (bit_end < 0) {
+        return 0;
+    }
 
     size_t c = veb_api->count_range(handle, (size_t)bit_start, (size_t)bit_end);
     return (long long)c;
@@ -576,8 +584,12 @@ static long long find_bit_position(VebTree_Handle_t handle, int bit_value, long 
     long long bit_start = is_bit_range ? start : start * 8;
     long long bit_end = is_bit_range ? end : (end * 8) + 7;
 
-    if (bit_start < 0) bit_start = 0;
-    if (bit_end < 0) return -1;
+    if (bit_start < 0) {
+        bit_start = 0;
+    }
+    if (bit_end < 0) {
+        return -1;
+    }
 
     if (bit_value == 1) {
         VebTree_OptionalSize_t current;

@@ -14,15 +14,15 @@ struct VebTreeMemoryStats {
     std::size_t total_nodes{};
 };
 
-template<typename S>
+template <typename S>
 using index_t = typename std::remove_cvref_t<S>::index_t;
 
-template<typename... Fs>
+template <typename... Fs>
 struct overload : Fs... {
     using Fs::operator()...;
 };
 
-template<typename... Fs>
+template <typename... Fs>
 overload(Fs...) -> overload<Fs...>;
 
 enum struct VebSerializeTag : std::uint8_t {

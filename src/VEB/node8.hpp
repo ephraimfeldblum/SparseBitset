@@ -32,12 +32,13 @@ public:
     using index_t = std::uint8_t;
 
 private:
-    using vec_type = xsimd::batch<std::uint64_t>;
 
     static constexpr int bits_per_word{std::numeric_limits<std::uint64_t>::digits};
-    static constexpr int num_words{256 / bits_per_word};
+    static constexpr int num_words{256uz / bits_per_word};
 
-    alignas(xsimd::default_arch::alignment()) std::array<std::uint64_t, num_words> bits_{};
+    using vec_type = xsimd::make_sized_batch_t<std::uint64_t, num_words>;
+    alignas(num_words * sizeof(std::uint64_t))
+    std::array<std::uint64_t, num_words> bits_{};
 
     static constexpr std::pair<subindex_t, subindex_t> decompose(index_t x) {
         return {x / bits_per_word, x % bits_per_word};
@@ -81,7 +82,7 @@ public:
     }
 
     static constexpr inline std::size_t universe_size() {
-        return std::numeric_limits<index_t>::max();
+        return 1uz + std::numeric_limits<index_t>::max();
     }
 
     constexpr inline index_t min() const {
@@ -176,6 +177,10 @@ public:
                std::popcount(bits_[2]) + std::popcount(bits_[3]);
     }
 
+    constexpr inline bool full() const {
+        return xsimd::all(load() == ~0ULL);
+    }
+
     // Serialization (32 bytes payload, little-endian u64 words)
     inline void serialize(std::string &out) const {
         for (std::uint64_t w : bits_) {
@@ -194,7 +199,7 @@ public:
     // helper struct for count_range. allows passing either arg optionally
     struct count_range_args {
         index_t lo{static_cast<index_t>(0)};
-        index_t hi{static_cast<index_t>(universe_size())};
+        index_t hi{static_cast<index_t>(universe_size() - 1)};
     };
     constexpr inline std::size_t count_range(count_range_args args) const {
         const auto [lo, hi] {args};
@@ -229,37 +234,37 @@ public:
     //  1 | 1 |  0 |   1   |   1   |   0   |   0
 
     constexpr inline bool not_inplace() {
-        auto v = load();
+        auto v{load()};
         store(~v);
         return empty();
     }
 
     constexpr inline bool or_inplace(const Node8& other) {
-        auto v1 = load();
-        auto v2 = other.load();
+        auto v1{load()};
+        auto v2{other.load()};
         store(v1 | v2);
         // no need to check for emptiness, or can only ever grow a set
         return false;
     }
 
     constexpr inline bool xor_inplace(const Node8& other) {
-        auto v1 = load();
-        auto v2 = other.load();
+        auto v1{load()};
+        auto v2{other.load()};
         store(v1 ^ v2);
         return empty();
     }
 
     constexpr inline bool and_inplace(const Node8& other) {
-        auto v1 = load();
-        auto v2 = other.load();
+        auto v1{load()};
+        auto v2{other.load()};
         store(v1 & v2);
         return empty();
     }
 
     // difference: A \ B
     constexpr inline bool andnot_inplace(const Node8& other) {
-        auto v1 = load();
-        auto v2 = other.load();
+        auto v1{load()};
+        auto v2{other.load()};
         store(xsimd::bitwise_andnot(v2, v1));
         return empty();
     }

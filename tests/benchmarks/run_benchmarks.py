@@ -14,8 +14,9 @@ KEYS = {
     'veb1': 'veb1', 'dense1': 'dense1',
     'veb2': 'veb2', 'dense2': 'dense2',
     'compressed1': 'compressed1', 'compressed2': 'compressed2',
-    'dest_s': 'dest_veb', 'dest_d': 'dest_dense',
-    'dest_c': 'dest_compressed',
+    's_or': 'veb_union', 's_and': 'veb_inter', 's_xor': 'veb_diff',
+    'd_or': 'dense_union', 'd_and': 'dense_inter', 'd_xor': 'dense_diff',
+    'c_or': 'compressed_union', 'c_and': 'compressed_inter', 'c_xor': 'compressed_diff',
 }
 
 # --- HELPER FUNCTIONS ---
@@ -111,40 +112,41 @@ def run_all_benchmarks(data1, data2, i):
     #     start_time = time.time(); pipe.execute(); s_iter_time = time.time() - start_time
     # table.add_row(["Iteration", f"{s_iter_time:.2f}s", "N/A", f"{d_iter_time:.2f}s", get_stats('bits.successor'), "N/A", get_stats('bitpos'), "N/A"])
 
-    # --- SET OPERATIONS ---
-    print("Benchmarking set operations...")
     # Load second dataset
     with r.pipeline() as pipe:
         for val in data2: pipe.execute_command('BITS.INSERT', KEYS['veb2'], val)
         for val in data2: pipe.setbit(KEYS['dense2'], val, 1)
         for val in data2: pipe.execute_command('R.SETBIT', KEYS['compressed2'], val, 1)
         pipe.execute()
-    
+
+    # --- SET OPERATIONS ---
+    print("Benchmarking set operations...")
+
     # OR
-    r.bitop('OR', KEYS['dest_d'], KEYS['dense1'], KEYS['dense2'])
-    r.execute_command('R.BITOP', 'OR', KEYS['dest_c'], KEYS['compressed1'], KEYS['compressed2'])
-    r.execute_command('BITS.OP', 'OR', KEYS['dest_s'], KEYS['veb1'], KEYS['veb2'])
-    s_or_size = r.execute_command('BITS.COUNT', KEYS['dest_s'])
-    d_or_size = r.bitcount(KEYS['dest_d'])
-    c_or_size = r.execute_command('R.BITCOUNT', KEYS['dest_c'])
+    r.bitop('OR', KEYS['d_or'], KEYS['dense1'], KEYS['dense2'])
+    r.execute_command('R.BITOP', 'OR', KEYS['c_or'], KEYS['compressed1'], KEYS['compressed2'])
+    r.execute_command('BITS.OP', 'OR', KEYS['s_or'], KEYS['veb1'], KEYS['veb2'])
+    s_or_size = r.execute_command('BITS.COUNT', KEYS['s_or'])
+    d_or_size = r.bitcount(KEYS['d_or'])
+    c_or_size = r.execute_command('R.BITCOUNT', KEYS['c_or'])
     table.add_row(["OR", f"{s_or_size}", f"{c_or_size}", f"{d_or_size}", get_stats('bits.op'), get_stats('R.BITOP'), get_stats('bitop'), compare_results(s_or_size, d_or_size)])
 
     # AND
-    r.bitop('AND', KEYS['dest_d'], KEYS['dense1'], KEYS['dense2'])
-    r.execute_command('R.BITOP', 'AND', KEYS['dest_c'], KEYS['compressed1'], KEYS['compressed2'])
-    r.execute_command('BITS.OP', 'AND', KEYS['dest_s'], KEYS['veb1'], KEYS['veb2'])
-    s_and_size = r.execute_command('BITS.COUNT', KEYS['dest_s'])
-    d_and_size = r.bitcount(KEYS['dest_d'])
-    c_and_size = r.execute_command('R.BITCOUNT', KEYS['dest_c'])
+    r.bitop('AND', KEYS['d_and'], KEYS['dense1'], KEYS['dense2'])
+    r.execute_command('R.BITOP', 'AND', KEYS['c_and'], KEYS['compressed1'], KEYS['compressed2'])
+    r.execute_command('BITS.OP', 'AND', KEYS['s_and'], KEYS['veb1'], KEYS['veb2'])
+    s_and_size = r.execute_command('BITS.COUNT', KEYS['s_and'])
+    d_and_size = r.bitcount(KEYS['d_and'])
+    c_and_size = r.execute_command('R.BITCOUNT', KEYS['c_and'])
     table.add_row(["AND", f"{s_and_size}", f"{c_and_size}", f"{d_and_size}", get_stats('bits.op'), get_stats('R.BITOP'), get_stats('bitop'), compare_results(s_and_size, d_and_size)])
 
     # XOR
-    r.bitop('XOR', KEYS['dest_d'], KEYS['dense1'], KEYS['dense2'])
-    r.execute_command('R.BITOP', 'XOR', KEYS['dest_c'], KEYS['compressed1'], KEYS['compressed2'])
-    r.execute_command('BITS.OP', 'XOR', KEYS['dest_s'], KEYS['veb1'], KEYS['veb2'])
-    s_xor_size = r.execute_command('BITS.COUNT', KEYS['dest_s'])
-    d_xor_size = r.bitcount(KEYS['dest_d'])
-    c_xor_size = r.execute_command('R.BITCOUNT', KEYS['dest_c'])
+    r.bitop('XOR', KEYS['d_xor'], KEYS['dense1'], KEYS['dense2'])
+    r.execute_command('R.BITOP', 'XOR', KEYS['c_xor'], KEYS['compressed1'], KEYS['compressed2'])
+    r.execute_command('BITS.OP', 'XOR', KEYS['s_xor'], KEYS['veb1'], KEYS['veb2'])
+    s_xor_size = r.execute_command('BITS.COUNT', KEYS['s_xor'])
+    d_xor_size = r.bitcount(KEYS['d_xor'])
+    c_xor_size = r.execute_command('R.BITCOUNT', KEYS['c_xor'])
     table.add_row(["XOR", f"{s_xor_size}", f"{c_xor_size}", f"{d_xor_size}", get_stats('bits.op'), get_stats('R.BITOP'), get_stats('bitop'), compare_results(s_xor_size, d_xor_size)])
 
     # # --- TOARRAY ---
