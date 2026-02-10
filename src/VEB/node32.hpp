@@ -17,8 +17,6 @@
 #include "VebCommon.hpp"
 #include "allocator/tracking_allocator.hpp"
 
-#include "../redismodule.h"
-
 /* Node32:
  * Represents a van Emde Boas tree node for universe size up to 2^32.
  * This node uses `uint32_t` as its index type and `Node16` as its subnodes.
@@ -210,9 +208,17 @@ public:
     }
 
     constexpr inline bool remove(index_t x, std::size_t& alloc) {
+        if (x < min_ || x > max_) {
+            return false;
+        }
         if (x == min_) {
             if (cluster_data_ == nullptr) {
-                return true;
+                if (max_ == min_) {
+                    return true;
+                } else {
+                    min_ = max_;
+                    return false;
+                }
             } else {
                 const auto min_cluster{cluster_data_->summary.min()};
                 const auto it_min{cluster_data_->clusters.find(min_cluster)};
@@ -224,6 +230,7 @@ public:
         if (x == max_) {
             if (cluster_data_ == nullptr) {
                 max_ = min_;
+                return false;
             } else {
                 const auto max_cluster{cluster_data_->summary.max()};
                 const auto it_max{cluster_data_->clusters.find(max_cluster)};
@@ -239,8 +246,7 @@ public:
                 if (auto& cluster{const_cast<subnode_t&>(*it)}; cluster.remove(l, alloc)) {
                     cluster.destroy(alloc);
                     cluster_data_->clusters.erase(it);
-                    cluster_data_->summary.remove(h, alloc);
-                    if (cluster_data_->clusters.empty()) {
+                    if (cluster_data_->summary.remove(h, alloc)) {
                         destroy(alloc);
                     }
                 }
@@ -254,6 +260,9 @@ public:
     }
 
     constexpr inline bool contains(index_t x) const {
+        if (x < min_ || x > max_) {
+            return false;
+        }
         if (x == min_ || x == max_) {
             return true;
         }
@@ -278,7 +287,7 @@ public:
             return std::nullopt;
         }
 
-        if (!cluster_data_) {
+        if (cluster_data_ == nullptr) {
             return std::make_optional(max_);
         }
 
@@ -429,16 +438,14 @@ public:
         auto resident{cluster_data_->summary.clone(tmp_alloc)};
         std::string cl_str{};
         for (auto idx{std::make_optional(cluster_data_->summary.min())}; idx.has_value(); idx = cluster_data_->summary.successor(idx.value())) {
-            if (auto it{cluster_data_->clusters.find(idx.value())}; it != cluster_data_->clusters.end()) {
+            if (const auto it{cluster_data_->clusters.find(idx.value())}; it != cluster_data_->clusters.end()) {
                 it->serialize(cl_str);
-            } else {
-                if (resident.remove(idx.value(), tmp_alloc)) {
-                    // all clusters are full. none resident. just write summary and exit.
-                    write_u32(out, 1);
-                    cluster_data_->summary.serialize(out);
-                    resident.destroy(tmp_alloc);
-                    return;
-                }
+            } else if (resident.remove(idx.value(), tmp_alloc)) {
+                // all clusters are full. none resident. just write summary and exit.
+                write_u32(out, 1);
+                cluster_data_->summary.serialize(out);
+                resident.destroy(tmp_alloc);
+                return;
             }
         }
 
@@ -664,7 +671,6 @@ public:
                 const auto o_it{o_clusters.find(key)};
                 const auto re_s{s_it != s_clusters.end()};
                 const auto re_o{o_it != o_clusters.end()};
-
                 // resident in both -> xor inplace
                 if (re_o && re_s) {
                     if (auto& s_cluster{const_cast<subnode_t&>(*s_it)}; s_cluster.xor_inplace(*o_it, alloc)) {
@@ -707,14 +713,14 @@ public:
             }
         }
 
-        if (s_min < o_min) {
+        if (s_min < o_min && max_ != o_min) {
             if (contains(o_min)) {
                 remove(o_min, alloc);
             } else {
                 insert(o_min, alloc);
             }
         }
-        if (s_max > o_max) {
+        if (s_max > o_max && min_ != o_max) {
             if (contains(o_max)) {
                 remove(o_max, alloc);
             } else {
@@ -722,8 +728,8 @@ public:
             }
         }
 
-        return (other.contains(s_min) && remove(s_min, alloc)) || 
-               (other.contains(s_max) && remove(s_max, alloc));
+        return (s_min == o_min && remove(s_min, alloc)) ||
+               (s_max == o_max && remove(s_max, alloc));
     }
 };
 

@@ -298,6 +298,10 @@ def test_node32_xor_resident_from_nonresident(env: Env):
     env.assertEqual(env.cmd("BITS.MIN", "dest"), N + 10)
     env.assertEqual(env.cmd("BITS.MAX", "dest"), 2 * N - 1)
     env.assertEqual(env.cmd("BITS.COUNT", "dest"), N - 10)
+    expected = set(range(N + 10, 2 * N))
+    actual = set(env.cmd("BITS.TOARRAY", "dest"))
+    diff = actual ^ expected
+    env.assertEqual(diff, set())
 
 
 def test_node32_nonresident_before_minimal_resident(env: Env):
@@ -340,6 +344,10 @@ def test_node32_min_promotion_from_nonresident(env: Env):
     env.cmd("BITS.OP", "AND", "dest", "s1", "s2")
 
     env.assertEqual(env.cmd("BITS.COUNT", "dest"), N + 1)
+    actual = set(env.cmd("BITS.TOARRAY", "dest"))
+    expected = {20} | set(range(N, 2 * N))
+    diff = actual ^ expected
+    env.assertEqual(diff, set())
 
     info = env.cmd("BITS.INFO", "dest")
     info_map = dict(zip(info[::2], info[1::2]))
@@ -463,7 +471,7 @@ def test_node32_complex_resident_nonresident_mix(env: Env):
 
     env.cmd("BITS.OP", "XOR", "res_xor", "s1", "s2")
     env.assertEqual(env.cmd("BITS.COUNT", "res_xor"), 2 * N - 4)
-    
+
     actual = set(env.cmd("BITS.TOARRAY", "res_xor"))
     expected = set(range(N + 2, 2 * N)) | set(range(2 * N + 2, 3 * N))
     diff = actual ^ expected
@@ -491,12 +499,12 @@ def test_node32_complex_resident_nonresident_mix(env: Env):
     #       },
     #       2: (Node16){
     #           min: 2,
-    #           max: -1,
+    #           max: -2,
     #           summary: (Node8)[..],
     #           unfilled: (Node8)[0,-1],
     #           clusters: [
     #               (Node8)[3..],
-    #               (Node8)[..-2],
+    #               (Node8)[..-3],
     #           ],
     #       },
     #   },

@@ -266,16 +266,13 @@ public:
         node.min_ = old_min;
         node.max_ = old_max;
 
-        old_storage.remove(old_min);
-        if (old_min != old_max) {
-            old_storage.remove(old_max);
+        if (old_storage.remove(old_min) || old_storage.remove(old_max)) {
+            return node;
         }
 
-        if (old_storage.size() > 0) {
-            node.cluster_data_ = create(alloc, 1, 0, old_storage);
-            node.set_cap(1);
-            node.set_len(1);
-        }
+        node.cluster_data_ = create(alloc, 1, 0, old_storage);
+        node.set_cap(1);
+        node.set_len(1);
         return node;
     }
 
@@ -292,24 +289,24 @@ public:
         const auto [hi, lo] {decompose(x)};
         // unfilled: resident clusters must include cluster 0 and cluster 255 always,
         // plus the cluster containing `x` if it is not one of those.
-        auto unfilled{subnode_t::new_with(static_cast<subindex_t>(0))};
+        auto unfilled{subnode_t::new_with(0)};
         unfilled.insert(static_cast<subindex_t>(subnode_t::universe_size() - 1));
         unfilled.insert(hi);
 
-        const auto resident_count{2uz + (hi != 0 && hi != subnode_t::universe_size() - 1)};
-        node.cluster_data_ = create(alloc, resident_count, summary, unfilled);
-        node.set_cap(resident_count);
+        const auto len{2uz + (hi != 0 && hi != subnode_t::universe_size() - 1)};
+        node.cluster_data_ = create(alloc, len, summary, unfilled);
+        node.set_cap(len);
 
-        node.cluster_data_->clusters_[0] = subnode_t::new_all_but(static_cast<subindex_t>(0));
-        node.cluster_data_->clusters_[resident_count - 1] = subnode_t::new_all_but(static_cast<subindex_t>(subnode_t::universe_size() - 1));
+        node.cluster_data_->clusters_[0] = subnode_t::new_all_but(static_cast<subindex_t>(node.min_));
+        node.cluster_data_->clusters_[len - 1] = subnode_t::new_all_but(static_cast<subindex_t>(node.max_));
         if (hi == 0) {
             node.cluster_data_->clusters_[0].remove(lo);
         } else if (hi == subnode_t::universe_size() - 1) {
-            node.cluster_data_->clusters_[resident_count - 1].remove(lo);
+            node.cluster_data_->clusters_[len - 1].remove(lo);
         } else {
             node.cluster_data_->clusters_[1] = subnode_t::new_all_but(lo);
         }
-        node.set_len(resident_count);
+        node.set_len(len);
 
         return node;
     }
@@ -413,6 +410,9 @@ public:
     }
 
     constexpr inline bool remove(index_t x, std::size_t& alloc) {
+        if (x < min_ || x > max_) {
+            return false;
+        }
         if (x == min_) {
             if (cluster_data_ == nullptr) {
                 if (max_ == min_) {
@@ -431,16 +431,12 @@ public:
 
         if (x == max_) {
             if (cluster_data_ == nullptr) {
-                if (max_ == min_) {
-                    return true;
-                } else {
-                    max_ = min_;
-                    return false;
-                }
+                max_ = min_;
+                return false;
             } else {
                 const auto max_cluster{cluster_data_->summary_.max()};
                 const auto max_element{cluster_data_->unfilled_.contains(max_cluster) ?
-                    cluster_data_->clusters_[cluster_data_->index_of(max_cluster)].max() : static_cast<subindex_t>(255)};
+                    cluster_data_->clusters_[get_len() - 1].max() : static_cast<subindex_t>(subnode_t::universe_size() - 1)};
                 x = max_ = index(max_cluster, max_element);
             }
         }
@@ -464,17 +460,15 @@ public:
         }
 
         if (auto* cluster{find(h)}; cluster != nullptr && cluster->remove(l)) {
-            const auto idx{cluster_data_->index_of(h)};
-            const auto size{get_len()};
-            const auto begin{cluster_data_->clusters_ + idx + 1};
-            const auto end{cluster_data_->clusters_ + size};
-            std::move(begin, end, begin - 1);
-            set_len(size - 1);
-
             if (cluster_data_->summary_.remove(h)) {
-                // ensure unfilled_ treats non-existent clusters as set
-                cluster_data_->unfilled_.insert(h);
                 destroy(alloc);
+            } else {
+                const auto idx{cluster_data_->index_of(h)};
+                const auto size{get_len()};
+                const auto begin{cluster_data_->clusters_ + idx + 1};
+                const auto end{cluster_data_->clusters_ + size};
+                std::move(begin, end, begin - 1);
+                set_len(size - 1);
             }
         }
 
@@ -482,6 +476,9 @@ public:
     }
 
     constexpr inline bool contains(index_t x) const {
+        if (x < min_ || x > max_) {
+            return false;
+        }
         if (x == min_ || x == max_) {
             return true;
         }
@@ -737,6 +734,11 @@ public:
             return false;
         }
 
+        const auto [nh, nl] {decompose(s_min)};
+        const auto [xh, xl] {decompose(s_max)};
+        emplace(nh, nl, alloc);
+        emplace(xh, xl, alloc);
+
         auto& s_summary{cluster_data_->summary_};
         auto& s_unfilled{cluster_data_->unfilled_};
         auto* clusters{cluster_data_->clusters_};
@@ -744,23 +746,24 @@ public:
         auto compl_summary{s_summary};
         compl_summary.not_inplace();
         compl_summary.or_inplace(cluster_data_->resident_mask());
-        s_unfilled = s_summary;  // ensure all clusters that were previously present are set in the compl unfilled
+        s_unfilled = s_summary; // ensure all clusters that were previously present are set in the compl unfilled
         s_summary = compl_summary; // ensure all resident clusters are set in the compl summary
 
-        auto h{0uz};
-        for (; h < get_len(); ++h) {
+        for (auto h{0uz}; h < get_len(); ++h) {
             clusters[h].not_inplace();
         }
 
         // if 0 wasn't the old min, then it is now the new min,
-        // similarly if universe_size() - 1 wasn't the old max, then it is now the new max,
+        // similarly if 255 wasn't the old max, then it is now the new max,
         // we can safely set min and max to universe bounds and remove old min and max from clusters
         // without risk of removing the new min and max
         min_ = 0;
         max_ = universe_size() - 1;
-        remove(s_min, alloc);
-        remove(s_max, alloc);
-
+        remove(min_, alloc);
+        remove(max_, alloc);
+        // auto all{new_all_but(0, 0, alloc)};
+        // all.insert(0, alloc);
+        // xor_inplace(all, alloc);
         return false;
     }
 
@@ -1172,26 +1175,28 @@ public:
         // self must contain o_min if s_min > o_min due to the insert at the top of the function
         // we handle the case where s_min == o_min below. this handles the case where s_min < o_min
         // we do not need to check the return value here, as removing o_min cannot empty this node as s_min must exist
-        if (s_min < o_min) {
+        if (s_min < o_min && max_ != o_min) {
             if (contains(o_min)) {
                 remove(o_min, alloc);
             } else {
                 insert(o_min, alloc);
             }
         }
-        if (s_max > o_max) {
+        if (s_max > o_max && min_ != o_max) {
             if (contains(o_max)) {
                 remove(o_max, alloc);
             } else {
                 insert(o_max, alloc);
             }
         }
-        // if other contains s_min then either it was equal to o_min or in one of other's clusters.
-        // if it was equal to o_min, we pull up the next minimum from the clusters, which by now we know is not in other
-        // if it was in one of the clusters, that cluster will still exist in self, so we need to remove it from the cluster
-        // if these removals empty the node, that means the node contained only s_min and s_max, and cluster_data was already nullptr
-        return (other.contains(s_min) && remove(s_min, alloc)) ||
-               (other.contains(s_max) && remove(s_max, alloc));
+
+        // if o contains s_min then either it was equal to o_min or in o_clusters.
+        // if it was equal to o_min, we pull up the next minimum from s_clusters, which by now we know is not in o
+        // if it was in one of the clusters, that means o_min < s_min, and s_min was also pushed into s_clusters.
+        // that value will not exist in s, so we do not need to remove it
+        // if these removals empty the node, that means the node contained only s_min and s_max, and cluster_data was already null
+        return (s_min == o_min && remove(s_min, alloc)) ||
+               (s_max == o_max && remove(s_max, alloc));
     }
 
     struct Eq {

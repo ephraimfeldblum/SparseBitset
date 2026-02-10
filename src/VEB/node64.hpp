@@ -70,20 +70,17 @@ public:
         Node64 node{};
         const auto old_min{old_storage.min()};
         const auto old_max{old_storage.max()};
-        node.min_ = static_cast<index_t>(old_min);
-        node.max_ = static_cast<index_t>(old_max);
+        node.min_ = old_min;
+        node.max_ = old_max;
 
-        old_storage.remove(old_min, alloc);
-        if (old_min != old_max) {
-            old_storage.remove(old_max, alloc);
+        if (old_storage.remove(old_min, alloc) || old_storage.remove(old_max, alloc)) {
+            return node;
         }
 
-        if (old_storage.size() > 0) {
-            allocator_t a{alloc};
-            node.cluster_data_ = a.allocate(1);
-            a.construct(node.cluster_data_, 0, alloc);
-            node.cluster_data_->clusters.emplace(0, std::move(old_storage));
-        }
+        allocator_t a{alloc};
+        node.cluster_data_ = a.allocate(1);
+        a.construct(node.cluster_data_, 0, alloc);
+        node.cluster_data_->clusters.emplace(0, std::move(old_storage));
         return node;
     }
 
@@ -195,9 +192,17 @@ public:
     }
 
     constexpr inline bool remove(index_t x, std::size_t& alloc) {
+        if (x < min_ || x > max_) {
+            return false;
+        }
         if (x == min_) {
             if (cluster_data_ == nullptr) {
-                return true;
+                if (max_ == min_) {
+                    return true;
+                } else {
+                    min_ = max_;
+                    return false;
+                }
             } else {
                 const auto min_cluster{cluster_data_->summary.min()};
                 [[assume(cluster_data_->summary.contains(min_cluster))]];
@@ -210,6 +215,7 @@ public:
         if (x == max_) {
             if (cluster_data_ == nullptr) {
                 max_ = min_;
+                return false;
             } else {
                 const auto max_cluster{cluster_data_->summary.max()};
                 [[assume(cluster_data_->summary.contains(max_cluster))]];
@@ -237,6 +243,9 @@ public:
     }
 
     constexpr inline bool contains(index_t x) const {
+        if (x < min_ || x > max_) {
+            return false;
+        }
         if (x == min_ || x == max_) {
             return true;
         }
@@ -587,14 +596,14 @@ public:
             }
         }
 
-        if (s_min < o_min) {
+        if (s_min < o_min && max_ != o_min) {
             if (contains(o_min)) {
                 remove(o_min, alloc);
             } else {
                 insert(o_min, alloc);
             }
         }
-        if (s_max > o_max) {
+        if (s_max > o_max && min_ != o_max) {
             if (contains(o_max)) {
                 remove(o_max, alloc);
             } else {
@@ -602,8 +611,8 @@ public:
             }
         }
 
-        return (other.contains(s_min) && remove(s_min, alloc)) || 
-               (other.contains(s_max) && remove(s_max, alloc));
+        return (s_min == o_min && remove(s_min, alloc)) || 
+               (s_max == o_max && remove(s_max, alloc));
     }
 };
 
