@@ -1,10 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-# Force GCC for C++23 support (must be set before project())
-set(CMAKE_CXX_COMPILER "g++")
-set(CMAKE_C_COMPILER "gcc")
-
-project(VEBTree VERSION 1.0.0 LANGUAGES C CXX)
+project(VEBTree VERSION 0.0.1 LANGUAGES C CXX)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 23)
@@ -37,8 +33,8 @@ set(CMAKE_C_FLAGS_RELEASE "-DNDEBUG -flto -O3")
 set(CMAKE_EXE_LINKER_FLAGS_RELEASE "-flto")
 
 # Custom Valgrind build type
-set(CMAKE_CXX_FLAGS_VALGRIND "-g -DDEBUG -O0")
-set(CMAKE_C_FLAGS_VALGRIND "-g -DDEBUG -O0")
+set(CMAKE_CXX_FLAGS_VALGRIND "-g3 -DDEBUG -Og")
+set(CMAKE_C_FLAGS_VALGRIND "-g3 -DDEBUG -Og")
 
 # Include directories
 include_directories(.)
@@ -55,13 +51,13 @@ FetchContent_MakeAvailable(xsimd)
 
 # Source files
 set(CORE_SOURCES
-    VebTree_c_api.cpp
+    ../vebitset.cpp
 )
 
 
 # Create shared library
 add_library(vebtree SHARED ${CORE_SOURCES})
-target_include_directories(vebtree PRIVATE ${xsimd_SOURCE_DIR}/include)
+target_include_directories(vebtree PUBLIC ${xsimd_SOURCE_DIR}/include)
 
 # Try to link Intel TBB for parallel execution policy support (std::execution implementations
 # on some toolchains rely on TBB). Prefer CMake package, fall back to system library if needed.
@@ -88,7 +84,6 @@ add_custom_target(release
     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
     COMMENT "Building with Release configuration"
 )
-
 
 
 # Info target

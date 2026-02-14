@@ -1091,7 +1091,33 @@ public:
         }
         // don't remove s_min/max yet if it was equal to o_min, since that would pull another value up
         // leading to recursively checking for removal of values until we reach values distinct from other
+        auto update_minmax = [&] {
+            // self must contain o_min if s_min > o_min due to the insert at the top of the function
+            // we handle the case where s_min == o_min below. this handles the case where s_min < o_min
+            // we do not need to check the return value here, as removing o_min cannot empty this node as s_min must exist
+            if (s_min < o_min && max_ != o_min) {
+                if (contains(o_min)) {
+                    remove(o_min, alloc);
+                } else {
+                    insert(o_min, alloc);
+                }
+            }
+            if (s_max > o_max && min_ != o_max) {
+                if (contains(o_max)) {
+                    remove(o_max, alloc);
+                } else {
+                    insert(o_max, alloc);
+                }
+            }
 
+            // if o contains s_min then either it was equal to o_min or in o_clusters.
+            // if it was equal to o_min, we pull up the next minimum from s_clusters, which by now we know is not in o
+            // if it was in one of the clusters, that means o_min < s_min, and s_min was also pushed into s_clusters.
+            // that value will not exist in s, so we do not need to remove it
+            // if these removals empty the node, that means the node contained only s_min and s_max, and cluster_data was already null
+            return (s_min == o_min && remove(s_min, alloc)) ||
+                   (s_max == o_max && remove(s_max, alloc));
+        };
 
         if (other.cluster_data_ == nullptr) {
             // Only need to adjust min and max
@@ -1136,7 +1162,10 @@ public:
                 if (re_s && re_o) {
                     diff_clusters[k] = s_clusters[i++];
                     if (diff_clusters[k].xor_inplace(o_clusters[j++])) {
-                        diff_summary.remove(h);
+                        if (diff_summary.remove(h)) {
+                            destroy(alloc);
+                            return update_minmax();
+                        }
                     } else if (diff_clusters[k].full()) {
                         diff_unfilled.remove(h);
                     } else {
@@ -1155,7 +1184,10 @@ public:
                     }
                     ++k;
                 } else if (in_s && in_o) { // implicit in s and o. result is empty
-                    diff_summary.remove(h);
+                    if (diff_summary.remove(h)) {
+                        destroy(alloc);
+                        return update_minmax();
+                    }
                     diff_unfilled.insert(h);
                 } else {                   // implicit in s xor o. remains implicit
                     diff_unfilled.remove(h);
@@ -1171,32 +1203,7 @@ public:
             }
             set_len(k);
         }
-
-        // self must contain o_min if s_min > o_min due to the insert at the top of the function
-        // we handle the case where s_min == o_min below. this handles the case where s_min < o_min
-        // we do not need to check the return value here, as removing o_min cannot empty this node as s_min must exist
-        if (s_min < o_min && max_ != o_min) {
-            if (contains(o_min)) {
-                remove(o_min, alloc);
-            } else {
-                insert(o_min, alloc);
-            }
-        }
-        if (s_max > o_max && min_ != o_max) {
-            if (contains(o_max)) {
-                remove(o_max, alloc);
-            } else {
-                insert(o_max, alloc);
-            }
-        }
-
-        // if o contains s_min then either it was equal to o_min or in o_clusters.
-        // if it was equal to o_min, we pull up the next minimum from s_clusters, which by now we know is not in o
-        // if it was in one of the clusters, that means o_min < s_min, and s_min was also pushed into s_clusters.
-        // that value will not exist in s, so we do not need to remove it
-        // if these removals empty the node, that means the node contained only s_min and s_max, and cluster_data was already null
-        return (s_min == o_min && remove(s_min, alloc)) ||
-               (s_max == o_max && remove(s_max, alloc));
+        return update_minmax();
     }
 
     struct Eq {

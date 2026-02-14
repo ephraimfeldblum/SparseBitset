@@ -1,89 +1,256 @@
+# Agent Guidelines for vebitset
+
 **Purpose**
-- **Context**: Guidance for agent contributors working on the SparseBitset repository. This file explains high-level repo structure, build/test commands, and explicit instructions for the agent (you) to follow when making changes.
+- Guidance for agent contributors working on the vebitset repository
+- Explains repository structure, build/test commands, and agent instructions
 
 **Repository Context**
-- **Language**: C/C++ with Redis module API and a C++ van Emde Boas (VEB) implementation.
-- **Primary locations**: [src/bitset_module.c](src/bitset_module.c) and [src/VEB](src/VEB)
-- **Tests**: Integration/flow tests are under [tests/flow](tests/flow) and are executed with the project's `Makefile` and rltest harness.
+- **Language**: C++23 (core library) and C11 (C API)
+- **Build System**: CMake 3.16+
+- **Primary Locations**:
+  - [include/vebitset.h](include/vebitset.h): Public C API
+  - [src/VEB/VebTree.hpp](src/VEB/VebTree.hpp): Core VEB tree implementation
+  - [tests/unit/](tests/unit/): C++ unit tests (doctest)
+  - [tests/benchmarks/](tests/benchmarks/): Micro and macro benchmarks (nanobench)
 
 **Key Files**
-- [src/bitset_module.c](src/bitset_module.c): Redis module entry points and command implementations.
-- [src/VEB/VebTree.hpp](src/VEB/VebTree.hpp): Core VEB tree template and behavior.
-- [src/VEB/node8.hpp](src/VEB/node8.hpp): VEB leaf implementation. Naive packed bitsets. Should be trivial to validate correctness/perf.
-- [src/VEB/node16.hpp](src/VEB/node16.hpp): VEB node implementation. Uses a packed FAM to store subnodes (node8) instead of a Map for perf.
-- [src/VEB/node32.hpp](src/VEB/node32.hpp): VEB node implementation. Ues a Set instead of a Map for perf. Key is inlined into unused padding in the subnode's (node16) object representation.
-- [Makefile](Makefile): Build and test targets used in CI and local flows.
-- [tests/flow](tests/flow): python test suite (rltest) exercising module behavior and persistence.
+- [CMakeLists.txt](CMakeLists.txt): Root build configuration
+- [include/vebitset.h](include/vebitset.h): Public C API with full function declarations
+- [src/vebitset.cpp](src/vebitset.cpp): C API implementation
+- [src/VEB/VebTree.hpp](src/VEB/VebTree.hpp): Core VEB tree (non-template variant-based)
+- [src/VEB/node8.hpp](src/VEB/node8.hpp): 256-bit leaf nodes with SIMD optimization
+- [src/VEB/node16.hpp](src/VEB/node16.hpp): Intermediate nodes (up to 2^16 elements)
+- [src/VEB/node32.hpp](src/VEB/node32.hpp): Intermediate nodes (up to 2^32 elements)
+- [src/VEB/node64.hpp](src/VEB/node64.hpp): Top-level nodes (up to 2^63 elements)
+- [tests/unit/](tests/unit/): Unit test files (test_*.cpp)
+- [tests/benchmarks/](tests/benchmarks/): Benchmark implementations (bench_*.cpp)
 
-**How to Build & Test (quick reference)**
-- Build locally: `make`
-- Run full tests (using WSL or docker is required on Windows): `make test`
-- Run a single test file: `make test TEST=test_basic_mutations`
-- Run a single flow test: `make test TEST=test_toarray_order:test_toarray_order_large`
-- Example Windows/WSL invocation used in this workspace:
-  `wsl -e bash -lc "cd src/VEB && make release && cd ../.. && make test QUICK=1"`
+## How to Build & Test (Quick Reference)
 
-**Agent (You) — Working Rules and Instructions**
-- ALWAYS start with a short todo entry via the project's todo tool to track the change.
-- Before any tool call that modifies files, post a 1–2 sentence preamble describing what you'll do next.
-- Use `apply_patch` to make edits. Keep changes minimal and focused on the requested task.
-- After edits, run the smallest set of tests that should validate the change (targeted `make test QUICK=1 TEST=...`).
-- If tests fail, attempt to fix the root cause. Limit to 3 quick edit-test cycles for the same file; escalate if still failing.
-- If creating new files, include concise documentation and update relevant READMEs if necessary.
-- Prefer running tests inside WSL or Docker if on Windows. Redis is not Windows-compatible.
-- Emit logs using `RedisModule_Log` only; do not use `fprintf`, `std::cerr`, `std::cout`, or other stdio/iostream channels in module or VEB code. This ensures logs are captured consistently by Redis and test harnesses.
-- VEB nodes (`Node16`, `Node32`, `Node64`) **MUST** be manually destroyed using their `.destroy(alloc)` method before they go out of scope or are reassigned. Failure to do so will cause memory leaks and, in debug builds, trigger assertions.
+### Build
+```bash
+# Release build (default, optimized)
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
 
-**Testing Strategy**
-- Reproduce failing tests locally using QUICK mode and using the specific test with TEST to limit runtime.
-- Use tests/flow logs at `tests/flow/logs` and `tests/flow/rltest_logs` for historical failures and RDB artifacts.
-- For performance changes in `src/VEB`, add small benchmarks under `tests/benchmarks` or reuse existing harness.
+# Debug build
+cmake -B build-debug -DCMAKE_BUILD_TYPE=Debug
+cmake --build build-debug -j$(nproc)
 
-**Useful Commands**
-- Build: `make`
-- Clean: `make clean`
-- Run a single flow test: `make test QUICK=1 TEST=...`
-- Run all flow tests: `make test QUICK=1`
-- Run all flow tests in all configurations: `make test`
-- Run in Docker: `./run_in_docker.sh`
+# Build without tests
+cmake -B build -DVEBITSET_BUILD_TESTS=OFF
+cmake --build build
 
-**VEB Node Invariants**
-- **Min/Max ownership:** The `min` and `max` values must be stored in the node itself and must never be stored inside cluster containers. If an operation would remove a node's `min` or `max`, the node must promote a replacement value from its clusters (for example, pull the next `min`/`max` from the appropriate cluster) so the node's `min`/`max` remain authoritative. These in-node `min`/`max` values are the single source of truth and are not copies.
-- **Nodes are never empty:** A node is never considered empty except during the fleeting moment between an operation that removed its last elements and the call site that destroys the node. Assume nodes always contain at least the stored `min`/`max`.
-- **Summary is the source of truth:** The `summary` index is authoritative for which clusters logically exist. If the `summary` indicates a cluster exists at a key, and the node-specific residency operations indicate that the node is resident, callers do not need to re-validate that by checking `find()` return values or similar — rely on the node's membership and residency operations to reason about clusters.
-- **Summary is itself non-empty:** The `summary` (and any other relevant indexes) is a proper node and therefore must contain at least one element whenever it exists. Treat `summary` (and `unfilled`) as non-empty — its `min`/`max` and membership ops are valid.
-- **Clusterless does not mean empty:** A node with no clusters still contains valid `min` and `max` values and therefore must be treated as non-empty. Do not infer emptiness solely from the absence of clusters.
+# Build with benchmarks enabled
+cmake -B build -DVEBITSET_BUILD_BENCHMARKS=ON
+cmake --build build
+```
 
-**Node-Specific Behavior**
-- **Node8:** Node8 de facto is a PoD 256-bit bitset, conceptually `alignas(32) uint64_t[4]`. The implementation is de jure based on the API provided by `xsimd` for handling 256-bit data in batches of 64 bits irrespective of the specific architecture this library is built on. eg, if avx512 is available, Node8 does not change to using 512 bit batches. alternatively, if there is no appropriate 256 bit SIMD type available, this library should fail to compile. Operations on Node8 should be optimized using SIMD instructions provided by the `xsimd` library.
-- **Node16:** A bitset that can store up to 2^16 = 6.5e4 bits. Is used by the Tree as its underlying storage if the range of values stored within exceeds the max value storable in a `Node8`. `Node16` uses `Node8` as subnodes. Clusters are stored in a packed dynamic array to minimize memory overhead. It avoids using a Map by utilizing the `summary` and `unfilled` indexes to compute the physical index of a cluster via `resident.count_range`. This keeps the structure at exactly 16 bytes inside the structure itself and sizeof(Node8) * (2 + n) bytes in its cluster_data.
-- **Node32:** A bitset that can store up to 2^32 = 4.3e9 bits. Is used by the Tree as its underlying storage if the range of values stored within exceeds the max value storable in a `Node16`. `Node32` uses `Node16` as subnodes. It uses a HashSet of `Node16` clusters. Each `Node16` cluster inlines its own `key` to serve as the hash/equality key, avoiding the overhead of separate key-value pairs. The Set utilizes transparent lookup, enabling us to lookup by `key` rather than constructing a dummy `Node16` with which to search. Total size is 16 bytes inside the structure itself.
-- **Node64:** A bitset that can store up to 2^63 = 9.2e18 bits. Is used by the Tree as its underlying storage if the range of values stored within exceeds the max value storable in a `Node32`. Uses `Node32` as subnodes. It utilizes a HashMap to manage `Node32` clusters. A `Node32` summary tracks which clusters are non-empty. Total size is 24 bytes inside the structure itself. Remains largely unused, as Redis's Bitmap data structure - that this bitset module is competing with - can itself store only up to 2^32 bits.
+### Test
+```bash
+# Run all unit tests
+cd build
+ctest --verbose
 
-**Coding & PR Guidelines for the Agent**
-- Keep patches minimal and narrowly scoped.
-- Use C++23 and C11: Ensure all new code adheres to the C++23 standard for the core library and C11 for the Redis module wrapper.
-    - C Interface: Follows standard Redis Module conventions using snake_case and explicit error handling via Redis return codes.
-    - C++ Core: Utilizes modern C++23 features while maintaining low-level control over memory via custom allocators and manual object destruction.
-- Maintain Invariants: The min and max values must be stored in the node itself and never inside cluster containers. The summary is the authoritative source for cluster existence.
-- Optimization: Optimizing memory consumption is mission-critical! This bitset is designed to reside in-memory. It should go out of its way to ensure that users are not paying for more memory than they are using. Optimizing for time is very important, but not if the gains are low at the expense of increased memory usage.
-    - Examples of specific optimizations used include: Extensive use of SIMD (via xsimd), Flexible Array Members (FAM), and bit manipulation to achieve $O(\log \log U)$ performance.
-    - Performance First: Ensure operations maintain top speed. Avoid unnecessary allocations or scans that could degrade performance.
-    - Manual Memory Management: All vEB nodes (Node16, Node32, Node64) must be manually destroyed using their .destroy(alloc) method before their lifetime ends.
-    - SIMD & Bit Manipulation: When working with leaf nodes (Node8), use xsimd and bitwise intrinsics (like std::popcount) to optimize performance.
-- Preserve existing style and APIs unless explicitly requested by the user.
-    - Follow Naming Conventions: Use snake_case for all functions, methods, and variables (e.g., insert_value, cluster_data_).
-    - No Unnecessary Comments: Code should be self-documenting. Avoid adding comments unless they explain complex algorithmic logic or non-obvious optimizations.
-    - No implicit conversions may be done unless those conversions are non-narrowing conversions (eg uint8_t to uint16_t).
-    - No implicit conversions to bool may be done in if/for/while conditions. Always provide an explicit boolean test.
-        eg, `if (ptr == nullptr)` instead of `if (!ptr)`, or `if (opt.has_value())` instead of `if (opt)`.
-    - Never elide optional braces. In this code base there is no such thing as optional braces for compound expressions.
-- Test-Driven Development: All new features or bug fixes must include functional tests in ./tests/flow/ using the RLTest framework.
-    - Run only the tests relevant to your change before proposing broader test runs.
-- Build System Integrity: Maintain the Makefile and CMake configurations. Ensure the project builds with `make` and passes `make test QUICK=1` before submission.
+# Run specific test by name
+ctest --verbose --tests-regex test_basics
 
-**Notes**
-- Logs and previous failing runs are available in `tests/flow/logs` — consult them when debugging flakiness or persistence issues.
-- If a change requires environment-specific steps, document them in this file briefly.
+# Direct test executable
+./build/tests/vebitset_tests
 
-File created to help future agent-driven edits and to centralize workflow expectations.
+# Run single test file from tests/unit/
+ctest --verbose --tests-regex "test_node_transitions"
+```
+
+### Benchmarks
+```bash
+# Build with benchmarks
+cmake -B build -DVEBITSET_BUILD_BENCHMARKS=ON
+cmake --build build
+
+# Run all benchmarks (micro + macro)
+./build/tests/benchmarks/vebitset_bench --output results.json
+
+# Microbenchmarks only
+./build/tests/benchmarks/vebitset_bench --micro-only
+
+# Macrobenchmarks only (comparison with roaring, vector<bool>)
+./build/tests/benchmarks/vebitset_bench --macro-only
+
+# View results
+cat results.json | jq '.'
+```
+
+## Agent (You) — Working Rules and Instructions
+
+### General Workflow
+1. **Always start with a todo** using the TodoWrite tool to track changes
+2. **Before modifying files**, read them first to understand context and conventions
+3. **Keep changes minimal and focused** on the requested task
+4. **After edits, run relevant tests** immediately to validate changes
+5. **If tests fail**, attempt to fix the root cause (limit 3 edit-test cycles per file)
+6. **Do not commit** unless explicitly asked by the user
+
+### Build & Test Protocol
+- After file modifications, run the smallest test set that validates the change:
+  ```bash
+  cmake --build build && cd build && ctest --verbose --tests-regex relevant_test
+  ```
+- Prefer Release builds for performance validation
+- Use Debug builds for diagnosing issues with detailed logging
+- All tests must pass before considering a task complete
+
+### Code Style & Standards
+- **Language**: C++23 for core, C11 for API
+- **Naming**: snake_case for all functions, methods, and variables
+  - Example: `insert_value`, `successor_index`, `cluster_data_`
+- **No Unnecessary Comments**: Code must be self-documenting
+  - Comments only for complex algorithmic logic or non-obvious optimizations
+- **No Implicit Conversions**:
+  - Conversions must be non-narrowing (uint8_t → uint16_t is OK)
+  - No implicit conversions to bool in conditions: use `if (ptr == nullptr)` not `if (!ptr)`
+- **Brace Style**: Never elide braces in compound expressions
+  ```cpp
+  // WRONG: if (condition) statement;
+  // RIGHT:
+  if (condition) {
+      statement;
+  }
+  ```
+
+### Memory Management
+- **VEB Nodes Must Be Destroyed**: All `Node16`, `Node32`, `Node64` instances must call `.destroy(alloc)` before going out of scope
+  - Failure causes memory leaks and debug assertion failures
+  - Exception: nodes stored within parent nodes (cleanup is parent's responsibility)
+- **Manual Allocation**: Use `malloc`/`free` for C API, avoid C++ `new`/`delete`
+- **Allocator Integration**: Use the provided allocator interface for consistency
+
+### Performance Optimization
+- **Memory efficiency is mission-critical**: Optimize for space first, then time
+- **SIMD Usage**: Node8 must use xsimd for 256-bit operations (4 × uint64_t)
+- **Flexible Array Members**: Use FAM for variable-length cluster storage in Node16
+- **Zero-Copy**: Avoid unnecessary allocations in hot paths
+- **Targeted Optimization**: Profile before optimizing; focus on O(log log U) operations
+
+## VEB Node Invariants
+
+### Min/Max Ownership
+- `min` and `max` must be stored in the node itself, never delegated to clusters
+- If removing an element would invalidate `min`/`max`, promote a value from clusters
+- In-node `min`/`max` values are the authoritative single source of truth
+
+### Node Semantics
+- **Nodes are never empty** (except during destruction): always contain at least `min`/`max`
+- **Summary is authoritative**: if `summary` contains a key, the cluster logically exists
+- **Summary must be non-empty**: treat `summary` as a proper node with valid `min`/`max`
+- **Clusterless ≠ empty**: a node with no clusters still has valid `min`/`max`
+
+### Node Type Specifics
+- **Node8**: 256-bit packed array (4 × uint64_t), SIMD-optimized, acts as a leaf
+- **Node16**: Manages up to 2^16 elements via packed FAM of Node8 clusters
+- **Node32**: Manages up to 2^32 elements via HashSet of Node16 clusters (keys inlined)
+- **Node64**: Manages up to 2^63 elements via HashMap of Node32 clusters
+
+## Testing Strategy
+
+### Test Organization
+- **Unit Tests**: [tests/unit/](tests/unit/) with doctest framework
+- **Test Coverage**: Basics, queries, set operations, edge cases, serialization, node transitions, memory, fuzzing, complex scenarios
+- **Microbenchmarks**: nanobench for individual operation profiling
+- **Macrobenchmarks**: Compare against std::vector<bool> and roaring-bitmap
+
+### Running Tests
+```bash
+# All tests
+ctest --verbose
+
+# Specific test file
+ctest --verbose --tests-regex test_node_transitions
+
+# Specific doctest
+./build/tests/vebitset_tests "[test_basics]"
+```
+
+### Test Failures
+1. Identify which test fails
+2. Check the assertion message for root cause
+3. Read the test code and implementation to understand the discrepancy
+4. Make minimal fix and re-run only that test
+5. Verify no regression with full test suite
+
+## Documentation
+
+### Code Documentation
+- [README.md](README.md): User-facing library documentation
+- [AGENTS.md](AGENTS.md): This file—developer/agent guidance
+- [tests/README.md](tests/README.md): Test framework details
+
+### Updating Docs
+- After significant feature additions, update [README.md](README.md)
+- Update [AGENTS.md](AGENTS.md) if agent workflow changes
+- Document new benchmark scenarios in [tests/benchmarks/](tests/benchmarks/)
+
+## Common Commands
+
+### Building
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j$(nproc)
+```
+
+### Testing (Full)
+```bash
+cd build && ctest --verbose
+```
+
+### Testing (Specific)
+```bash
+cd build && ctest --verbose --tests-regex test_name
+```
+
+### Cleaning
+```bash
+rm -rf build build-debug
+```
+
+### Benchmarking
+```bash
+cmake -B build -DVEBITSET_BUILD_BENCHMARKS=ON
+cmake --build build
+./build/tests/benchmarks/vebitset_bench --output results.json
+cat results.json | jq '.'
+```
+
+## Architecture Overview
+
+vebitset uses a hierarchical VEB tree with automatic node type selection:
+
+```
+Insert value 5000000:
+  → Exceeds Node16 limit (2^16)
+  → Use Node32 (up to 2^32)
+  → Allocate Node32 with sub-clusters of Node16
+  → Each Node16 manages Node8 clusters (256-bit leaves)
+```
+
+**Node Stack**:
+- **Node8**: 256-bit bitset (leaf)
+- **Node16**: ≤2^16 bits, clusters of Node8
+- **Node32**: ≤2^32 bits, clusters of Node16
+- **Node64**: ≤2^63 bits, clusters of Node32
+
+## Troubleshooting
+
+### Build Failures
+- Check C++23 compiler support (GCC 14+, Clang 17+)
+- Verify CMake version ≥ 3.16
+- Ensure xsimd is fetched (check `build/_deps`)
+
+### Test Failures
+- Run with `ctest --verbose` for detailed output
+- Check memory with `valgrind` for leaks
+- Enable debug logging in test code temporarily
+
+### Performance Issues
+- Profile with `perf` or comparable tool
+- Use micro benchmarks to isolate bottlenecks
+- Check node type selections for given data patterns
