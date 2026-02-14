@@ -94,7 +94,7 @@ public:
         }
 
         const size_type bytes = n * sizeof(T);
-        void* ptr = malloc(bytes);
+        void* ptr = aligned_alloc(alignof(T), bytes);
 
         if (ptr == nullptr) {
             return nullptr;

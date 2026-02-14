@@ -1,236 +1,248 @@
-# Redis Bitset Module
+# vebitset: A High-Performance C++ Bitset Library
 
-A Redis module that provides efficient bitset operations using van Emde Boas (VEB) trees. This module allows you to store and manipulate large bitsets with excellent performance characteristics.
+A modern C++ library providing efficient bitset operations using van Emde Boas (VEB) trees. vebitset offers excellent performance for bitsets with a clean C API.
 
 ## Features
 
-- **Dynamic bitset operations**: Efficiently handle bitsets with large gaps between set bits
-- **VEB tree backend**: O(log log U) time complexity, where U is the universe size
+- **Fast operations**: O(log log U) time complexity for most operations, where U is the universe size
+- **Memory efficient**: Only stores set bits with O(n) space complexity, where n is the number of set bits
 - **Set operations**: Union, intersection, symmetric difference (XOR)
-- **Range queries**: Find all set bits in a given range
-- **Memory efficient**: Only stores set bits, not the entire bit array, with O(n) space complexity, where n is the number of set bits
+- **Range queries**: Count elements in ranges, find successors/predecessors
+- **Serialization**: Serialize and deserialize bitsets to/from binary format
+- **C API**: Clean C interface for easy integration with C code
+- **C++ API**: Direct access to VEB tree implementation for maximum performance
 
 ## Building
 
 ### Prerequisites
 
-- GCC with C++23 support
+- GCC/Clang with C++23 support
 - CMake 3.16 or later
-- Redis server (for testing)
+- xsimd (for SIMD optimizations, included via FetchContent)
 
 ### Build Steps
 
-Simply run from the root directory:
-
 ```bash
-make
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+cmake --build . -j$(nproc)
 ```
-
-This will:
-- Automatically create the VEB build directory if it doesn't exist
-- Configure and build the VEB library with Release optimization
-- Build the Redis module (`bitset.so`)
 
 ### Build Options
 
-- **`make`** or **`make release`** - Build with Release configuration (default, optimized)
-- **`make debug`** - Build with Debug configuration (includes debug symbols)
-- **`make clean`** - Clean all build artifacts including VEB library
-- **`make help`** - Show available build targets and options
+```bash
+# Debug build
+cmake -B build-debug -DCMAKE_BUILD_TYPE=Debug
+cmake --build build-debug
 
-The build process automatically handles dependencies and only builds the necessary shared libraries.
+# Release build (default, optimized)
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
 
-## Installation
+# Build without tests
+cmake -B build -DVEBITSET_BUILD_TESTS=OFF
+cmake --build build
 
-1. **Copy the module** to your Redis modules directory or keep it in the current directory
-2. **Load the module at Redis startup** (preferred method):
-   ```bash
-   redis-server --loadmodule /path/to/bitset.so
-   ```
+# Build with benchmarks
+cmake -B build -DVEBITSET_BUILD_BENCHMARKS=ON
+cmake --build build
+```
 
-   Or add to your `redis.conf`:
-   ```
-   loadmodule /path/to/bitset.so
-   ```
+## Testing
 
-3. **Alternative: Load the module in a running Redis instance**:
-   ```bash
-   redis-cli MODULE LOAD /path/to/bitset.so
-   ```
+### Run All Tests
 
-## Commands
+```bash
+cd build/tests
+ctest --verbose
+```
 
-All commands use the `BITS.` prefix to avoid conflicts with Redis built-in commands.
+### Run Specific Test
+
+```bash
+ctest --verbose --tests-regex test_basics
+```
+
+### Direct Test Execution
+
+```bash
+./build/tests/vebitset_tests
+```
+
+## Benchmarking
+
+vebitset includes both microbenchmarks (using nanobench) and macrobenchmarks comparing against:
+- std::vector<bool>
+- Roaring Bitmap library
+
+### Build and Run Benchmarks
+
+```bash
+cmake -B build -DVEBITSET_BUILD_BENCHMARKS=ON
+cmake --build build
+./build/tests/benchmarks/vebitset_bench --output results.json
+```
+
+### Benchmark Options
+
+```bash
+# Run all benchmarks
+./build/tests/benchmarks/vebitset_bench --output results.json
+
+# Microbenchmarks only
+./build/tests/benchmarks/vebitset_bench --micro-only
+
+# Macrobenchmarks only
+./build/tests/benchmarks/vebitset_bench --macro-only
+```
+
+## C API Usage
+
+### Creating and Destroying Bitsets
+
+```c
+#include <vebitset.h>
+
+// Create a new bitset
+vebitset_t bitset = vebitset_create();
+
+// Use the bitset...
+
+// Destroy when done
+vebitset_destroy(bitset);
+```
 
 ### Basic Operations
 
-- **`BITS.INSERT key element [element ...]`** - Add one or more elements to the bitset
-  - Returns: Number of elements that were newly added
-- **`BITS.REMOVE key element [element ...]`** - Remove one or more elements from the bitset
-  - Returns: Number of elements that were removed
-- **`BITS.SET key offset value`** - Sets or clears the bit at offset in the bitset
-  - `offset` - The bit position (must be >= 0)
-  - `value` - The bit value to set (0 or 1)
-  - Returns: The previous value of the bit at offset
-  - Behaves similarly to Redis SETBIT command
-- **`BITS.CLEAR key`** - Remove all elements from the bitset
-  - Returns: "OK"
+```c
+// Insert elements
+vebitset_insert(bitset, 5);
+vebitset_insert(bitset, 10);
+vebitset_insert(bitset, 100);
+
+// Check membership
+bool exists = vebitset_contains(bitset, 10);
+
+// Remove elements
+vebitset_remove(bitset, 5);
+
+// Clear all elements
+vebitset_clear(bitset);
+```
 
 ### Query Operations
 
-- **`BITS.GET key offset`** - Returns the bit value at offset in the bitset
-  - Returns: 1 if the bit is set, 0 otherwise
-  - Behaves similarly to Redis GETBIT command
-- **`BITS.MIN key`** - Get the smallest element in the bitset
-  - Returns: The minimum element, or null if empty
-- **`BITS.MAX key`** - Get the largest element in the bitset
-  - Returns: The maximum element, or null if empty
-- **`BITS.SUCCESSOR key element`** - Find the smallest element greater than the given element
-  - Returns: The successor element, or null if none exists
-- **`BITS.PREDECESSOR key element`** - Find the largest element smaller than the given element
-  - Returns: The predecessor element, or null if none exists
-- **`BITS.COUNT key [start end [BYTE | BIT]]`** - Count elements in the bitset or within a range
-  - `key` - The bitset key
-  - `start` - Optional start index (default: 0)
-  - `end` - Optional end index, can be negative to count from end (default: -1)
-  - `BYTE | BIT` - Optional unit specification (default: BYTE)
-  - Returns: Count of elements in the specified range
-  - Behaves similarly to Redis BITCOUNT command
-- **`BITS.POS key bit [start [end [BYTE | BIT]]]`** - Find the position of the first bit set to 1 or 0
-  - `key` - The bitset key
-  - `bit` - Must be 0 or 1 (the bit value to search for)
-  - `start` - Optional starting position (default: 0)
-  - `end` - Optional ending position (default: end of bitset)
-  - `BYTE | BIT` - Optional unit specification (default: BYTE)
-  - Returns: Position of the first bit with the specified value, or -1 if not found
-  - Behaves similarly to Redis BITPOS command
+```c
+// Get min/max elements
+uint64_t min = vebitset_min(bitset);
+uint64_t max = vebitset_max(bitset);
+
+// Count elements
+uint64_t count = vebitset_count(bitset);
+
+// Count elements in a range
+uint64_t range_count = vebitset_count_range(bitset, 0, 1000);
+
+// Find successor/predecessor
+uint64_t succ = vebitset_successor(bitset, 100);
+uint64_t pred = vebitset_predecessor(bitset, 100);
+
+// Get all elements as array
+uint64_t* array = NULL;
+uint64_t size = 0;
+vebitset_to_array(bitset, &array, &size);
+free(array);
+```
 
 ### Set Operations
 
-- **`BITS.OP <AND | OR | XOR> dest src1 [src2 ...]`** - Perform bitwise operations between multiple bitsets
-  - **`BITS.OP AND dest src1 [src2 ...]`** - Store intersection (src1 & src2 & ...) of bitsets in dest
-  - **`BITS.OP OR dest src1 [src2 ...]`** - Store union (src1 | src2 | ...) of bitsets in dest
-  - **`BITS.OP XOR dest src1 [src2 ...]`** - Store symmetric difference (src1 ^ src2 ^ ...) in dest
-  - Returns: Size of the resulting set in bytes (like Redis BITOP)
-  - Non-existent keys are treated as empty bitsets (all zeros)
+```c
+// Create two bitsets for operations
+vebitset_t set1 = vebitset_create();
+vebitset_t set2 = vebitset_create();
 
-### Utility Operations
+// Populate with elements...
 
-- **`BITS.TOARRAY key`** - Get all elements as an array, sorted in ascending order
-  - Returns: Array of all elements
-- **`BITS.INFO key`** - Get detailed information about the bitset
-  - Returns: Array with size, universe_size, allocated_memory, total_clusters, max_depth
+// Union
+vebitset_t result = vebitset_union(set1, set2);
 
-## Usage Examples
+// Intersection
+vebitset_t result = vebitset_intersection(set1, set2);
 
-```bash
-# Add elements to a bitset (bitset is created automatically)
-redis-cli BITS.INSERT myset 1 5 10 100 1000
-# Returns: (integer) 5
+// Symmetric difference (XOR)
+vebitset_t result = vebitset_symmetric_difference(set1, set2);
 
-# Check if bits are set
-redis-cli BITS.GET myset 5
-# Returns: (integer) 1
-
-redis-cli BITS.GET myset 7
-# Returns: (integer) 0
-
-# Count all elements
-redis-cli BITS.COUNT myset
-# Returns: (integer) 5
-
-# Count elements in byte range 0-10
-redis-cli BITS.COUNT myset 0 10
-# Returns: (integer) 3
-
-# Count elements in bit range 0-100
-redis-cli BITS.COUNT myset 0 100 BIT
-# Returns: (integer) 4
-
-# Count elements from byte 5 to end
-redis-cli BITS.COUNT myset 5 -1
-# Returns: (integer) 2
-
-# Get min and max
-redis-cli BITS.MIN myset
-# Returns: (integer) 1
-
-redis-cli BITS.MAX myset
-# Returns: (integer) 1000
-
-# Find successor and predecessor
-redis-cli BITS.SUCCESSOR myset 3
-# Returns: (integer) 5
-
-redis-cli BITS.PREDECESSOR myset 100
-# Returns: (integer) 10
-
-# List all elements
-redis-cli BITS.TOARRAY myset
-# Returns: 1) (integer) 1
-#          2) (integer) 5
-#          3) (integer) 10
-#          4) (integer) 100
-#          5) (integer) 1000
-
-# Set operations
-redis-cli BITS.INSERT set1 1 2 3 4
-redis-cli BITS.INSERT set2 3 4 5 6
-
-redis-cli BITS.OP OR result set1 set2
-# Returns: (integer) 1  (elements: 1,2,3,4,5,6)
-
-redis-cli BITS.OP AND result set1 set2
-# Returns: (integer) 1  (elements: 3,4)
-
-redis-cli BITS.OP XOR result set1 set2
-# Returns: (integer) 1  (elements: 1,2,5,6)
-
-# Remove elements
-redis-cli BITS.REMOVE myset 5 10
-# Returns: (integer) 2
-
-# Get information
-redis-cli BITS.INFO myset
-# Returns detailed information about the bitset
-
-# Clear all elements
-redis-cli BITS.CLEAR myset
-# Returns: OK
-
-# Find bit positions
-redis-cli BITS.INSERT postest 1 5 10 100
-redis-cli BITS.POS postest 1
-# Returns: (integer) 1  (first set bit)
-
-redis-cli BITS.POS postest 0
-# Returns: (integer) 0  (first unset bit)
-
-redis-cli BITS.POS postest 1 0 1
-# Returns: (integer) 1  (first set bit in byte range 0-1)
-
-redis-cli BITS.POS postest 1 0 10 BIT
-# Returns: (integer) 1  (first set bit in bit range 0-10)
-
-redis-cli BITS.POS postest 0 2 8 BIT
-# Returns: (integer) 2  (first unset bit in bit range 2-8)
+// Cleanup
+vebitset_destroy(set1);
+vebitset_destroy(set2);
+vebitset_destroy(result);
 ```
 
+### Serialization
 
+```c
+// Serialize to bytes
+uint8_t* buffer = NULL;
+uint64_t size = 0;
+vebitset_serialize(bitset, &buffer, &size);
+
+// Deserialize from bytes
+vebitset_t restored = vebitset_deserialize(buffer, size);
+free(buffer);
+```
+
+## C++ API
+
+For C++ code, you can use the VEB tree implementation directly:
+
+```cpp
+#include "VEB/VebTree.hpp"
+
+VebTree tree;
+tree.insert(5);
+tree.insert(10);
+
+bool has = tree.contains(10);
+uint64_t count = tree.count();
+tree.remove(5);
+```
 
 ## Performance Characteristics
 
-- **Insert**: O(log log U) amortized, where U is the universe size
-- **Delete/Get**: O(log log U)
+- **Insert**: O(log log U) amortized
+- **Remove**: O(log log U) amortized
+- **Contains**: O(log log U)
 - **Min/Max**: O(1)
 - **Successor/Predecessor**: O(log log U)
-- **Memory usage**: O(n), where n is the number of set bits
-- **Set operations**: O(n + m), where n and m are the sizes of the input sets
+- **Count**: O(log log U) for range counts
+- **Set operations**: O(n + m) for inputs of size n and m
+- **Memory**: O(n) for n set bits
 
-## Implementation Details
+## Architecture
 
-The module uses van Emde Boas trees as the underlying data structure, which provides excellent performance for dynamic bitsets. The VEB tree recursively divides the universe into clusters, allowing for very fast operations even with large universe sizes.
+vebitset uses a hierarchical van Emde Boas tree structure:
+
+- **Node8** (256-bit leaf): Direct bitset with SIMD optimizations
+- **Node16**: Manages up to 2^16 elements via clusters of Node8
+- **Node32**: Manages up to 2^32 elements via clusters of Node16
+- **Node64**: Manages up to 2^63 elements via clusters of Node32
+
+The structure automatically selects the appropriate node type based on the data range.
+
+## Documentation
+
+- [AGENTS.md](AGENTS.md) - Developer guide for contributors and agents
+- [tests/README.md](tests/README.md) - Test framework documentation
 
 ## License
 
-This module is part of the VEB Tree implementation project.
+MIT License
+
+## Implementation
+
+This project demonstrates advanced C++ programming techniques including:
+- Modern C++23 features
+- Memory-efficient data structures
+- SIMD optimization with xsimd
+- Zero-copy serialization
+- Flexible Array Members (FAM) for compact storage

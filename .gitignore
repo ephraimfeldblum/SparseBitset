@@ -5,18 +5,18 @@
 *.dylib
 *.dll
 
-# Build directories
+# Build directories and files
 build/
 cmake-build-*/
-
-# Redis files
-*.rdb
-
-# Log files
-*.log
+CMakeCache.txt
+CMakeFiles/
+*.cmake
+build/Makefile
+cmake-build-*/Makefile
+_deps/
 
 # Python cache
-__pycache__
+__pycache__/
 
 # IDE/Editor files
 .vscode/
@@ -29,21 +29,13 @@ __pycache__
 .DS_Store
 Thumbs.db
 
-# CMake generated files (but keep hand-written Makefiles)
-CMakeCache.txt
-CMakeFiles/
-cmake_install.cmake
-# Only ignore CMake-generated Makefiles in build directories
-build/Makefile
-cmake-build-*/Makefile
-
 # Tests output
+*.log
 *.valgrind
-tests/flow/logs/*
-tests/flow/rltest_logs/*
-.venv_rltest
-tests/benchmarks/files/
-benchmark_data.txt
+CTest*
+benchmark_results.json
+plot_benchmarks.py
+benchmark_comparison.png
 
 # Agent-related files
 .zencoder/*
