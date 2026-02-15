@@ -31,7 +31,7 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
         REQUIRE(dest.contains(base_b + 128));
         REQUIRE(dest.contains(base_b + 255));
         
-        std::vector<size_t> arr(dest.begin(), dest.end());
+        auto arr = dest.to_vector();
         REQUIRE(arr.size() == 258);
     }
 
@@ -53,7 +53,7 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
         other.insert(base_b + 13);
         other.insert(base_b + 37);
         
-        VebTree dest = src | other;
+        VebTree dest{src | other};
         std::set<size_t> ref_src(src.begin(), src.end());
         std::set<size_t> ref_other(other.begin(), other.end());
         
@@ -74,8 +74,7 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
         
         src.insert(base_a);
         src.insert(base_c);
-        src.insert(base_b);
-        for (size_t i = 1; i < 256; ++i) {
+        for (size_t i = 0; i < 256; ++i) {
             src.insert(base_b + i);
         }
         
@@ -83,7 +82,7 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
         other.insert(base_b + 13);
         other.insert(base_b + 37);
         
-        VebTree dest = src & other;
+        VebTree dest{src & other};
         
         REQUIRE(dest.contains(base_b + 13));
         REQUIRE(dest.contains(base_b + 37));
@@ -102,8 +101,7 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
         a.insert(base_a);
         a.insert(base_c - 1);
         a.insert(base_c);
-        a.insert(base_b);
-        for (size_t i = 1; i < 256; ++i) {
+        for (size_t i = 0; i < 256; ++i) {
             a.insert(base_b + i);
         }
         
@@ -111,12 +109,11 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
         b.insert(base_a + 1);
         b.insert(base_c);
         b.insert(base_c + 1);
-        b.insert(base_b);
-        for (size_t i = 1; i < 256; ++i) {
+        for (size_t i = 0; i < 256; ++i) {
             b.insert(base_b + i);
         }
         
-        VebTree dest = a & b;
+        VebTree dest{a & b};
         REQUIRE(dest.size() == 258);
     }
 
@@ -136,7 +133,7 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
             s2.insert(256 + i);
         }
         
-        VebTree dest = s1 | s2;
+        VebTree dest{s1 | s2};
         
         REQUIRE(dest.min().value() == 0);
         REQUIRE(dest.max().value() == 1000);
@@ -160,10 +157,10 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
         s2.insert(257);
         s2.insert(258);
         
-        VebTree dest = s1 & s2;
+        VebTree dest{s1 & s2};
         
         REQUIRE(dest.size() == 5);
-        std::vector<size_t> arr(dest.begin(), dest.end());
+        auto arr = dest.to_vector();
         REQUIRE(arr.size() == 5);
         REQUIRE(arr[0] == 0);
         REQUIRE(arr[1] == 256);
@@ -188,7 +185,7 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
             s2.insert(256 + i);
         }
         
-        VebTree dest = s1 ^ s2;
+        VebTree dest{s1 ^ s2};
         
         REQUIRE(dest.size() == 256 - 10);
     }
@@ -209,7 +206,7 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
         }
         s2.insert(542);
         
-        VebTree dest = s1 | s2;
+        VebTree dest{s1 | s2};
         
         REQUIRE(dest.size() == 256 + 2 + 2);
         REQUIRE(dest.contains(532));
@@ -235,7 +232,7 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
         s2.insert(257);
         s2.insert(258);
         
-        VebTree dest = s1 ^ s2;
+        VebTree dest{s1 ^ s2};
         
         REQUIRE(dest.size() == 253);
         REQUIRE(!dest.contains(256));
@@ -259,9 +256,9 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
         s2.insert(257);
         s2.insert(258);
         
-        VebTree dest = s1 & s2;
+        VebTree dest{s1 & s2};
         
-        std::vector<size_t> arr(dest.begin(), dest.end());
+        auto arr = dest.to_vector();
         REQUIRE(arr.size() == 5);
         REQUIRE(arr == std::vector<size_t>{0, 256, 257, 258, 1000});
     }
@@ -282,7 +279,7 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
             s2.insert(256 + i);
         }
         
-        VebTree dest = s1 | s2;
+        VebTree dest{s1 | s2};
         
         REQUIRE(dest.size() == 256 + 2);
     }
@@ -298,16 +295,14 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
         
         key_full.insert(base_a);
         key_full.insert(base_c);
-        key_full.insert(base_b);
-        
-        for (size_t i = 1; i < N; ++i) {
+        for (size_t i = 0; i < N; ++i) {
             key_full.insert(base_b + i);
         }
         
         key_partial.insert(base_b + 10);
         key_partial.insert(base_b + 200);
         
-        VebTree dest = key_full & key_partial;
+        VebTree dest{key_full & key_partial};
         
         REQUIRE(dest.size() == 2);
         REQUIRE(dest.contains(base_b + 10));
@@ -335,7 +330,7 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
             b.insert(base_b + i);
         }
         
-        VebTree dest = a | b;
+        VebTree dest{a | b};
         
         REQUIRE(dest.size() == N + 2);
         REQUIRE(dest.contains(base_b + 42));
@@ -360,7 +355,7 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
         other.insert(base_b + 13);
         other.insert(base_b + 37);
         
-        VebTree dest = src | other;
+        VebTree dest{src | other};
         std::set<size_t> ref_src(src.begin(), src.end());
         std::set<size_t> ref_other(other.begin(), other.end());
         
@@ -390,7 +385,7 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
         other.insert(base_b + 13);
         other.insert(base_b + 37);
         
-        VebTree dest = src & other;
+        VebTree dest{src & other};
         
         REQUIRE(dest.size() == 2);
         REQUIRE(dest.contains(base_b + 13));
@@ -422,7 +417,7 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
             b.insert(base_b + i);
         }
         
-        VebTree dest = a & b;
+        VebTree dest{a & b};
         
         REQUIRE(dest.size() == N + 2);
         REQUIRE(dest.contains(base_a));
@@ -447,7 +442,7 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
         s2.insert(N + 1);
         s2.insert(N + 2);
         
-        VebTree dest = s1 ^ s2;
+        VebTree dest{s1 ^ s2};
         
         REQUIRE(!dest.contains(N));
         REQUIRE(dest.contains(N + 3));
@@ -473,9 +468,9 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
         s2.insert(N + 1);
         s2.insert(N + 2);
         
-        VebTree dest = s1 & s2;
+        VebTree dest{s1 & s2};
         
-        std::vector<size_t> arr(dest.begin(), dest.end());
+        auto arr = dest.to_vector();
         REQUIRE(arr.size() == 5);
         REQUIRE(arr[0] == 0);
         REQUIRE(arr[1] == N);
@@ -502,7 +497,7 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
             s2.insert(N + i);
         }
         
-        VebTree dest = s1 | s2;
+        VebTree dest{s1 | s2};
         
         REQUIRE(dest.size() == N + 2);
         REQUIRE(dest.min().value() == 0);
@@ -524,9 +519,9 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
         s2.insert(10000000);
         s2.insert(2 * N + 20);
         
-        VebTree dest = s1 & s2;
+        VebTree dest{s1 & s2};
         
-        std::vector<size_t> arr(dest.begin(), dest.end());
+        auto arr = dest.to_vector();
         REQUIRE(arr == std::vector<size_t>{0, 2 * N + 20, 10000000});
     }
 
@@ -546,9 +541,9 @@ TEST_SUITE("Compacted Node Clustering Behavior (Node16/32 Set Operations)") {
         s2.insert(N + 10);
         s2.insert(2 * N + 30);
         
-        VebTree dest = s1 ^ s2;
+        VebTree dest{s1 ^ s2};
         
-        std::vector<size_t> arr(dest.begin(), dest.end());
+        auto arr = dest.to_vector();
         REQUIRE(arr == std::vector<size_t>{2 * N + 20, 2 * N + 30});
     }
 }

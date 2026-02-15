@@ -183,7 +183,6 @@ ctest --verbose --tests-regex test_node_transitions
 ### Code Documentation
 - [README.md](README.md): User-facing library documentation
 - [AGENTS.md](AGENTS.md): This file—developer/agent guidance
-- [tests/README.md](tests/README.md): Test framework details
 
 ### Updating Docs
 - After significant feature additions, update [README.md](README.md)

@@ -18,9 +18,7 @@ TEST_SUITE("VebTree Complex Scenarios") {
         REQUIRE(forward == values);
         
         std::vector<size_t> backward;
-        auto it = tree.end();
-        while (it != tree.begin()) {
-            --it;
+        for (auto it = tree.rbegin(); it != tree.rend(); --it) {
             backward.push_back(*it);
         }
         std::reverse(backward.begin(), backward.end());
@@ -127,7 +125,7 @@ TEST_SUITE("VebTree Complex Scenarios") {
         
         s1 |= s2;
         
-        auto arr = std::vector<size_t>(s1.begin(), s1.end());
+        auto arr = s1.to_vector();
         for (size_t i = 1; i < arr.size(); ++i) {
             REQUIRE(arr[i] > arr[i-1]);
         }

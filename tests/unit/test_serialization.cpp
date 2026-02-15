@@ -133,7 +133,7 @@ TEST_SUITE("VebTree Serialization") {
         REQUIRE(restored.size() == 3);
         REQUIRE(!restored.contains(10));
 
-        auto arr = std::vector<size_t>(restored.begin(), restored.end());
+        auto arr = restored.to_vector();
         REQUIRE(arr.size() == 3);
     }
 }

@@ -327,8 +327,9 @@ public:
 
         if (cluster_data_ != nullptr) {
             const auto len{get_len()};
-            result.cluster_data_ = create(alloc, len, cluster_data_, len);
-            result.set_cap(len);
+            const auto cap{len == 0 ? 1 : len};
+            result.cluster_data_ = create(alloc, cap, cluster_data_, len);
+            result.set_cap(cap);
             result.set_len(len);
         }
         return result;
@@ -761,9 +762,6 @@ public:
         max_ = universe_size() - 1;
         remove(min_, alloc);
         remove(max_, alloc);
-        // auto all{new_all_but(0, 0, alloc)};
-        // all.insert(0, alloc);
-        // xor_inplace(all, alloc);
         return false;
     }
 
@@ -777,8 +775,9 @@ public:
 
         if (cluster_data_ == nullptr) {
             const auto len{other.get_len()};
-            cluster_data_ = create(alloc, len, other.cluster_data_, len);
-            set_cap(len);
+            const auto cap{len == 0 ? 1 : len};
+            cluster_data_ = create(alloc, cap, other.cluster_data_, len);
+            set_cap(cap);
             set_len(len);
 
             return false;
@@ -1123,8 +1122,9 @@ public:
             // Only need to adjust min and max
         } else if (cluster_data_ == nullptr) {
             const auto len{other.get_len()};
-            cluster_data_ = create(alloc, len, other.cluster_data_, len);
-            set_cap(len);
+            const auto cap{len == 0 ? 1 : len};
+            cluster_data_ = create(alloc, cap, other.cluster_data_, len);
+            set_cap(cap);
             set_len(len);
         } else {
             const auto& s_summary{cluster_data_->summary_};
@@ -1163,6 +1163,9 @@ public:
                     diff_clusters[k] = s_clusters[i++];
                     if (diff_clusters[k].xor_inplace(o_clusters[j++])) {
                         if (diff_summary.remove(h)) {
+                            if (diff_data != cluster_data_) {
+                                allocator_t{alloc}.deallocate(reinterpret_cast<subnode_t*>(diff_data), resident_count + 2);
+                            }
                             destroy(alloc);
                             return update_minmax();
                         }
@@ -1185,6 +1188,9 @@ public:
                     ++k;
                 } else if (in_s && in_o) { // implicit in s and o. result is empty
                     if (diff_summary.remove(h)) {
+                        if (diff_data != cluster_data_) {
+                            allocator_t{alloc}.deallocate(reinterpret_cast<subnode_t*>(diff_data), resident_count + 2);
+                        }
                         destroy(alloc);
                         return update_minmax();
                     }
