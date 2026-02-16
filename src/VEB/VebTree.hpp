@@ -210,9 +210,9 @@ public:
 
             if (node8_ != nullptr) {
                 const auto n8idx{static_cast<Node8::index_t>(current_)};
-                if (const auto succ{node8_->successor(n8idx)}; succ.has_value()) {
+                if (const auto succ{node8_->successor(n8idx)}; succ != node8_->end()) {
                     current_ &= ~0xFF;
-                    current_ |= succ.value();
+                    current_ |= *succ;
                     return *this;
                 }
             }
@@ -301,9 +301,9 @@ public:
 
             if (node8_ != nullptr) {
                 const auto n8idx{static_cast<Node8::index_t>(current_)};
-                if (const auto succ{node8_->predecessor(n8idx)}; succ.has_value()) {
+                if (const auto succ{node8_->predecessor(n8idx)}; succ != node8_->end()) {
                     current_ &= ~0xFF;
-                    current_ |= succ.value();
+                    current_ |= *succ;
                     return *this;
                 }
             }
@@ -511,12 +511,22 @@ public:
         return std::visit(
             overload{
                 [](std::monostate) -> std::optional<std::size_t> { return std::nullopt; },
+                [&](const Node8& s) -> std::optional<std::size_t> {
+                    if (x >= s.universe_size()) {
+                        return std::nullopt;
+                    }
+                    if (x < *s.min()) {
+                        return std::make_optional<std::size_t>(*s.min());
+                    }
+                    const auto succ = s.successor(static_cast<Node8::index_t>(x));
+                    return succ != s.end() ? std::make_optional<std::size_t>(*succ) : std::nullopt;
+                },
                 [&](const auto& s) -> std::optional<std::size_t> {
                     if (x >= s.universe_size()) {
                         return std::nullopt;
                     }
                     if (x < s.min()) {
-                        return std::make_optional(static_cast<std::size_t>(s.min()));
+                        return std::make_optional<std::size_t>(s.min());
                     }
                     return s.successor(static_cast<index_t<decltype(s)>>(x))
                         .transform([](auto x) { return static_cast<std::size_t>(x); });
@@ -536,12 +546,22 @@ public:
         return std::visit(
             overload{
                 [](std::monostate) -> std::optional<std::size_t> { return std::nullopt; },
+                [&](const Node8& s) -> std::optional<std::size_t> {
+                    if (x == 0) {
+                        return std::nullopt;
+                    }
+                    if (const auto max{*s.max()}; x > max) {
+                        return std::make_optional<std::size_t>(max);
+                    }
+                    const auto pred = s.predecessor(static_cast<Node8::index_t>(x));
+                    return pred != s.end() ? std::make_optional<std::size_t>(*pred) : std::nullopt;
+                },
                 [&](const auto& s) -> std::optional<std::size_t> {
                     if (x == 0) {
                         return std::nullopt;
                     }
                     if (x >= s.universe_size()) {
-                        return s.max();
+                        return std::make_optional<std::size_t>(s.max());
                     }
                     return s.predecessor(static_cast<index_t<decltype(s)>>(x))
                         .transform([](auto x) { return static_cast<std::size_t>(x); });
@@ -560,8 +580,11 @@ public:
         return std::visit(
             overload{
                 [](std::monostate) -> std::optional<std::size_t> { return std::nullopt; },
+                [&](const Node8& s) -> std::optional<std::size_t> {
+                    return std::make_optional<std::size_t>(*s.min());
+                },
                 [&](const auto& s) -> std::optional<std::size_t> {
-                    return static_cast<std::size_t>(s.min());
+                    return std::make_optional<std::size_t>(s.min());
                 },
             },
             storage_);
@@ -577,8 +600,11 @@ public:
         return std::visit(
             overload{
                 [](std::monostate) -> std::optional<std::size_t> { return std::nullopt; },
+                [&](const Node8& s) -> std::optional<std::size_t> {
+                    return std::make_optional(static_cast<std::size_t>(*s.max()));
+                },
                 [&](const auto& s) -> std::optional<std::size_t> {
-                    return static_cast<std::size_t>(s.max());
+                    return std::make_optional(static_cast<std::size_t>(s.max()));
                 },
             },
             storage_);
@@ -632,6 +658,17 @@ public:
         return std::visit(
             overload{
                 [](std::monostate) -> std::size_t { return 0; },
+                [&](const Node8& n) -> std::size_t {
+                    const auto minv{*n.min()};
+                    const auto maxv{*n.max()};
+                    if (start > maxv || end < minv) {
+                        return 0;
+                    }
+                    end = std::min(end, n.universe_size() - 1);
+                    const auto lo{std::max(static_cast<Node8::index_t>(start), minv)};
+                    const auto hi{std::min(static_cast<Node8::index_t>(end), maxv)};
+                    return n.count_range({ .lo = lo, .hi = hi });
+                },
                 [&](const auto& n) -> std::size_t {
                     using NodeType = std::decay_t<decltype(n)>;
                     const auto minv{n.min()};

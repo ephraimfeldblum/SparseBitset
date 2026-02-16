@@ -18,7 +18,7 @@ inline std::vector<uint32_t> generate_random_values(uint32_t count, uint32_t max
 }
 
 inline char const* benchmark_json_template() noexcept {
-    return R"({{#result}}{{^-first}},{{/-first}}{
+    return R"({{#result}}{
   "name": "{{name}}",
   "density": "{{context(density)}}",
   "library": "{{context(library)}}",
@@ -29,7 +29,7 @@ inline char const* benchmark_json_template() noexcept {
   "stddev_pct": {{medianAbsolutePercentError(elapsed)}},
   "total_ns": {{sumProduct(iterations, elapsed)}},
   "iterations": {{sum(iterations)}}
-},
+}{{^-last}},{{/-last}}
 {{/result}})";
 }
 
@@ -49,7 +49,7 @@ ankerl::nanobench::Bench run_macro_benchmark(
         .context("density", std::to_string(density))
         .context("operations", std::to_string(element_count))
         .minEpochIterations(10)
-        .epochs(5)
+        .epochs(11)
         .output(nullptr)
         .run(name, benchmark_fn);
 }

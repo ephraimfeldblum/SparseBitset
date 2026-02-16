@@ -260,8 +260,8 @@ public:
 
     static constexpr inline Node16 new_from_node8(subnode_t old_storage, std::size_t& alloc) {
         Node16 node{};
-        const auto old_min{old_storage.min()};
-        const auto old_max{old_storage.max()};
+        const auto old_min{*old_storage.min()};
+        const auto old_max{*old_storage.max()};
 
         node.min_ = old_min;
         node.max_ = old_max;
@@ -423,9 +423,9 @@ public:
                     return false;
                 }
             } else {
-                const auto min_cluster{cluster_data_->summary_.min()};
+                const auto min_cluster{*cluster_data_->summary_.min()};
                 const auto min_element{cluster_data_->unfilled_.contains(min_cluster) ?
-                    cluster_data_->clusters_[0].min() : static_cast<subindex_t>(0)};
+                    *cluster_data_->clusters_[0].min() : static_cast<subindex_t>(0)};
                 x = min_ = index(min_cluster, min_element);
             }
         }
@@ -435,9 +435,9 @@ public:
                 max_ = min_;
                 return false;
             } else {
-                const auto max_cluster{cluster_data_->summary_.max()};
+                const auto max_cluster{*cluster_data_->summary_.max()};
                 const auto max_element{cluster_data_->unfilled_.contains(max_cluster) ?
-                    cluster_data_->clusters_[get_len() - 1].max() : static_cast<subindex_t>(subnode_t::universe_size() - 1)};
+                    *cluster_data_->clusters_[get_len() - 1].max() : static_cast<subindex_t>(subnode_t::universe_size() - 1)};
                 x = max_ = index(max_cluster, max_element);
             }
         }
@@ -520,19 +520,19 @@ public:
                 if (l < static_cast<subindex_t>(255)) {
                     return std::make_optional(index(h, static_cast<subindex_t>(l + 1)));
                 }
-            } else if (const auto* cluster{find(h)}; cluster != nullptr && l < cluster->max()) {
-                if (auto succ{cluster->successor(l)}; succ.has_value()) {
+            } else if (const auto* cluster{find(h)}; cluster != nullptr && l < *cluster->max()) {
+                if (const auto succ{cluster->successor(l)}; succ != cluster->end()) {
                     return std::make_optional(index(h, *succ));
                 }
             }
         }
 
-        if (auto succ_cluster{cluster_data_->summary_.successor(h)}; succ_cluster.has_value()) {
+        if (const auto succ_cluster{cluster_data_->summary_.successor(h)}; succ_cluster != cluster_data_->summary_.end()) {
             if (!cluster_data_->unfilled_.contains(*succ_cluster)) {
                 return std::make_optional(index(*succ_cluster, static_cast<subindex_t>(0)));
             }
             const auto idx{cluster_data_->index_of(*succ_cluster)};
-            const auto min_element{cluster_data_->clusters_[idx].min()};
+            const auto min_element{*cluster_data_->clusters_[idx].min()};
             return std::make_optional(index(*succ_cluster, min_element));
         }
 
@@ -559,19 +559,19 @@ public:
                 if (l > static_cast<subindex_t>(0)) {
                     return std::make_optional(index(h, static_cast<subindex_t>(l - 1)));
                 }
-            } else if (const auto* cluster{find(h)}; cluster != nullptr && l > cluster->min()) {
-                if (auto pred{cluster->predecessor(l)}; pred.has_value()) {
+            } else if (const auto* cluster{find(h)}; cluster != nullptr && l > *cluster->min()) {
+                if (const auto pred{cluster->predecessor(l)}; pred != cluster->end()) {
                     return std::make_optional(index(h, *pred));
                 }
             }
         }
 
-        if (auto pred_cluster{cluster_data_->summary_.predecessor(h)}; pred_cluster.has_value()) {
+        if (const auto pred_cluster{cluster_data_->summary_.predecessor(h)}; pred_cluster != cluster_data_->summary_.end()) {
             if (!cluster_data_->unfilled_.contains(*pred_cluster)) {
-                return std::make_optional(index(*pred_cluster, static_cast<subindex_t>(255)));
+                return std::make_optional(index(*pred_cluster, static_cast<subindex_t>(subnode_t::universe_size() - 1)));
             }
             const auto idx{cluster_data_->index_of(*pred_cluster)};
-            const auto max_element{cluster_data_->clusters_[idx].max()};
+            const auto max_element{*cluster_data_->clusters_[idx].max()};
             return std::make_optional(index(*pred_cluster, max_element));
         }
 
@@ -631,10 +631,10 @@ public:
         const auto resident_mask{cluster_data_->resident_mask()};
         const auto from{resident_mask.successor(lcl)};
         const auto to{resident_mask.predecessor(hcl)};
-        if (from.has_value() && to.has_value() && from.value() <= to.value()) {
+        if (from != resident_mask.end() && to != resident_mask.end() && *from <= *to) {
             acc += cluster_data_->count_resident_bits(
-                cluster_data_->index_of(from.value()),
-                cluster_data_->index_of(to.value())
+                cluster_data_->index_of(*from),
+                cluster_data_->index_of(*to)
             );
         }
 
@@ -814,8 +814,7 @@ public:
         auto i{0uz};
         auto j{0uz};
         auto k{0uz};
-        for (auto idx{std::make_optional(merge_summary.min())}; idx.has_value(); idx = merge_summary.successor(*idx)) {
-            const auto h{*idx};
+        for (const auto h : merge_summary) {
             const auto re_s{s_resident.contains(h)};
             const auto re_o{o_resident.contains(h)};
 
@@ -913,8 +912,8 @@ public:
             // check if min/max require materialization and exit
             std::optional<subnode_t> min_c_o{std::nullopt};
             std::optional<subnode_t> max_c_o{std::nullopt};
-            const auto min_hi{int_summary.min()};
-            const auto max_hi{int_summary.max()};
+            const auto min_hi{*int_summary.min()};
+            const auto max_hi{*int_summary.max()};
             if (min_out) {
                 min_ = index(min_hi, static_cast<subindex_t>(0));
                 min_c_o = std::make_optional(subnode_t::new_all_but(0));
@@ -975,8 +974,7 @@ public:
         auto merge_summary{s_summary};
         merge_summary.or_inplace(o_summary);
 
-        for (auto idx{std::make_optional(merge_summary.min())}; idx.has_value(); idx = merge_summary.successor(*idx)) {
-            const auto h{*idx};
+        for (const auto h : merge_summary) {
             const bool in_s{s_resident.contains(h)};
             const bool in_o{o_resident.contains(h)};
 
@@ -1028,7 +1026,7 @@ public:
             // which might not end up being the true 0'th cluster if it gets removed here.
             if (min_out) {
                 min_out = false;
-                min_ = index(h, int_clusters[0].min());
+                min_ = index(h, *int_clusters[0].min());
                 new_min = std::make_optional(min_);
                 if (int_clusters[0].remove(static_cast<subindex_t>(min_))) {
                     // cluster became empty after removing min
@@ -1056,11 +1054,11 @@ public:
         }
 
         if (!new_max.has_value()) {
-            if (const auto max_hi{cluster_data_->summary_.max()}; !resident.contains(max_hi)) {
+            if (const auto max_hi{*cluster_data_->summary_.max()}; !resident.contains(max_hi)) {
                 max_ = index(max_hi, static_cast<subindex_t>(255));
                 cluster_data_->unfilled_.insert(max_hi);
                 cluster_data_->clusters_[k++] = subnode_t::new_all_but(255);
-            } else if (max_ = index(max_hi, cluster_data_->clusters_[k - 1].max());
+            } else if (max_ = index(max_hi, *cluster_data_->clusters_[k - 1].max());
                        max_ != s_max && cluster_data_->clusters_[k - 1].remove(static_cast<subindex_t>(max_))) {
                 --k;
                 if (cluster_data_->summary_.remove(max_hi)) {
@@ -1152,8 +1150,7 @@ public:
             auto i{0uz};
             auto j{0uz};
             auto k{0uz};
-            for (auto idx{std::make_optional(diff_summary.min())}; idx.has_value(); idx = diff_summary.successor(*idx)) {
-                const auto h{*idx};
+            for (const auto h : diff_summary) {
                 const bool in_s{s_summary.contains(h)};
                 const bool in_o{o_summary.contains(h)};
                 const bool re_s{s_resident.contains(h)};
