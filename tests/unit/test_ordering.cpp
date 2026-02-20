@@ -3,22 +3,23 @@
 #include <vector>
 #include <algorithm>
 #include <random>
+#include <set>
 
 TEST_SUITE("VebTree Ordering and Iteration") {
-    TEST_CASE("toarray returns sorted order") {
+    TEST_CASE("to_vector returns sorted order") {
         VebTree tree;
         tree.insert(100);
         tree.insert(1);
         tree.insert(50);
         
-        std::vector<size_t> arr(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         REQUIRE(arr.size() == 3);
         REQUIRE(arr[0] == 1);
         REQUIRE(arr[1] == 50);
         REQUIRE(arr[2] == 100);
     }
 
-    TEST_CASE("toarray maintains order after removals") {
+    TEST_CASE("to_vector maintains order after removals") {
         VebTree tree;
         tree.insert(100);
         tree.insert(1);
@@ -26,20 +27,20 @@ TEST_SUITE("VebTree Ordering and Iteration") {
         
         tree.remove(50);
         
-        std::vector<size_t> arr(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         REQUIRE(arr.size() == 2);
         REQUIRE(arr[0] == 1);
         REQUIRE(arr[1] == 100);
     }
 
-    TEST_CASE("iteration order matches toarray") {
+    TEST_CASE("iteration order matches to_vector") {
         VebTree tree;
         std::vector<size_t> vals{42, 17, 93, 5, 88, 31};
         for (auto v : vals) {
             tree.insert(v);
         }
         
-        std::vector<size_t> arr(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         std::vector<size_t> via_iter;
         for (auto v : tree) {
             via_iter.push_back(v);
@@ -53,7 +54,7 @@ TEST_SUITE("VebTree Ordering and Iteration") {
     TEST_CASE("empty tree iteration") {
         VebTree tree;
         
-        std::vector<size_t> arr(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         REQUIRE(arr.empty());
         
         int count = 0;
@@ -68,7 +69,7 @@ TEST_SUITE("VebTree Ordering and Iteration") {
         VebTree tree;
         tree.insert(42);
         
-        std::vector<size_t> arr(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         REQUIRE(arr.size() == 1);
         REQUIRE(arr[0] == 42);
     }
@@ -79,7 +80,7 @@ TEST_SUITE("VebTree Ordering and Iteration") {
             tree.insert(i);
         }
         
-        std::vector<size_t> arr(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         REQUIRE(arr.size() == 1000);
         
         for (size_t i = 0; i < 1000; ++i) {
@@ -95,7 +96,7 @@ TEST_SUITE("VebTree Ordering and Iteration") {
             tree.insert(i * 100);
         }
         
-        std::vector<size_t> arr(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         REQUIRE(arr == vals);
     }
 
@@ -121,7 +122,7 @@ TEST_SUITE("VebTree Ordering and Iteration") {
             tree.insert(v);
         }
         
-        std::vector<size_t> arr(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         std::sort(vals.begin(), vals.end());
         
         REQUIRE(arr == vals);
@@ -146,7 +147,7 @@ TEST_SUITE("VebTree Ordering and Iteration") {
             tree.insert(i);
         }
         
-        std::vector<size_t> arr(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         REQUIRE(arr.size() == vals.size());
         
         size_t idx = 0;
@@ -174,7 +175,7 @@ TEST_SUITE("VebTree Ordering and Iteration") {
             reference.insert(val);
         }
         
-        std::vector<size_t> arr(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         
         size_t idx = 0;
         for (auto v : reference) {
@@ -196,7 +197,7 @@ TEST_SUITE("VebTree Ordering and Iteration") {
             reference.erase(i);
         }
         
-        std::vector<size_t> arr(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         
         size_t idx = 0;
         for (auto v : reference) {
@@ -256,8 +257,8 @@ TEST_SUITE("VebTree Ordering and Iteration") {
             tree.insert(i * 2);
         }
         
-        std::vector<size_t> arr1(tree.begin(), tree.end());
-        std::vector<size_t> arr2(tree.begin(), tree.end());
+        auto arr1 = tree.to_vector();
+        auto arr2 = tree.to_vector();
         
         REQUIRE(arr1 == arr2);
     }
@@ -271,7 +272,7 @@ TEST_SUITE("VebTree Ordering and Iteration") {
         
         tree.clear();
         
-        std::vector<size_t> arr(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         REQUIRE(arr.empty());
     }
 
@@ -283,7 +284,7 @@ TEST_SUITE("VebTree Ordering and Iteration") {
         tree.insert(1);
         tree.insert(999999);
         
-        std::vector<size_t> arr(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         REQUIRE(arr.size() == 5);
         REQUIRE(arr[0] == 0);
         REQUIRE(arr[1] == 1);
@@ -307,7 +308,7 @@ TEST_SUITE("VebTree Ordering and Iteration") {
             tree.insert(v);
         }
         
-        std::vector<size_t> arr(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         std::sort(vals.begin(), vals.end());
         
         REQUIRE(arr == vals);
@@ -322,7 +323,7 @@ TEST_SUITE("VebTree Ordering and Iteration") {
             tree.insert(i);
         }
         
-        std::vector<size_t> arr(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         REQUIRE(arr == vals);
     }
 
@@ -339,7 +340,7 @@ TEST_SUITE("VebTree Ordering and Iteration") {
         
         s1 |= s2;
         
-        std::vector<size_t> arr(s1.begin(), s1.end());
+        auto arr = s1.to_vector();
         for (size_t i = 0; i < arr.size() - 1; ++i) {
             REQUIRE(arr[i] < arr[i + 1]);
         }
@@ -358,9 +359,104 @@ TEST_SUITE("VebTree Ordering and Iteration") {
         
         s1 &= s2;
         
-        std::vector<size_t> arr(s1.begin(), s1.end());
+        auto arr = s1.to_vector();
         for (size_t i = 0; i < arr.size() - 1; ++i) {
             REQUIRE(arr[i] < arr[i + 1]);
         }
+    }
+
+    TEST_CASE("forward iteration includes element 0") {
+        VebTree tree;
+        tree.insert(0);
+        tree.insert(10);
+        tree.insert(20);
+        
+        std::vector<size_t> values;
+        for (auto v : tree) {
+            values.push_back(v);
+        }
+        
+        REQUIRE(values.size() == 3);
+        REQUIRE(values[0] == 0);
+        REQUIRE(values[1] == 10);
+        REQUIRE(values[2] == 20);
+    }
+
+    TEST_CASE("reverse iteration includes element 0") {
+        VebTree tree;
+        tree.insert(0);
+        tree.insert(10);
+        tree.insert(20);
+        
+        std::vector<size_t> values;
+        for (auto it = tree.rbegin(); it != tree.rend(); --it) {
+            values.push_back(*it);
+        }
+        
+        REQUIRE(values.size() == 3);
+        REQUIRE(values[0] == 20);
+        REQUIRE(values[1] == 10);
+        REQUIRE(values[2] == 0);
+    }
+
+    TEST_CASE("rend() sentinel not equal to iterator at 0") {
+        VebTree tree;
+        tree.insert(0);
+        
+        auto rend_it = tree.rend();
+        auto iter_at_0 = tree.begin();
+        
+        REQUIRE(*iter_at_0 == 0);
+        REQUIRE(rend_it != iter_at_0);
+    }
+
+    TEST_CASE("incrementing end() stays at end()") {
+        VebTree tree;
+        tree.insert(0);
+        tree.insert(5);
+        
+        auto it = tree.end();
+        auto it_copy = it;
+        ++it;
+        
+        REQUIRE(it == it_copy);
+    }
+
+    TEST_CASE("decrementing rend() stays at rend()") {
+        VebTree tree;
+        tree.insert(0);
+        tree.insert(5);
+        
+        auto it = tree.rend();
+        auto it_copy = it;
+        --it;
+        
+        REQUIRE(it == it_copy);
+    }
+
+    TEST_CASE("only element 0 forward iteration") {
+        VebTree tree;
+        tree.insert(0);
+        
+        std::vector<size_t> values;
+        for (auto v : tree) {
+            values.push_back(v);
+        }
+        
+        REQUIRE(values.size() == 1);
+        REQUIRE(values[0] == 0);
+    }
+
+    TEST_CASE("only element 0 reverse iteration") {
+        VebTree tree;
+        tree.insert(0);
+        
+        std::vector<size_t> values;
+        for (auto it = tree.rbegin(); it != tree.rend(); --it) {
+            values.push_back(*it);
+        }
+        
+        REQUIRE(values.size() == 1);
+        REQUIRE(values[0] == 0);
     }
 }

@@ -59,6 +59,10 @@ set(CORE_SOURCES
 add_library(vebtree SHARED ${CORE_SOURCES})
 target_include_directories(vebtree PUBLIC ${xsimd_SOURCE_DIR}/include)
 
+if(CMAKE_BUILD_TYPE STREQUAL "Valgrind")
+    target_compile_options(vebtree PRIVATE -g3 -Og -fno-omit-frame-pointer -fno-inline -fno-optimize-sibling-calls)
+endif()
+
 # Try to link Intel TBB for parallel execution policy support (std::execution implementations
 # on some toolchains rely on TBB). Prefer CMake package, fall back to system library if needed.
 find_package(TBB CONFIG QUIET)

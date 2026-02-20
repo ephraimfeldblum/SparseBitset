@@ -119,9 +119,39 @@ public:
         destroy_storage();
     }
 
+    /**
+     * @brief Bidirectional iterator for VebTree
+     * 
+     * A bidirectional iterator that allows forward and backward traversal of elements
+     * stored in a VEB tree. The iterator maintains cache pointers to the current node
+     * level (Node8, Node16, Node32, or Node64) to optimize successor/predecessor lookups.
+     * 
+     * @details
+     * The iterator supports the following operations:
+     * - Increment (++): Move to the next element in ascending order
+     * - Decrement (--): Move to the previous element in descending order
+     * - Dereference (*): Access the current element value
+     * - Comparison (==, !=): Compare two iterators for equality
+     * 
+     * Special sentinels are used to represent begin and end positions:
+     * - End sentinel: current_ == SIZE_MAX, all node pointers are nullptr
+     * - Reverse-end sentinel: current_ == 0, all node pointers are nullptr
+     * 
+     * @note The iterator caches pointers to the currently active nodes to avoid
+     * repeated tree traversals during iteration. These pointers are updated as
+     * the iterator moves through the tree.
+     * 
+     * @warning The iterator becomes invalid if the underlying pointers are modified
+     * during iteration. Any modification to the tree may invalidate iterators.
+     */
     struct Iterator {
         const VebTree* tree_;
         std::size_t current_;
+        
+        const Node64* node64_{nullptr};
+        const Node32* node32_{nullptr};
+        const Node16* node16_{nullptr};
+        const Node8*  node8_ {nullptr};
 
     public:
         using iterator_concept = std::bidirectional_iterator_tag;
@@ -131,11 +161,121 @@ public:
         using pointer = const std::size_t*;
         using reference = const std::size_t&;
 
-        inline explicit Iterator(const VebTree* tree, std::size_t current)
-            : tree_{tree}, current_{current} {}
+        inline constexpr bool is_sentinel() const {
+            return node8_ == nullptr && node16_ == nullptr && 
+                   node32_ == nullptr && node64_ == nullptr;
+        }
 
+        inline constexpr bool is_end_sentinel() const {
+            return is_sentinel() && current_ == SIZE_MAX;
+        }
+
+        inline constexpr bool is_rend_sentinel() const {
+            return is_sentinel() && current_ == 0;
+        }
+
+        inline void init_nodes_from_storage() {
+            if (tree_ != nullptr) {
+                std::visit(overload{
+                    [&](const Node8& s) { node8_ = &s; },
+                    [&](const Node16& s) { node16_ = &s; },
+                    [&](const Node32& s) { node32_ = &s; },
+                    [&](const Node64& s) { node64_ = &s; },
+                    [](std::monostate) {}
+                }, tree_->storage_);
+            }
+        }
+
+        inline explicit Iterator(const VebTree* tree, std::size_t current, bool is_sentinel = false)
+            : tree_{tree}, current_{current} {
+            if (!is_sentinel) {
+                init_nodes_from_storage();
+            }
+        }
+
+    public:
         inline Iterator& operator++() {
-            current_ = tree_ != nullptr ? tree_->successor(current_).value_or(SIZE_MAX) : SIZE_MAX;
+            if (is_end_sentinel() || tree_ == nullptr) {
+                return *this;
+            }
+
+            if (is_rend_sentinel()) {
+                auto min_val = tree_->min();
+                if (min_val.has_value()) {
+                    current_ = min_val.value();
+                    init_nodes_from_storage();
+                }
+                return *this;
+            }
+
+            if (node8_ != nullptr) {
+                const auto n8idx{static_cast<Node8::index_t>(current_)};
+                if (const auto succ{node8_->successor(n8idx)}; succ != node8_->end()) {
+                    current_ &= ~0xFF;
+                    current_ |= *succ;
+                    return *this;
+                }
+            }
+
+            if (node16_ != nullptr) {
+                const auto n16idx{static_cast<Node16::index_t>(current_)};
+                if (const auto succ{node16_->successor(n16idx)}; succ != node16_->end()) {
+                    current_ &= ~0xFFFF;
+                    current_ |= *succ;
+                    const auto [high, low] {Node16::decompose(static_cast<Node16::index_t>(current_))};
+                    if (succ != node16_->min() && succ != node16_->max() && node16_->cluster_data_ != nullptr) {
+                        node8_ = node16_->cluster_data_->find(high);
+                    } else {
+                        node8_ = nullptr;
+                    }
+                    return *this;
+                }
+            }
+
+            if (node32_ != nullptr) {
+                const auto n32idx{static_cast<Node32::index_t>(current_)};
+                if (const auto succ{node32_->successor(n32idx)}; succ.has_value()) {
+                    current_ &= ~0xFFFFFFFF;
+                    current_ |= succ.value();
+                    const auto [high, low] {Node32::decompose(static_cast<Node32::index_t>(current_))};
+                    node8_ = nullptr;
+                    if (succ.value() != node32_->min() && succ.value() != node32_->max() && node32_->cluster_data_ != nullptr) {
+                        if (const auto it{node32_->cluster_data_->clusters.find(high)}; it != node32_->cluster_data_->clusters.end()) {
+                            node16_ = &*it;
+                        } else {
+                            node16_ = nullptr;
+                        }
+                    } else {
+                        node16_ = nullptr;
+                    }
+                    return *this;
+                }
+            }
+
+            if (node64_ != nullptr) {
+                if (const auto succ{node64_->successor(current_)}; succ.has_value()) {
+                    current_ = succ.value();
+                    const auto [high, low] {Node64::decompose(current_)};
+                    node8_ = nullptr;
+                    node16_ = nullptr;
+                    if (succ.value() != node64_->min() && succ.value() != node64_->max() && node64_->cluster_data_ != nullptr) {
+                        if (const auto it{node64_->cluster_data_->clusters.find(high)}; it != node64_->cluster_data_->clusters.end()) {
+                            node32_ = &it->second;
+                        } else {
+                            node32_ = nullptr;
+                        }
+                    } else {
+                        node32_ = nullptr;
+                    }
+                    return *this;
+                }
+            }
+
+            current_ = SIZE_MAX;
+            node8_ = nullptr;
+            node16_ = nullptr;
+            node32_ = nullptr;
+            node64_ = nullptr;
             return *this;
         }
 
@@ -146,7 +286,87 @@ public:
         }
 
         inline Iterator& operator--() {
-            current_ = tree_ != nullptr ? tree_->predecessor(current_).value_or(SIZE_MAX) : SIZE_MAX;
+            if (is_rend_sentinel() || tree_ == nullptr) {
+                return *this;
+            }
+
+            if (is_end_sentinel()) {
+                auto max_val = tree_->max();
+                if (max_val.has_value()) {
+                    current_ = max_val.value();
+                    init_nodes_from_storage();
+                }
+                return *this;
+            }
+
+            if (node8_ != nullptr) {
+                const auto n8idx{static_cast<Node8::index_t>(current_)};
+                if (const auto succ{node8_->predecessor(n8idx)}; succ != node8_->end()) {
+                    current_ &= ~0xFF;
+                    current_ |= *succ;
+                    return *this;
+                }
+            }
+
+            if (node16_ != nullptr) {
+                const auto n16idx{static_cast<Node16::index_t>(current_)};
+                if (const auto succ{node16_->predecessor(n16idx)}; succ != node16_->end()) {
+                    current_ &= ~0xFFFF;
+                    current_ |= *succ;
+                    const auto [high, low] {Node16::decompose(static_cast<Node16::index_t>(current_))};
+                    if (succ != node16_->min() && succ != node16_->max() && node16_->cluster_data_ != nullptr) {
+                        node8_ = node16_->cluster_data_->find(high);
+                    } else {
+                        node8_ = nullptr;
+                    }
+                    return *this;
+                }
+            }
+
+            if (node32_ != nullptr) {
+                const auto n32idx{static_cast<Node32::index_t>(current_)};
+                if (const auto succ{node32_->predecessor(n32idx)}; succ.has_value()) {
+                    current_ &= ~0xFFFFFFFF;
+                    current_ |= succ.value();
+                    const auto [high, low] {Node32::decompose(static_cast<Node32::index_t>(current_))};
+                    node8_ = nullptr;
+                    if (succ.value() != node32_->min() && succ.value() != node32_->max() && node32_->cluster_data_ != nullptr) {
+                        if (const auto it{node32_->cluster_data_->clusters.find(high)}; it != node32_->cluster_data_->clusters.end()) {
+                            node16_ = &*it;
+                        } else {
+                            node16_ = nullptr;
+                        }
+                    } else {
+                        node16_ = nullptr;
+                    }
+                    return *this;
+                }
+            }
+
+            if (node64_ != nullptr) {
+                if (const auto succ{node64_->predecessor(current_)}; succ.has_value()) {
+                    current_ = succ.value();
+                    const auto [high, low] {Node64::decompose(current_)};
+                    node8_ = nullptr;
+                    node16_ = nullptr;
+                    if (succ.value() != node64_->min() && succ.value() != node64_->max() && node64_->cluster_data_ != nullptr) {
+                        if (const auto it{node64_->cluster_data_->clusters.find(high)}; it != node64_->cluster_data_->clusters.end()) {
+                            node32_ = &it->second;
+                        } else {
+                            node32_ = nullptr;
+                        }
+                    } else {
+                        node32_ = nullptr;
+                    }
+                    return *this;
+                }
+            }
+
+            current_ = 0uz;
+            node8_ = nullptr;
+            node16_ = nullptr;
+            node32_ = nullptr;
+            node64_ = nullptr;
             return *this;
         }
 
@@ -157,6 +377,12 @@ public:
         }
 
         constexpr bool operator==(Iterator other) const {
+            if (is_sentinel() && other.is_sentinel()) {
+                return current_ == other.current_;
+            }
+            if (is_sentinel() || other.is_sentinel()) {
+                return false;
+            }
             return current_ == other.current_;
         }
 
@@ -285,12 +511,32 @@ public:
         return std::visit(
             overload{
                 [](std::monostate) -> std::optional<std::size_t> { return std::nullopt; },
+                [&](const Node8& s) -> std::optional<std::size_t> {
+                    if (x >= s.universe_size()) {
+                        return std::nullopt;
+                    }
+                    if (x < *s.min()) {
+                        return std::make_optional<std::size_t>(*s.min());
+                    }
+                    const auto succ = s.successor(static_cast<Node8::index_t>(x));
+                    return succ != s.end() ? std::make_optional<std::size_t>(*succ) : std::nullopt;
+                },
+                [&](const Node16& s) -> std::optional<std::size_t> {
+                    if (x >= s.universe_size()) {
+                        return std::nullopt;
+                    }
+                    if (x < *s.min()) {
+                        return std::make_optional<std::size_t>(*s.min());
+                    }
+                    const auto succ = s.successor(static_cast<Node16::index_t>(x));
+                    return succ != s.end() ? std::make_optional<std::size_t>(*succ) : std::nullopt;
+                },
                 [&](const auto& s) -> std::optional<std::size_t> {
                     if (x >= s.universe_size()) {
                         return std::nullopt;
                     }
                     if (x < s.min()) {
-                        return std::make_optional(static_cast<std::size_t>(s.min()));
+                        return std::make_optional<std::size_t>(s.min());
                     }
                     return s.successor(static_cast<index_t<decltype(s)>>(x))
                         .transform([](auto x) { return static_cast<std::size_t>(x); });
@@ -310,12 +556,32 @@ public:
         return std::visit(
             overload{
                 [](std::monostate) -> std::optional<std::size_t> { return std::nullopt; },
+                [&](const Node8& s) -> std::optional<std::size_t> {
+                    if (x == 0) {
+                        return std::nullopt;
+                    }
+                    if (const auto max{*s.max()}; x > max) {
+                        return std::make_optional<std::size_t>(max);
+                    }
+                    const auto pred = s.predecessor(static_cast<Node8::index_t>(x));
+                    return pred != s.end() ? std::make_optional<std::size_t>(*pred) : std::nullopt;
+                },
+                [&](const Node16& s) -> std::optional<std::size_t> {
+                    if (x == 0) {
+                        return std::nullopt;
+                    }
+                    if (const auto max{*s.max()}; x > max) {
+                        return std::make_optional<std::size_t>(max);
+                    }
+                    const auto pred = s.predecessor(static_cast<Node16::index_t>(x));
+                    return pred != s.end() ? std::make_optional<std::size_t>(*pred) : std::nullopt;
+                },
                 [&](const auto& s) -> std::optional<std::size_t> {
                     if (x == 0) {
                         return std::nullopt;
                     }
                     if (x >= s.universe_size()) {
-                        return s.max();
+                        return std::make_optional<std::size_t>(s.max());
                     }
                     return s.predecessor(static_cast<index_t<decltype(s)>>(x))
                         .transform([](auto x) { return static_cast<std::size_t>(x); });
@@ -334,8 +600,14 @@ public:
         return std::visit(
             overload{
                 [](std::monostate) -> std::optional<std::size_t> { return std::nullopt; },
+                [&](const Node8& s) -> std::optional<std::size_t> {
+                    return std::make_optional<std::size_t>(*s.min());
+                },
+                [&](const Node16& s) -> std::optional<std::size_t> {
+                    return std::make_optional<std::size_t>(*s.min());
+                },
                 [&](const auto& s) -> std::optional<std::size_t> {
-                    return static_cast<std::size_t>(s.min());
+                    return std::make_optional<std::size_t>(s.min());
                 },
             },
             storage_);
@@ -351,8 +623,14 @@ public:
         return std::visit(
             overload{
                 [](std::monostate) -> std::optional<std::size_t> { return std::nullopt; },
+                [&](const Node8& s) -> std::optional<std::size_t> {
+                    return std::make_optional(static_cast<std::size_t>(*s.max()));
+                },
+                [&](const Node16& s) -> std::optional<std::size_t> {
+                    return std::make_optional(static_cast<std::size_t>(*s.max()));
+                },
                 [&](const auto& s) -> std::optional<std::size_t> {
-                    return static_cast<std::size_t>(s.max());
+                    return std::make_optional(static_cast<std::size_t>(s.max()));
                 },
             },
             storage_);
@@ -406,6 +684,28 @@ public:
         return std::visit(
             overload{
                 [](std::monostate) -> std::size_t { return 0; },
+                [&](const Node8& n) -> std::size_t {
+                    const auto minv{*n.min()};
+                    const auto maxv{*n.max()};
+                    if (start > maxv || end < minv) {
+                        return 0;
+                    }
+                    end = std::min(end, n.universe_size() - 1);
+                    const auto lo{std::max(static_cast<Node8::index_t>(start), minv)};
+                    const auto hi{std::min(static_cast<Node8::index_t>(end), maxv)};
+                    return n.count_range({ .lo = lo, .hi = hi });
+                },
+                [&](const Node16& n) -> std::size_t {
+                    const auto minv{*n.min()};
+                    const auto maxv{*n.max()};
+                    if (start > maxv || end < minv) {
+                        return 0;
+                    }
+                    end = std::min(end, n.universe_size() - 1);
+                    const auto lo{std::max(static_cast<Node16::index_t>(start), minv)};
+                    const auto hi{std::min(static_cast<Node16::index_t>(end), maxv)};
+                    return n.count_range({ .lo = lo, .hi = hi });
+                },
                 [&](const auto& n) -> std::size_t {
                     using NodeType = std::decay_t<decltype(n)>;
                     const auto minv{n.min()};
@@ -555,7 +855,12 @@ public:
      */
     inline Iterator begin() const {
         auto min_val{min()};
-        return Iterator{this, min_val.value_or(SIZE_MAX)};
+        return Iterator{this, min_val.value_or(SIZE_MAX), !min_val.has_value()};
+    }
+
+    inline Iterator rbegin() const {
+        auto max_val{max()};
+        return Iterator{this, max_val.value_or(0uz), !max_val.has_value()};
     }
 
     /**
@@ -563,7 +868,11 @@ public:
      * @return Iterator to the end
      */
     inline Iterator end() const {
-        return Iterator{this, SIZE_MAX};
+        return Iterator{this, SIZE_MAX, true};
+    }
+
+    inline Iterator rend() const {
+        return Iterator{this, 0uz, true};
     }
 
     /**

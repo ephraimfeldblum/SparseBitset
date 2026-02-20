@@ -33,6 +33,7 @@ Thumbs.db
 *.log
 *.valgrind
 CTest*
+/Testing/Temporary/
 benchmark_results.json
 plot_benchmarks.py
 benchmark_comparison.png

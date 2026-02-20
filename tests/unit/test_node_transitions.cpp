@@ -182,7 +182,7 @@ TEST_SUITE("VebTree Node Transitions") {
         tree.insert(50000);
         tree.insert(5000000);
         
-        auto arr = std::vector<size_t>(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         REQUIRE(arr.size() == 4);
         REQUIRE(arr[0] == 50);
         REQUIRE(arr[1] == 500);

@@ -17,7 +17,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build" FORCE)
 endif()
 
-set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release")
+set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Valgrind" "Debug" "Release")
 
 # Compiler flags
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wconversion -Wsign-compare -Wpointer-arith -march=native -fPIC")
@@ -32,6 +32,10 @@ set(CMAKE_C_FLAGS_DEBUG "-g3 -DDEBUG -Og")
 set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG -flto -O3")
 set(CMAKE_C_FLAGS_RELEASE "-DNDEBUG -flto -O3")
 set(CMAKE_EXE_LINKER_FLAGS_RELEASE "-flto")
+
+set(CMAKE_CXX_FLAGS_VALGRIND "-g3 -DDEBUG -Og -fno-omit-frame-pointer -fno-inline -fno-optimize-sibling-calls" CACHE STRING "Flags used by the CXX compiler during VALGRIND builds")
+set(CMAKE_C_FLAGS_VALGRIND "-g3 -DDEBUG -Og -fno-omit-frame-pointer -fno-inline -fno-optimize-sibling-calls" CACHE STRING "Flags used by the C compiler during VALGRIND builds")
+set(CMAKE_EXE_LINKER_FLAGS_VALGRIND "" CACHE STRING "Linker flags used during VALGRIND builds")
 
 # Public include directories
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -48,20 +52,11 @@ target_include_directories(vebitset
         $<INSTALL_INTERFACE:include>
 )
 
-# Fetch dependencies for benchmarks
 include(FetchContent)
-FetchContent_Declare(roaring
-    GIT_REPOSITORY https://github.com/RoaringBitmap/CRoaring.git
-    GIT_TAG v4.5.1
-)
-FetchContent_Declare(nanobench
-    GIT_REPOSITORY https://github.com/martinus/nanobench.git
-    GIT_TAG v4.3.11
-)
 
 # Build tests and benchmarks
 option(VEBITSET_BUILD_TESTS "Build C++ tests" ON)
-option(VEBITSET_BUILD_BENCHMARKS "Build benchmarks" ON)
+option(VEBITSET_BUILD_BENCHMARKS "Build benchmarks" OFF)
 
 # Prevent building cmocka example binaries (these examples sometimes
 # cause linker issues on certain toolchains). This is a build-time
@@ -73,6 +68,14 @@ if(VEBITSET_BUILD_TESTS)
 endif()
 
 if(VEBITSET_BUILD_BENCHMARKS)
+    FetchContent_Declare(roaring
+        GIT_REPOSITORY https://github.com/RoaringBitmap/CRoaring.git
+        GIT_TAG v4.5.1
+    )
+    FetchContent_Declare(nanobench
+        GIT_REPOSITORY https://github.com/martinus/nanobench.git
+        GIT_TAG v4.3.11
+    )
     FetchContent_MakeAvailable(roaring nanobench)
     add_subdirectory(tests/benchmarks)
 endif()
