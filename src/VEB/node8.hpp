@@ -39,34 +39,47 @@ public:
         using pointer = void;
         using reference = index_t;
 
-        const Node8* node{nullptr};
-        std::size_t current{SIZE_MAX};
-
-        static constexpr Iterator create(const Node8* node, std::size_t value) {
-            return Iterator{node, value};
+        std::uintptr_t data;
+        
+        static constexpr const Node8* canonicalize(std::uintptr_t x) {
+            x &= 0x0000FFFFFFFFFFFF;
+            // The canonical form of a pointer is with bits 48..63 set to whatever bit 47 is, to allow for both zero-extension and sign-extension of the pointer value.
+            if (x & 0x0000'8000'0000'0000) {
+                x |= 0xFFFF'0000'0000'0000;
+            }
+            return reinterpret_cast<const Node8*>(x);
         }
 
-        static constexpr Iterator sentinel(const Node8* node) {
-            return Iterator{node, SIZE_MAX};
+        static constexpr std::pair<std::uint16_t, const Node8*> decompose(std::uintptr_t x) {
+            return {x >> 48, canonicalize(x)};
+        }
+
+        static constexpr std::uintptr_t compose(const Node8* node, std::uint16_t value) {
+            return (static_cast<std::uintptr_t>(value) << 48) | (reinterpret_cast<std::uintptr_t>(node) & 0x0000FFFFFFFFFFFF);
+        }
+
+        static constexpr Iterator create(const Node8* node, std::uint16_t value) {
+            return Iterator{compose(node, value)};
+        }
+
+        static constexpr Iterator sentinel(const Node8* node = nullptr) {
+            return Iterator{compose(node, UINT16_MAX)};
         }
 
         constexpr bool is_sentinel() const {
-            return current == SIZE_MAX;
+            const auto [value, _] = decompose(data);
+            return value == UINT16_MAX;
         }
 
         constexpr Iterator& operator++() {
+            const auto [value, node] = decompose(data);
             if (is_sentinel()) {
-                current = *node->min();
+                *this = node->min();
                 return *this;
             }
 
-            const auto succ = node->successor(static_cast<index_t>(current));
-            if (succ.is_sentinel()) {
-                current = SIZE_MAX;
-                return *this;
-            }
-
-            current = *succ;
+            const auto succ = node->successor(static_cast<index_t>(value));
+            data = compose(node, succ.is_sentinel() ? UINT16_MAX : *succ);
             return *this;
         }
 
@@ -77,17 +90,18 @@ public:
         }
 
         constexpr Iterator& operator--() {
+            const auto [value, node] = decompose(data);
             if (is_sentinel()) {
-                current = *node->max();
+                *this = node->max();
                 return *this;
             }
 
-            const auto pred = node->predecessor(static_cast<index_t>(current));
+            const auto pred = node->predecessor(static_cast<index_t>(value));
             if (pred.is_sentinel()) {
-                current = SIZE_MAX;
+                data = compose(node, UINT16_MAX);
                 return *this;
             }
-            current = *pred;
+            data = compose(node, *pred);
             return *this;
         }
 
@@ -104,7 +118,7 @@ public:
             if (is_sentinel() || other.is_sentinel()) {
                 return false;
             }
-            return current == other.current;
+            return data == other.data;
         }
 
         constexpr bool operator!=(Iterator other) const {
@@ -112,7 +126,8 @@ public:
         }
 
         constexpr reference operator*() const {
-            return static_cast<index_t>(current);
+            const auto [value, _] = decompose(data);
+            return static_cast<index_t>(value);
         }
     };
 
