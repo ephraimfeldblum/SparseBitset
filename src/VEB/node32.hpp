@@ -333,7 +333,7 @@ public:
 
         if (resident && l > *it->min()) {
             return std::make_optional(index(h, *it->predecessor(l)));
-        } else if (compacted && l > static_cast<subindex_t>(0)) {
+        } else if (compacted && l > 0) {
             return std::make_optional(x - 1);
         }
 
@@ -361,7 +361,7 @@ public:
 
     // helper struct for count_range. allows passing either arg optionally
     struct count_range_args {
-        index_t lo{static_cast<index_t>(0)};
+        index_t lo{0};
         index_t hi{static_cast<index_t>(universe_size() - 1)};
     };
     constexpr inline std::size_t count_range(count_range_args args) const {

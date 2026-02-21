@@ -335,7 +335,7 @@ public:
 
     // helper struct for count_range. allows passing either arg optionally
     struct count_range_args {
-        index_t lo{static_cast<index_t>(0)};
+        index_t lo{0};
         index_t hi{static_cast<index_t>(universe_size() - 1)};
     };
     constexpr inline std::size_t count_range(count_range_args args) const {

@@ -60,16 +60,24 @@ public:
 
         enum struct State : std::uint8_t {
             Sentinel = 0,
-            MinMax = 1,
-            Implicit = 2,
-            Resident = 3,
+            MinMax,
+            Implicit,
+            Resident,
         };
 
+        // We pack the state and node pointer into a single tagged pointer to reduce the size of the iterator and avoid unnecessary pointer dereferences
+        // bits  0.. 3: state tag (Sentinel, MinMax, Implicit, Resident)
+        // bits  3..48: pointer to Node16 (must be aligned to 8 bytes, so bottom 3 bits are always zero)
+        // bits 48..56: index of the current cluster (only used in Implicit and Resident states)
+        // bits 56..64: hi byte of the current element (only used in Resident state)
         std::uintptr_t tagged_node;
-        std::uintptr_t data;
+        union {
+            index_t current; // used in MinMax and Implicit states
+            subiterator_t n8_it; // used in Resident state
+        };
 
         static constexpr const Node16* canonicalize(std::uintptr_t x) {
-            static constexpr std::uintptr_t MASK{0x0000FFFFFFFFFFFF & ~0x3};
+            static constexpr std::uintptr_t MASK{0x0000FFFFFFFFFFFF & ~0x7};
             x &= MASK;
             if (x & 0x0000'8000'0000'0000) {
                 x |= 0xFFFF'0000'0000'0000;
@@ -78,7 +86,7 @@ public:
         }
 
         static constexpr std::pair<State, const Node16*> decompose_state(std::uintptr_t x) {
-            const auto state_tag{static_cast<State>(x & 0x3)};
+            const auto state_tag{static_cast<State>(x & 0x7)};
             return {state_tag, canonicalize(x)};
         }
 
@@ -90,19 +98,31 @@ public:
         }
 
         static constexpr Iterator create_sentinel(const Node16* node = nullptr) {
-            return Iterator{compose(node, State::Sentinel, 0, 0), 0};
+            return Iterator{
+                .tagged_node = compose(node, State::Sentinel, 0, 0),
+                .current = 0
+            };
         }
 
         static constexpr Iterator create_min_max(const Node16* node, index_t current) {
-            return Iterator{compose(node, State::MinMax, 0, 0), static_cast<std::uintptr_t>(current)};
+            return Iterator{
+                .tagged_node = compose(node, State::MinMax, 0, 0),
+                .current = current
+            };
         }
 
         static constexpr Iterator create_implicit(const Node16* node, index_t current, subindex_t idx) {
-            return Iterator{compose(node, State::Implicit, idx, 0), static_cast<std::uintptr_t>(current)};
+            return Iterator{
+                .tagged_node = compose(node, State::Implicit, idx, 0),
+                .current = current
+            };
         }
 
         static constexpr Iterator create_resident(const Node16* node, subindex_t hi_byte, subindex_t idx, subiterator_t n8_it) {
-            return Iterator{compose(node, State::Resident, idx, hi_byte), n8_it.data};
+            return Iterator{
+                .tagged_node = compose(node, State::Resident, idx, hi_byte),
+                .n8_it = n8_it
+            };
         }
 
         constexpr bool is_sentinel() const {
@@ -114,7 +134,7 @@ public:
         }
 
         constexpr State get_state() const {
-            return static_cast<State>(tagged_node & 0x3);
+            return static_cast<State>(tagged_node & 0x7);
         }
 
         constexpr subindex_t get_idx() const {
@@ -135,9 +155,9 @@ public:
                 #endif
             case State::MinMax: // fallthrough
             case State::Implicit:
-                return static_cast<index_t>(data);
+                return current;
             case State::Resident: {
-                return index(get_hi_byte(), *subiterator_t{data});
+                return index(get_hi_byte(), *n8_it);
             }
             }
             std::unreachable();
@@ -159,7 +179,7 @@ public:
                 return *this;
             }
             case State::MinMax: {
-                if (*this == node->max()) {
+                if (current == *node->max()) {
                     *this = create_sentinel(node);
                 } else if (node->cluster_data_ == nullptr) {
                     *this = node->max();
@@ -182,7 +202,6 @@ public:
                 return *this;
             }
             case State::Resident: {
-                auto n8_it{subiterator_t{data}};
                 if (++n8_it != subiterator_t::sentinel()) {
                     *this = create_resident(node, get_hi_byte(), get_idx(), n8_it);
                 } else {
@@ -212,7 +231,7 @@ public:
                 return *this;
             }
             case State::MinMax: {
-                if (*this == node->min()) {
+                if (current == *node->min()) {
                     *this = create_sentinel(node);
                 } else if (node->cluster_data_ == nullptr) {
                     *this = node->min();
@@ -236,7 +255,6 @@ public:
                 return *this;
             }
             case State::Resident: {
-                auto n8_it{subiterator_t{data}};
                 if (--n8_it != subiterator_t::sentinel()) {
                     *this = create_resident(node, get_hi_byte(), get_idx(), n8_it);
                 } else {
@@ -813,7 +831,7 @@ public:
 
         if (cluster_data_->summary_.contains(h)) {
             if (!cluster_data_->unfilled_.contains(h)) {
-                if (l > static_cast<subindex_t>(0)) {
+                if (l > 0) {
                     return Iterator::create_implicit(this, index(h, static_cast<subindex_t>(l - 1)), cluster_data_->index_of(h));
                 }
             } else if (const auto* cluster{find(h)}; cluster != nullptr && l > *cluster->min()) {
@@ -839,7 +857,7 @@ public:
 
     // helper struct for count_range. allows passing either arg optionally
     struct count_range_args {
-        index_t lo{static_cast<index_t>(0)};
+        index_t lo{0};
         index_t hi{static_cast<index_t>(universe_size() - 1)};
     };
     constexpr inline std::size_t count_range(count_range_args args) const {
@@ -1105,26 +1123,26 @@ public:
     }
 
     constexpr inline bool and_inplace(const Node16& other, std::size_t& alloc) {
-        const auto s_min{min_};
         const auto s_max{max_};
-        const auto i_min{std::max(s_min, other.min_)};
+        const auto s_min{min_};
         const auto i_max{std::min(s_max, other.max_)};
-        auto new_min{contains(i_min) && other.contains(i_min) ? std::make_optional(i_min) : std::nullopt};
-        auto new_max{contains(i_max) && other.contains(i_max) ? std::make_optional(i_max) : std::nullopt};
+        auto i_min{std::max(s_min, other.min_)};
+        auto new_max{contains(i_max) && other.contains(i_max)};
+        auto new_min{contains(i_min) && other.contains(i_min)};
 
         const auto update_minmax = [&] {
             destroy(alloc);
-            if (new_min.has_value() && new_max.has_value()) {
-                min_ = new_min.value();
-                max_ = new_max.value();
+            if (new_min && new_max) {
+                min_ = i_min;
+                max_ = i_max;
                 return false;
             }
-            if (new_min.has_value()) {
-                min_ = max_ = new_min.value();
+            if (new_min) {
+                min_ = max_ = i_min;
                 return false;
             }
-            if (new_max.has_value()) {
-                min_ = max_ = new_max.value();
+            if (new_max) {
+                min_ = max_ = i_max;
                 return false;
             }
             return true;
@@ -1135,9 +1153,8 @@ public:
         }
 
         // if this is not the correct min, we will need to update it during iteration
-        bool min_out{!new_min.has_value()};
-        if (!min_out) {
-            min_ = new_min.value();
+        if (new_min) {
+            min_ = i_min;
         }
 
         // reduce future work by pre computing summary intersection. if empty, we are done
@@ -1169,12 +1186,12 @@ public:
             std::optional<subnode_t> max_c_o{std::nullopt};
             const auto min_hi{*int_summary.min()};
             const auto max_hi{*int_summary.max()};
-            if (min_out) {
-                min_ = index(min_hi, static_cast<subindex_t>(0));
+            if (!new_min) {
+                min_ = index(min_hi, 0);
                 min_c_o = std::make_optional(subnode_t::new_all_but(0));
                 int_unfilled.insert(min_hi);
             }
-            if (!new_max.has_value()) {
+            if (!new_max) {
                 max_ = index(max_hi, static_cast<subindex_t>(255));
                 if (min_hi == max_hi && min_c_o.has_value()) {
                     // handle min/max collision in same cluster
@@ -1185,8 +1202,7 @@ public:
                 int_unfilled.insert(max_hi);
             }
             // either min or max required materialization, might need to create new cluster_data
-            const auto new_len{static_cast<std::size_t>(min_c_o.has_value() + max_c_o.has_value())};
-            if (new_len > 0) {
+            if (const auto new_len{static_cast<std::size_t>(min_c_o.has_value() + max_c_o.has_value())}; new_len > 0) {
                 auto* int_data{(new_len <= get_cap()) ? cluster_data_ : create(alloc, new_len, int_summary, int_unfilled)};
                 int_data->summary_ = int_summary;
                 int_data->unfilled_ = int_unfilled;
@@ -1207,7 +1223,7 @@ public:
             } else {
                 // min/max didn't require materializing new clusters, intersection contains only implicit clusters
                 // min must have already been set correctly above in order to reach here
-                max_ = new_max.value();
+                max_ = i_max;
                 cluster_data_->summary_ = int_summary;
                 cluster_data_->unfilled_ = int_unfilled;
                 set_len(0);
@@ -1215,8 +1231,8 @@ public:
             }
         }
         // predict if min/max will be removed from non-resident clusters, will we materialize new clusters for them?
-        const auto materialize_min{!new_min.has_value() && resident.min() != int_summary.min()};
-        const auto materialize_max{!new_max.has_value() && int_summary.min() != int_summary.max() && resident.max() != int_summary.max()};
+        const auto materialize_min{!new_min && resident.min() != int_summary.min()};
+        const auto materialize_max{!new_max && int_summary.min() != int_summary.max() && resident.max() != int_summary.max()};
         const auto resident_count{resident.size() + materialize_min + materialize_max};
 
         // If predicted resident clusters exceed capacity, allocate a new cluster_data_t and write into it
@@ -1244,7 +1260,7 @@ public:
                 continue;
             }
 
-            // both implicit-filled -> result is implicitly-filled (full).
+            // both implicit -> result is implicitly
             if (!resident.contains(h)) {
                 if (in_s) {
                     i++;
@@ -1252,10 +1268,10 @@ public:
                 if (in_o) {
                     j++;
                 }
-                if (min_out) {
-                    min_out = false;
-                    min_ = index(h, static_cast<subindex_t>(0));
-                    new_min = std::make_optional(min_);
+                if (!new_min) {
+                    new_min = true;
+                    min_ = index(h, 0);
+                    i_min = min_;
                     int_clusters[k++] = subnode_t::new_all_but(0);
                     int_unfilled.insert(h);
                 }
@@ -1279,10 +1295,10 @@ public:
 
             // cluster is non-empty. check if we need to update min_. only happens once, at the 0'th cluster.
             // which might not end up being the true 0'th cluster if it gets removed here.
-            if (min_out) {
-                min_out = false;
+            if (!new_min) {
+                new_min = true;
                 min_ = index(h, *int_clusters[0].min());
-                new_min = std::make_optional(min_);
+                i_min = min_;
                 if (int_clusters[0].remove(static_cast<subindex_t>(min_))) {
                     // cluster became empty after removing min
                     --k;
@@ -1293,7 +1309,7 @@ public:
                             allocator_t{alloc}.deallocate(reinterpret_cast<subnode_t*>(int_data), resident_count + 2);
                         }
                         destroy(alloc);
-                        max_ = new_max.has_value() ? new_max.value() : min_;
+                        max_ = new_max ? i_max : min_;
                         return false;
                     }
                 }
@@ -1308,7 +1324,7 @@ public:
             set_cap(resident_count);
         }
 
-        if (!new_max.has_value()) {
+        if (!new_max) {
             if (const auto max_hi{*cluster_data_->summary_.max()}; !resident.contains(max_hi)) {
                 max_ = index(max_hi, static_cast<subindex_t>(255));
                 cluster_data_->unfilled_.insert(max_hi);
