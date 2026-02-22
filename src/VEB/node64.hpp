@@ -49,24 +49,24 @@ private:
     index_t min_{};
     index_t max_{};
 
-    static constexpr inline std::pair<subindex_t, subindex_t> decompose(index_t x) {
+    static constexpr std::pair<subindex_t, subindex_t> decompose(index_t x) {
         return {static_cast<subindex_t>(x >> 32), static_cast<subindex_t>(x)};
     }
-    static constexpr inline index_t index(subindex_t high, subindex_t low) {
+    static constexpr index_t index(subindex_t high, subindex_t low) {
         return static_cast<index_t>(high) << 32 | low;
     }
 
-    constexpr inline explicit Node64() = default;
+    constexpr explicit Node64() = default;
 
 public:
-    static constexpr inline Node64 new_with(index_t x) {
+    static constexpr Node64 new_with(index_t x) {
         Node64 node{};
         node.min_ = x;
         node.max_ = x;
         return node;
     }
 
-    static constexpr inline Node64 new_from_node32(Node32&& old_storage, std::size_t& alloc) {
+    static constexpr Node64 new_from_node32(Node32&& old_storage, std::size_t& alloc) {
         Node64 node{};
         const auto old_min{old_storage.min()};
         const auto old_max{old_storage.max()};
@@ -84,11 +84,11 @@ public:
         return node;
     }
 
-    static constexpr inline Node64 new_from_node16(subnode_t::subnode_t&& old_storage, std::size_t& alloc) {
+    static constexpr Node64 new_from_node16(subnode_t::subnode_t&& old_storage, std::size_t& alloc) {
         auto intermediate{Node32::new_from_node16(std::move(old_storage), alloc)};
         return new_from_node32(std::move(intermediate), alloc);
     }
-    static constexpr inline Node64 new_from_node8(subnode_t::subnode_t::subnode_t old_storage, std::size_t& alloc) {
+    static constexpr Node64 new_from_node8(subnode_t::subnode_t::subnode_t old_storage, std::size_t& alloc) {
         auto intermediate{Node32::new_from_node8(old_storage, alloc)};
         return new_from_node32(std::move(intermediate), alloc);
     }
@@ -98,7 +98,7 @@ public:
     Node64(const Node64& other) = delete;
     Node64& operator=(const Node64&) = delete;
 
-    constexpr inline Node64 clone(std::size_t& alloc) const {
+    constexpr Node64 clone(std::size_t& alloc) const {
         auto result{new_with(min_)};
         result.min_ = min_;
         result.max_ = max_;
@@ -115,12 +115,12 @@ public:
         return result;
     }
 
-    constexpr inline Node64(Node64&& other) noexcept
+    constexpr Node64(Node64&& other) noexcept
         : cluster_data_(std::exchange(other.cluster_data_, nullptr))
         , min_(other.min_)
         , max_(other.max_) {
     }
-    constexpr inline Node64& operator=(Node64&& other) noexcept {
+    constexpr Node64& operator=(Node64&& other) noexcept {
         if (this != &other) {
             if (cluster_data_ != nullptr) {
                 assert(false && "Node64 must be destructed via `.destroy(alloc)` before being assigned to.");
@@ -141,7 +141,7 @@ public:
     // ~Node64() noexcept = default;
 #endif
 
-    constexpr inline void destroy(std::size_t& alloc) {
+    constexpr void destroy(std::size_t& alloc) {
         if (cluster_data_) {
             cluster_data_->summary.destroy(alloc);
             for (auto& [key, cluster] : cluster_data_->clusters) {
@@ -154,18 +154,18 @@ public:
         }
     }
 
-    static constexpr inline std::size_t universe_size() {
+    static constexpr std::size_t universe_size() {
         // Restrict Node64 to 2^63 for now to avoid relying on wider integer types
         return 1uz << 63;
     }
-    constexpr inline index_t min() const {
+    constexpr index_t min() const {
         return min_;
     }
-    constexpr inline index_t max() const {
+    constexpr index_t max() const {
         return max_;
     }
 
-    constexpr inline void insert(index_t x, std::size_t& alloc) {
+    constexpr void insert(index_t x, std::size_t& alloc) {
         if (x < min_) {
             std::swap(x, min_);
         }
@@ -191,7 +191,7 @@ public:
         }
     }
 
-    constexpr inline bool remove(index_t x, std::size_t& alloc) {
+    constexpr bool remove(index_t x, std::size_t& alloc) {
         if (x < min_ || x > max_) {
             return false;
         }
@@ -242,7 +242,7 @@ public:
         return false;
     }
 
-    constexpr inline bool contains(index_t x) const {
+    constexpr bool contains(index_t x) const {
         if (x < min_ || x > max_) {
             return false;
         }
@@ -261,7 +261,7 @@ public:
         return false;
     }
 
-    constexpr inline std::optional<index_t> successor(index_t x) const {
+    constexpr std::optional<index_t> successor(index_t x) const {
         if (x < min_) {
             return std::make_optional(min_);
         }
@@ -289,7 +289,7 @@ public:
         return std::make_optional(max_);
     }
 
-    constexpr inline std::optional<index_t> predecessor(index_t x) const {
+    constexpr std::optional<index_t> predecessor(index_t x) const {
         if (x > max_) {
             return std::make_optional(max_);
         }
@@ -317,7 +317,7 @@ public:
         return std::make_optional(min_);
     }
 
-    constexpr inline std::size_t size() const {
+    constexpr std::size_t size() const {
         const auto base_count{(min_ == max_) ? 1uz : 2uz};
 
         if (cluster_data_ == nullptr) {
@@ -338,7 +338,7 @@ public:
         index_t lo{0};
         index_t hi{static_cast<index_t>(universe_size() - 1)};
     };
-    constexpr inline std::size_t count_range(count_range_args args) const {
+    constexpr std::size_t count_range(count_range_args args) const {
         const auto [lo, hi] {args};
         auto total{static_cast<std::size_t>(
             (lo <= min_ && min_ <= hi) + (max_ != min_ && lo <= max_ && max_ <= hi)
@@ -374,7 +374,7 @@ public:
         return total;
     }
 
-    constexpr inline VebTreeMemoryStats get_memory_stats() const {
+    constexpr VebTreeMemoryStats get_memory_stats() const {
         if (cluster_data_ == nullptr) {
             return VebTreeMemoryStats{0, 0, 1};
         }
@@ -440,7 +440,7 @@ public:
         return node;
     }
 
-    constexpr inline bool or_inplace(const Node64& other, std::size_t& alloc) {
+    constexpr bool or_inplace(const Node64& other, std::size_t& alloc) {
         insert(other.min_, alloc);
         insert(other.max_, alloc);
 
@@ -476,7 +476,7 @@ public:
         return false;
     }
 
-    constexpr inline bool and_inplace(const Node64& other, std::size_t& alloc) {
+    constexpr bool and_inplace(const Node64& other, std::size_t& alloc) {
         const auto s_min{min_};
         const auto s_max{max_};
         const auto i_min{std::max(s_min, other.min_)};
@@ -549,7 +549,7 @@ public:
         }
     }
 
-    constexpr inline bool xor_inplace(const Node64& other, std::size_t& alloc) {
+    constexpr bool xor_inplace(const Node64& other, std::size_t& alloc) {
         const auto s_min{min_};
         const auto s_max{max_};
         const auto o_min{other.min_};

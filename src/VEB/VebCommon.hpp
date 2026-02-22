@@ -2,11 +2,12 @@
 #define VEBCOMMON_HPP
 
 #include <cstddef>     // std::size_t
-#include <cstdint>
-#include <string>
-#include <string_view>
-#include <stdexcept>
+#include <cstdint>     // std::uint8_t, std::uint16_t, std::uint32_t, std::uint64_t
+#include <string>      // std::string
+#include <string_view> // std::string_view
+#include <stdexcept>   // std::runtime_error
 #include <type_traits> // std::remove_cvref_t
+#include <utility>     // std::to_underlying
 
 struct VebTreeMemoryStats {
     std::size_t total_clusters{};
@@ -39,7 +40,7 @@ inline void write_u8(std::string &out, std::uint8_t v) {
 }
 
 inline void write_tag(std::string &out, VebSerializeTag tag) {
-    write_u8(out, static_cast<std::uint8_t>(tag));
+    write_u8(out, std::to_underlying(tag));
 }
 
 inline void write_u16(std::string &out, std::uint16_t v) {

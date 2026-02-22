@@ -1,19 +1,14 @@
 #ifndef NODE8_HPP
 #define NODE8_HPP
 
-#include <algorithm> // std::ranges::all_of
 #include <array>     // std::array
 #include <bit>       // std::popcount, std::countr_zero, std::countl_zero
 #include <cstddef>   // std::size_t
 #include <cstdint>   // std::uint8_t, std::uint64_t
 #include <limits>    // std::numeric_limits
-#include <numeric>   // std::reduce
-#include <optional>  // std::nullopt, std::optional
 #include <utility>   // std::pair, std::unreachable
 
-
 #include <xsimd/xsimd.hpp>
-
 
 #include "VebCommon.hpp"
 
@@ -39,11 +34,13 @@ public:
         using pointer = void;
         using reference = index_t;
 
+        static constexpr std::uintptr_t PTR_MASK{0x0000FFFFFFFFFFFF};
         std::uintptr_t data;
         
         static constexpr const Node8* canonicalize(std::uintptr_t x) {
-            x &= 0x0000FFFFFFFFFFFF;
-            // The canonical form of a pointer is with bits 48..63 set to whatever bit 47 is, to allow for both zero-extension and sign-extension of the pointer value.
+            x &= PTR_MASK;
+            // The canonical form of a pointer is with bits 48..64 set to whatever bit 47 is
+            // to allow for both zero-extension and sign-extension of the pointer value
             if (x & 0x0000'8000'0000'0000) {
                 x |= 0xFFFF'0000'0000'0000;
             }
@@ -55,14 +52,15 @@ public:
         }
 
         static constexpr std::uintptr_t compose(const Node8* node, std::uint16_t value) {
-            return (static_cast<std::uintptr_t>(value) << 48) | (reinterpret_cast<std::uintptr_t>(node) & 0x0000FFFFFFFFFFFF);
+            return (static_cast<std::uintptr_t>(value) << 48)
+                 | (reinterpret_cast<std::uintptr_t>(node) & PTR_MASK);
         }
 
         static constexpr Iterator create(const Node8* node, std::uint16_t value) {
             return Iterator{compose(node, value)};
         }
 
-        static constexpr Iterator sentinel(const Node8* node = nullptr) {
+        static constexpr Iterator create_sentinel(const Node8* node = nullptr) {
             return Iterator{compose(node, UINT16_MAX)};
         }
 
@@ -189,7 +187,7 @@ public:
     }
 
     constexpr Iterator end() const {
-        return Iterator::sentinel(this);
+        return Iterator::create_sentinel(this);
     }
 
     constexpr Iterator min() const {

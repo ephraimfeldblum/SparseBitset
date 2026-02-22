@@ -58,6 +58,7 @@ public:
         using reference = index_t;
         using subiterator_t = subnode_t::Iterator;
 
+        static constexpr std::uintptr_t PTR_MASK{0x0000FFFFFFFFFFFF & ~0x7};
         enum struct State : std::uint8_t {
             Sentinel = 0,
             MinMax,
@@ -77,8 +78,7 @@ public:
         };
 
         static constexpr const Node16* canonicalize(std::uintptr_t x) {
-            static constexpr std::uintptr_t MASK{0x0000FFFFFFFFFFFF & ~0x7};
-            x &= MASK;
+            x &= PTR_MASK;
             if (x & 0x0000'8000'0000'0000) {
                 x |= 0xFFFF'0000'0000'0000;
             }
@@ -92,7 +92,7 @@ public:
 
         static constexpr std::uintptr_t compose(const Node16* node, State state, std::uint8_t idx, std::uint8_t hi_byte) {
             return static_cast<std::uintptr_t>(state)
-                | (reinterpret_cast<std::uintptr_t>(node) & 0x0000FFFFFFFFFFFF)
+                | (reinterpret_cast<std::uintptr_t>(node) & PTR_MASK)
                 | (static_cast<std::uintptr_t>(idx) << 48)
                 | (static_cast<std::uintptr_t>(hi_byte) << 56);
         }
@@ -202,7 +202,7 @@ public:
                 return *this;
             }
             case State::Resident: {
-                if (++n8_it != subiterator_t::sentinel()) {
+                if (!(++n8_it).is_sentinel()) {
                     *this = create_resident(node, get_hi_byte(), get_idx(), n8_it);
                 } else {
                     move_to_successor_cluster(get_hi_byte());
@@ -255,7 +255,7 @@ public:
                 return *this;
             }
             case State::Resident: {
-                if (--n8_it != subiterator_t::sentinel()) {
+                if (!(--n8_it).is_sentinel()) {
                     *this = create_resident(node, get_hi_byte(), get_idx(), n8_it);
                 } else {
                     move_to_predecessor_cluster(get_hi_byte());
@@ -334,7 +334,7 @@ private:
 #pragma GCC diagnostic pop
 
         // resident mask = summary_ & unfilled_
-        constexpr inline subnode_t resident_mask() const {
+        constexpr subnode_t resident_mask() const {
             auto r{summary_};
             r.and_inplace(unfilled_);
             return r;
@@ -343,29 +343,29 @@ private:
         // Returns the index of where cluster `x` would be located in `clusters_`
         // If `x` is not present, this is the index where it would be inserted. Uses the
         // resident mask so indices refer to the packed resident clusters array.
-        constexpr inline subindex_t index_of(subindex_t x) const {
+        constexpr subindex_t index_of(subindex_t x) const {
             if (x == 0) {
                 return 0;
             }
             const auto resident{resident_mask()};
             return static_cast<subindex_t>(resident.count_range({ .hi = static_cast<subindex_t>(x - 1) }));
         }
-        constexpr inline subnode_t* find(subindex_t x) {
+        constexpr subnode_t* find(subindex_t x) {
             return resident_mask().contains(x) ? &clusters_[index_of(x)] : nullptr;
         }
-        constexpr inline const subnode_t* find(subindex_t x) const {
+        constexpr const subnode_t* find(subindex_t x) const {
             return resident_mask().contains(x) ? &clusters_[index_of(x)] : nullptr;
         }
-        constexpr inline std::size_t size() const {
+        constexpr std::size_t size() const {
             return summary_.size();
         }
-        constexpr inline std::size_t resident_count() const {
+        constexpr std::size_t resident_count() const {
             return resident_mask().size();
         }
 
         // range is inclusive: [lo, hi] to handle 256-element array counts correctly
         // This counts raw bits across the packed resident clusters starting at `lo`/`hi` indices.
-        constexpr inline std::size_t count_resident_bits(subindex_t lo, subindex_t hi) const {
+        constexpr std::size_t count_resident_bits(subindex_t lo, subindex_t hi) const {
             const auto* const data{reinterpret_cast<const std::uint64_t*>(clusters_ + lo)};
             const auto num_words{(hi + 1 - lo) * sizeof *clusters_ / sizeof *data};
 
@@ -394,14 +394,14 @@ private:
     subindex_t len_{};
     cluster_data_t* cluster_data_{};
 
-    static constexpr inline std::pair<subindex_t, subindex_t> decompose(index_t x) {
+    static constexpr std::pair<subindex_t, subindex_t> decompose(index_t x) {
         return {static_cast<subindex_t>(x >> 8), static_cast<subindex_t>(x)};
     }
-    static constexpr inline index_t index(subindex_t high, subindex_t low) {
+    static constexpr index_t index(subindex_t high, subindex_t low) {
         return static_cast<index_t>((high << 8) | low);
     }
 
-    static constexpr inline cluster_data_t* create(std::size_t& alloc, std::size_t cap, const cluster_data_t* other, std::size_t other_size) {
+    static constexpr cluster_data_t* create(std::size_t& alloc, std::size_t cap, const cluster_data_t* other, std::size_t other_size) {
         allocator_t a{alloc};
         auto* data = reinterpret_cast<cluster_data_t*>(a.allocate(cap + 2));
         data->summary_ = other->summary_;
@@ -415,14 +415,14 @@ private:
         );
         return data;
     }
-    static constexpr inline cluster_data_t* create(std::size_t& alloc, std::size_t cap, subnode_t summary, subnode_t unfilled) {
+    static constexpr cluster_data_t* create(std::size_t& alloc, std::size_t cap, subnode_t summary, subnode_t unfilled) {
         const subnode_t dummy[] = {
             summary,
             unfilled,
         };
         return create(alloc, cap, reinterpret_cast<const cluster_data_t*>(&dummy), 0);
     }
-    static constexpr inline cluster_data_t* create(std::size_t& alloc, std::size_t cap, subindex_t hi, subnode_t lo) {
+    static constexpr cluster_data_t* create(std::size_t& alloc, std::size_t cap, subindex_t hi, subnode_t lo) {
         const subnode_t dummy[] = {
             subnode_t::new_with(hi),
             subnode_t::new_all(),
@@ -431,14 +431,14 @@ private:
         return create(alloc, cap, reinterpret_cast<const cluster_data_t*>(&dummy), 1);
     }
 
-    constexpr inline subnode_t* find(subindex_t x) {
+    constexpr subnode_t* find(subindex_t x) {
         return cluster_data_ != nullptr ? cluster_data_->find(x) : nullptr;
     }
-    constexpr inline const subnode_t* find(subindex_t x) const {
+    constexpr const subnode_t* find(subindex_t x) const {
         return cluster_data_ != nullptr ? cluster_data_->find(x) : nullptr;
     }
 
-    constexpr inline void grow(std::size_t& alloc) {
+    constexpr void grow(std::size_t& alloc) {
         const auto len{get_len()};
         const auto cur_cap{get_cap()};
         if (len < cur_cap) {
@@ -452,7 +452,7 @@ private:
         set_len(len);
     }
 
-    constexpr inline void emplace(subindex_t hi, subindex_t lo, std::size_t& alloc) {
+    constexpr void emplace(subindex_t hi, subindex_t lo, std::size_t& alloc) {
         if (cluster_data_ == nullptr) {
             cluster_data_ = create(alloc, 1, hi, subnode_t::new_with(lo));
             set_cap(1);
@@ -493,17 +493,17 @@ private:
         set_len(len + 1);
     }
 
-    constexpr inline std::size_t get_cap() const {
+    constexpr std::size_t get_cap() const {
         if (cluster_data_ == nullptr) {
             return 0;
         }
         return cap_ == 0 ? subnode_t::universe_size() : cap_;
     }
-    constexpr inline void set_cap(std::size_t c) {
+    constexpr void set_cap(std::size_t c) {
         cap_ = static_cast<subindex_t>(c);
     }
 
-    constexpr inline std::size_t get_len() const {
+    constexpr std::size_t get_len() const {
         if (cluster_data_ == nullptr) {
             return 0;
         }
@@ -514,14 +514,14 @@ private:
         }
         return len_;
     }
-    constexpr inline void set_len(std::size_t s) {
+    constexpr void set_len(std::size_t s) {
         len_ = static_cast<subindex_t>(s);
     }
 
-    constexpr inline explicit Node16() = default;
+    constexpr explicit Node16() = default;
 
 public:
-    static constexpr inline Node16 new_with(index_t hi, index_t lo) {
+    static constexpr Node16 new_with(index_t hi, index_t lo) {
         Node16 node{};
         node.key_ = hi;
         node.min_ = lo;
@@ -529,7 +529,7 @@ public:
         return node;
     }
 
-    static constexpr inline Node16 new_from_node8(subnode_t old_storage, std::size_t& alloc) {
+    static constexpr Node16 new_from_node8(subnode_t old_storage, std::size_t& alloc) {
         Node16 node{};
         const auto old_min{*old_storage.min()};
         const auto old_max{*old_storage.max()};
@@ -548,7 +548,7 @@ public:
     }
 
     // Create a Node16 with all bits set except `x`.
-    static constexpr inline Node16 new_all_but(index_t key, index_t x, std::size_t& alloc) {
+    static constexpr Node16 new_all_but(index_t key, index_t x, std::size_t& alloc) {
         static const auto umax{universe_size() - 1};
         Node16 node{};
         node.key_ = key;
@@ -582,7 +582,7 @@ public:
         return node;
     }
 
-    constexpr inline void destroy(std::size_t& alloc) {
+    constexpr void destroy(std::size_t& alloc) {
         if (cluster_data_ != nullptr) {
             allocator_t a{alloc};
             a.deallocate(reinterpret_cast<subnode_t*>(cluster_data_), get_cap() + 2);
@@ -592,7 +592,7 @@ public:
         }
     }
 
-    constexpr inline Node16 clone(std::size_t& alloc) const {
+    constexpr Node16 clone(std::size_t& alloc) const {
         auto result{new_with(key_, min_)};
         result.max_ = max_;
 
@@ -606,7 +606,7 @@ public:
         return result;
     }
 
-    constexpr inline Node16(Node16&& other) noexcept
+    constexpr Node16(Node16&& other) noexcept
         : key_{other.key_}
         , min_{other.min_}
         , max_{other.max_}
@@ -615,7 +615,7 @@ public:
         , cluster_data_{std::exchange(other.cluster_data_, nullptr)} {
     }
 
-    constexpr inline Node16& operator=(Node16&& other) noexcept {
+    constexpr Node16& operator=(Node16&& other) noexcept {
         if (this != &other) {
             if (cluster_data_ != nullptr) {
                 assert(false && "Node16 must be destructed via `.destroy()` before being assigned to.");
@@ -643,11 +643,11 @@ public:
     // ~Node16() noexcept = default;
 #endif
 
-    static constexpr inline std::size_t universe_size() {
+    static constexpr std::size_t universe_size() {
         return 1uz + std::numeric_limits<index_t>::max();
     }
 
-    constexpr inline bool full() const {
+    constexpr bool full() const {
         // if the min and max are not the universe bounds, we cannot be full
         if (min_ != 0 || max_ != universe_size() - 1 || cluster_data_ == nullptr) {
             return false;
@@ -659,22 +659,22 @@ public:
             && cluster_data_->clusters_[1].size() == subnode_t::universe_size() - 1;
     }
 
-    constexpr inline Iterator min() const {
+    constexpr Iterator min() const {
         return Iterator::create_min_max(this, min_);
     }
-    constexpr inline Iterator max() const {
+    constexpr Iterator max() const {
         return Iterator::create_min_max(this, max_);
     }
 
-    constexpr inline Iterator begin() const {
+    constexpr Iterator begin() const {
         return min();
     }
 
-    constexpr inline Iterator end() const {
+    constexpr Iterator end() const {
         return Iterator::create_sentinel(this);
     }
 
-    constexpr inline void insert(index_t x, std::size_t& alloc) {
+    constexpr void insert(index_t x, std::size_t& alloc) {
         if (x < min_) {
             std::swap(x, min_);
         }
@@ -689,7 +689,7 @@ public:
         emplace(h, l, alloc);
     }
 
-    constexpr inline bool remove(index_t x, std::size_t& alloc) {
+    constexpr bool remove(index_t x, std::size_t& alloc) {
         if (x < min_ || x > max_) {
             return false;
         }
@@ -755,7 +755,7 @@ public:
         return false;
     }
 
-    constexpr inline bool contains(index_t x) const {
+    constexpr bool contains(index_t x) const {
         if (x < min_ || x > max_) {
             return false;
         }
@@ -779,7 +779,7 @@ public:
         return false;
     }
 
-    constexpr inline Iterator successor(index_t x) const {
+    constexpr Iterator successor(index_t x) const {
         if (x < min_) {
             return min();
         }
@@ -815,7 +815,7 @@ public:
         return max();
     }
 
-    constexpr inline Iterator predecessor(index_t x) const {
+    constexpr Iterator predecessor(index_t x) const {
         if (x > max_) {
             return max();
         }
@@ -851,7 +851,7 @@ public:
         return min();
     }
 
-    constexpr inline std::size_t size() const {
+    constexpr std::size_t size() const {
         return count_range({});
     }
 
@@ -860,7 +860,7 @@ public:
         index_t lo{0};
         index_t hi{static_cast<index_t>(universe_size() - 1)};
     };
-    constexpr inline std::size_t count_range(count_range_args args) const {
+    constexpr std::size_t count_range(count_range_args args) const {
         const auto [lo, hi] {args};
         auto acc{static_cast<std::size_t>(
             (lo <= min_ && min_ <= hi) + (max_ != min_ && lo <= max_ && max_ <= hi)
@@ -923,11 +923,11 @@ public:
         return acc;
     }
 
-    constexpr inline std::uint16_t key() const {
+    constexpr std::uint16_t key() const {
         return key_;
     }
 
-    constexpr inline VebTreeMemoryStats get_memory_stats() const {
+    constexpr VebTreeMemoryStats get_memory_stats() const {
         if (cluster_data_ == nullptr) {
             return {0, 0, 1};
         }
@@ -998,7 +998,7 @@ public:
         return node;
     }
 
-    constexpr inline bool not_inplace(std::size_t& alloc) {
+    constexpr bool not_inplace(std::size_t& alloc) {
         const auto s_min{min_};
         const auto s_max{max_};
 
@@ -1038,7 +1038,7 @@ public:
         return false;
     }
 
-    constexpr inline bool or_inplace(const Node16& other, std::size_t& alloc) {
+    constexpr bool or_inplace(const Node16& other, std::size_t& alloc) {
         insert(other.min_, alloc);
         insert(other.max_, alloc);
 
@@ -1122,7 +1122,7 @@ public:
         return false;
     }
 
-    constexpr inline bool and_inplace(const Node16& other, std::size_t& alloc) {
+    constexpr bool and_inplace(const Node16& other, std::size_t& alloc) {
         const auto s_max{max_};
         const auto s_min{min_};
         const auto i_max{std::min(s_max, other.max_)};
@@ -1343,7 +1343,7 @@ public:
         return false;
     }
 
-    constexpr inline bool xor_inplace(const Node16& other, std::size_t& alloc) {
+    constexpr bool xor_inplace(const Node16& other, std::size_t& alloc) {
         const auto s_min{min_};
         const auto s_max{max_};
         const auto o_min{other.min_};
@@ -1482,19 +1482,19 @@ public:
 
     struct Eq {
         using is_transparent = void;
-        constexpr inline bool operator()(const Node16& lhs, const Node16& rhs) const {
+        constexpr bool operator()(const Node16& lhs, const Node16& rhs) const {
             return lhs.key_ == rhs.key_;
         }
-        constexpr inline bool operator()(const index_t lhs, const Node16& rhs) const {
+        constexpr bool operator()(const index_t lhs, const Node16& rhs) const {
             return lhs == rhs.key_;
         }
     };
     struct Hash {
         using is_transparent = void;
-        constexpr inline std::size_t operator()(const Node16& node) const {
+        constexpr std::size_t operator()(const Node16& node) const {
             return std::hash<index_t>{}(node.key_);
         }
-        constexpr inline std::size_t operator()(const index_t key) const {
+        constexpr std::size_t operator()(const index_t key) const {
             return std::hash<index_t>{}(key);
         }
     };
