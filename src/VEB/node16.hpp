@@ -147,15 +147,17 @@ public:
 
         constexpr index_t get_current() const {
             switch (get_state()) {
-            case State::Sentinel:
+            case State::Sentinel: {
                 #ifdef NDEBUG
                 std::unreachable();
                 #else
                 assert(false && "Dereferencing end sentinel");
                 #endif
+            }
             case State::MinMax: // fallthrough
-            case State::Implicit:
+            case State::Implicit: {
                 return current;
+            }
             case State::Resident: {
                 return index(get_hi_byte(), *n8_it);
             }

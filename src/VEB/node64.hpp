@@ -68,8 +68,8 @@ public:
 
     static constexpr Node64 new_from_node32(Node32&& old_storage, std::size_t& alloc) {
         Node64 node{};
-        const auto old_min{old_storage.min()};
-        const auto old_max{old_storage.max()};
+        const auto old_min{*old_storage.min()};
+        const auto old_max{*old_storage.max()};
         node.min_ = old_min;
         node.max_ = old_max;
 
@@ -204,10 +204,10 @@ public:
                     return false;
                 }
             } else {
-                const auto min_cluster{cluster_data_->summary.min()};
+                const auto min_cluster{*cluster_data_->summary.min()};
                 [[assume(cluster_data_->summary.contains(min_cluster))]];
                 const auto& cluster = cluster_data_->clusters.at(min_cluster);
-                const auto min_element{cluster.min()};
+                const auto min_element{*cluster.min()};
                 x = min_ = index(min_cluster, min_element);
             }
         }
@@ -217,10 +217,10 @@ public:
                 max_ = min_;
                 return false;
             } else {
-                const auto max_cluster{cluster_data_->summary.max()};
+                const auto max_cluster{*cluster_data_->summary.max()};
                 [[assume(cluster_data_->summary.contains(max_cluster))]];
                 const auto& cluster = cluster_data_->clusters.at(max_cluster);
-                const auto max_element{cluster.max()};
+                const auto max_element{*cluster.max()};
                 x = max_ = index(max_cluster, max_element);
             }
         }
@@ -275,14 +275,14 @@ public:
 
         const auto [h, l] {decompose(x)};
 
-        if (const auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end() && l < it->second.max()) {
-            if (const auto succ{it->second.successor(l)}; succ.has_value()) {
+        if (const auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end() && l < *it->second.max()) {
+            if (const auto succ{it->second.successor(l)}; succ != it->second.end()) {
                 return std::make_optional(index(h, *succ));
             }
         }
 
-        if (const auto succ{cluster_data_->summary.successor(h)}; succ.has_value()) {
-            const auto l{cluster_data_->clusters.at(*succ).min()};
+        if (const auto succ{cluster_data_->summary.successor(h)}; succ != cluster_data_->summary.end()) {
+            const auto l{*cluster_data_->clusters.at(*succ).min()};
             return std::make_optional(index(*succ, l));
         }
 
@@ -303,14 +303,14 @@ public:
 
         const auto [h, l] {decompose(x)};
 
-        if (const auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end() && l > it->second.min()) {
-            if (const auto pred{it->second.predecessor(l)}; pred.has_value()) {
+        if (const auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end() && l > *it->second.min()) {
+            if (const auto pred{it->second.predecessor(l)}; pred != it->second.end()) {
                 return index(h, *pred);
             }
         }
 
-        if (const auto pred{cluster_data_->summary.predecessor(h)}; pred.has_value()) {
-            const auto l{cluster_data_->clusters.at(*pred).max()};
+        if (const auto pred{cluster_data_->summary.predecessor(h)}; pred != cluster_data_->summary.end()) {
+            const auto l{*cluster_data_->clusters.at(*pred).max()};
             return index(*pred, l);
         }
 
@@ -367,8 +367,8 @@ public:
             total += it->second.count_range({ .hi = hidx });
         }
 
-        for (auto i{summary.successor(lcl)}; i.has_value() && i.value() < hcl; i = summary.successor(i.value())) {
-            total += clusters.find(i.value())->second.size();
+        for (auto i{summary.successor(lcl)}; i != summary.end() && *i < hcl; ++i) {
+            total += clusters.find(*i)->second.size();
         }
 
         return total;
@@ -409,8 +409,8 @@ public:
 
         cluster_data_->summary.serialize(out);
 
-        for (auto idx{std::make_optional(cluster_data_->summary.min())}; idx.has_value(); idx = cluster_data_->summary.successor(idx.value())) {
-            cluster_data_->clusters.find(idx.value())->second.serialize(out);
+        for (const auto idx : cluster_data_->summary) {
+            cluster_data_->clusters.find(idx)->second.serialize(out);
         }
     }
 
@@ -427,14 +427,11 @@ public:
         allocator_t a{alloc};
         node.cluster_data_ = a.allocate(1);
         a.construct(node.cluster_data_, 0, alloc);
-        node.cluster_data_->summary = std::move(subnode_t::deserialize(buf, pos, alloc));
+        node.cluster_data_->summary = subnode_t::deserialize(buf, pos, alloc);
 
         node.cluster_data_->clusters.reserve(len);
-        auto key{std::make_optional(node.cluster_data_->summary.min())};
-        for (std::size_t i = 0; i < len; ++i) {
-            auto cluster{subnode_t::deserialize(buf, pos, alloc)};
-            node.cluster_data_->clusters.emplace(key.value(), std::move(cluster));
-            key = node.cluster_data_->summary.successor(key.value());
+        for (const auto key : node.cluster_data_->summary) {
+            node.cluster_data_->clusters.emplace(key, subnode_t::deserialize(buf, pos, alloc));
         }
 
         return node;
