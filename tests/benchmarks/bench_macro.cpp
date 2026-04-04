@@ -58,14 +58,14 @@ void bench_macro_insert() {
             "insert_random",
             density,
             ELEMENT_COUNT,
-            [&]() {
+            [&] {
                 veb_tree.clear();
                 for (uint32_t val : test_data) {
                     veb_tree.insert(val);
                 }
                 ankerl::nanobench::doNotOptimizeAway(&veb_tree);
             },
-            [&]() { return veb_tree.get_allocated_bytes(); });
+            [&] { return veb_tree.get_allocated_bytes(); });
         ankerl::nanobench::render(benchmark_json_template(), veb_bench, g_output);
 
         auto vec_bench = run_macro_benchmark(
@@ -74,14 +74,14 @@ void bench_macro_insert() {
             "insert_random",
             density,
             ELEMENT_COUNT,
-            [&]() {
+            [&] {
                 std::fill(vec_bool.begin(), vec_bool.end(), false);
                 for (uint32_t val : test_data) {
                     vec_bool[val] = true;
                 }
                 ankerl::nanobench::doNotOptimizeAway(&vec_bool);
             },
-            [&]() { return vec_bool.capacity() / 8; });
+            [&] { return vec_bool.capacity() / 8; });
         ankerl::nanobench::render(benchmark_json_template(), vec_bench, g_output);
 
         auto roaring_bench = run_macro_benchmark(
@@ -90,14 +90,14 @@ void bench_macro_insert() {
             "insert_random",
             density,
             ELEMENT_COUNT,
-            [&]() {
+            [&] {
                 roaring_tree.clear();
                 for (uint32_t val : test_data) {
                     roaring_tree.add(val);
                 }
                 ankerl::nanobench::doNotOptimizeAway(&roaring_tree);
             },
-            [&]() { return roaring_tree.getSizeInBytes(true); });
+            [&] { return roaring_tree.getSizeInBytes(true); });
         ankerl::nanobench::render(benchmark_json_template(), roaring_bench, g_output);
     }
 }
@@ -121,14 +121,14 @@ void bench_macro_insert_sequential() {
             "insert_sequential",
             density,
             ELEMENT_COUNT,
-            [&]() {
+            [&] {
                 veb_tree.clear();
                 for (uint32_t val : test_data) {
                     veb_tree.insert(val);
                 }
                 ankerl::nanobench::doNotOptimizeAway(&veb_tree);
             },
-            [&]() { return veb_tree.get_allocated_bytes(); });
+            [&] { return veb_tree.get_allocated_bytes(); });
         ankerl::nanobench::render(benchmark_json_template(), veb_bench, g_output);
 
         auto vec_bench = run_macro_benchmark(
@@ -137,14 +137,14 @@ void bench_macro_insert_sequential() {
             "insert_sequential",
             density,
             ELEMENT_COUNT,
-            [&]() {
+            [&] {
                 std::fill(vec_bool.begin(), vec_bool.end(), false);
                 for (uint32_t val : test_data) {
                     vec_bool[val] = true;
                 }
                 ankerl::nanobench::doNotOptimizeAway(&vec_bool);
             },
-            [&]() { return vec_bool.capacity() / 8; });
+            [&] { return vec_bool.capacity() / 8; });
         ankerl::nanobench::render(benchmark_json_template(), vec_bench, g_output);
 
         auto roaring_bench = run_macro_benchmark(
@@ -153,14 +153,14 @@ void bench_macro_insert_sequential() {
             "insert_sequential",
             density,
             ELEMENT_COUNT,
-            [&]() {
+            [&] {
                 roaring_tree.clear();
                 for (uint32_t val : test_data) {
                     roaring_tree.add(val);
                 }
                 ankerl::nanobench::doNotOptimizeAway(&roaring_tree);
             },
-            [&]() { return roaring_tree.getSizeInBytes(true); });
+            [&] { return roaring_tree.getSizeInBytes(true); });
         ankerl::nanobench::render(benchmark_json_template(), roaring_bench, g_output);
     }
 }
@@ -184,14 +184,14 @@ void bench_macro_insert_clustered() {
             "insert_clustered",
             density,
             ELEMENT_COUNT,
-            [&]() {
+            [&] {
                 veb_tree.clear();
                 for (uint32_t val : test_data) {
                     veb_tree.insert(val);
                 }
                 ankerl::nanobench::doNotOptimizeAway(&veb_tree);
             },
-            [&]() { return veb_tree.get_allocated_bytes(); });
+            [&] { return veb_tree.get_allocated_bytes(); });
         ankerl::nanobench::render(benchmark_json_template(), veb_bench, g_output);
 
         auto vec_bench = run_macro_benchmark(
@@ -200,14 +200,14 @@ void bench_macro_insert_clustered() {
             "insert_clustered",
             density,
             ELEMENT_COUNT,
-            [&]() {
+            [&] {
                 std::fill(vec_bool.begin(), vec_bool.end(), false);
                 for (uint32_t val : test_data) {
                     vec_bool[val] = true;
                 }
                 ankerl::nanobench::doNotOptimizeAway(&vec_bool);
             },
-            [&]() { return vec_bool.capacity() / 8; });
+            [&] { return vec_bool.capacity() / 8; });
         ankerl::nanobench::render(benchmark_json_template(), vec_bench, g_output);
 
         auto roaring_bench = run_macro_benchmark(
@@ -216,14 +216,14 @@ void bench_macro_insert_clustered() {
             "insert_clustered",
             density,
             ELEMENT_COUNT,
-            [&]() {
+            [&] {
                 roaring_tree.clear();
                 for (uint32_t val : test_data) {
                     roaring_tree.add(val);
                 }
                 ankerl::nanobench::doNotOptimizeAway(&roaring_tree);
             },
-            [&]() { return roaring_tree.getSizeInBytes(true); });
+            [&] { return roaring_tree.getSizeInBytes(true); });
         ankerl::nanobench::render(benchmark_json_template(), roaring_bench, g_output);
     }
 }
@@ -260,14 +260,14 @@ void bench_macro_contains() {
             "contains",
             density,
             QUERY_COUNT,
-            [&]() {
+            [&] {
                 uint32_t count = 0;
                 for (uint32_t val : query_data) {
                     count += veb_tree.contains(val) ? 1 : 0;
                 }
                 ankerl::nanobench::doNotOptimizeAway(count);
             },
-            [&]() { return veb_tree.get_allocated_bytes(); });
+            [&] { return veb_tree.get_allocated_bytes(); });
         ankerl::nanobench::render(benchmark_json_template(), veb_bench, g_output);
 
         auto vec_bench = run_macro_benchmark(
@@ -276,14 +276,14 @@ void bench_macro_contains() {
             "contains",
             density,
             QUERY_COUNT,
-            [&]() {
+            [&] {
                 uint32_t count = 0;
                 for (uint32_t val : query_data) {
                     count += vec_bool[val] ? 1 : 0;
                 }
                 ankerl::nanobench::doNotOptimizeAway(count);
             },
-            [&]() { return vec_bool.capacity() / 8; });
+            [&] { return vec_bool.capacity() / 8; });
         ankerl::nanobench::render(benchmark_json_template(), vec_bench, g_output);
 
         auto roaring_bench = run_macro_benchmark(
@@ -292,14 +292,14 @@ void bench_macro_contains() {
             "contains",
             density,
             QUERY_COUNT,
-            [&]() {
+            [&] {
                 uint32_t count = 0;
                 for (uint32_t val : query_data) {
                     count += roaring_tree.contains(val) ? 1 : 0;
                 }
                 ankerl::nanobench::doNotOptimizeAway(count);
             },
-            [&]() { return roaring_tree.getSizeInBytes(true); });
+            [&] { return roaring_tree.getSizeInBytes(true); });
         ankerl::nanobench::render(benchmark_json_template(), roaring_bench, g_output);
     }
 }
@@ -336,13 +336,13 @@ void bench_macro_remove() {
             "remove",
             density,
             REMOVE_COUNT,
-            [&]() {
+            [&] {
                 for (uint32_t val : remove_data) {
                     veb_tree.remove(val);
                 }
                 ankerl::nanobench::doNotOptimizeAway(&veb_tree);
             },
-            [&]() { return veb_tree.get_allocated_bytes(); });
+            [&] { return veb_tree.get_allocated_bytes(); });
         ankerl::nanobench::render(benchmark_json_template(), veb_bench, g_output);
 
         auto vec_bench = run_macro_benchmark(
@@ -351,13 +351,13 @@ void bench_macro_remove() {
             "remove",
             density,
             REMOVE_COUNT,
-            [&]() {
+            [&] {
                 for (uint32_t val : remove_data) {
                     vec_bool[val] = false;
                 }
                 ankerl::nanobench::doNotOptimizeAway(&vec_bool);
             },
-            [&]() { return vec_bool.capacity() / 8; });
+            [&] { return vec_bool.capacity() / 8; });
         ankerl::nanobench::render(benchmark_json_template(), vec_bench, g_output);
 
         auto roaring_bench = run_macro_benchmark(
@@ -366,13 +366,13 @@ void bench_macro_remove() {
             "remove",
             density,
             REMOVE_COUNT,
-            [&]() {
+            [&] {
                 for (uint32_t val : remove_data) {
                     roaring_tree.remove(val);
                 }
                 ankerl::nanobench::doNotOptimizeAway(&roaring_tree);
             },
-            [&]() { return roaring_tree.getSizeInBytes(true); });
+            [&] { return roaring_tree.getSizeInBytes(true); });
         ankerl::nanobench::render(benchmark_json_template(), roaring_bench, g_output);
     }
 }
@@ -407,14 +407,14 @@ void bench_macro_iteration() {
             "iteration",
             density,
             ELEMENT_COUNT,
-            [&]() {
+            [&] {
                 uint64_t sum = 0;
                 for (uint64_t val : veb_tree) {
                     sum += val;
                 }
                 ankerl::nanobench::doNotOptimizeAway(sum);
             },
-            [&]() { return veb_tree.get_allocated_bytes(); });
+            [&] { return veb_tree.get_allocated_bytes(); });
         ankerl::nanobench::render(benchmark_json_template(), veb_bench, g_output);
 
         auto roaring_bench = run_macro_benchmark(
@@ -423,14 +423,14 @@ void bench_macro_iteration() {
             "iteration",
             density,
             ELEMENT_COUNT,
-            [&]() {
+            [&] {
                 uint64_t sum = 0;
                 for (uint32_t val : roaring_tree) {
                     sum += val;
                 }
                 ankerl::nanobench::doNotOptimizeAway(sum);
             },
-            [&]() { return roaring_tree.getSizeInBytes(true); });
+            [&] { return roaring_tree.getSizeInBytes(true); });
         ankerl::nanobench::render(benchmark_json_template(), roaring_bench, g_output);
     }
 }
@@ -467,11 +467,11 @@ void bench_macro_set_operations() {
             "union",
             density,
             1,
-            [&]() {
+            [&] {
                 veb_result_tree = veb_tree1 | veb_tree2;
                 ankerl::nanobench::doNotOptimizeAway(&veb_result_tree);
             },
-            [&]() { return veb_result_tree.get_allocated_bytes(); });
+            [&] { return veb_result_tree.get_allocated_bytes(); });
         ankerl::nanobench::render(benchmark_json_template(), veb_union_bench, g_output);
 
         auto veb_intersection_bench = run_macro_benchmark(
@@ -480,11 +480,11 @@ void bench_macro_set_operations() {
             "intersection",
             density,
             1,
-            [&]() {
+            [&] {
                 veb_result_tree = veb_tree1 & veb_tree2;
                 ankerl::nanobench::doNotOptimizeAway(&veb_result_tree);
             },
-            [&]() { return veb_result_tree.get_allocated_bytes(); });
+            [&] { return veb_result_tree.get_allocated_bytes(); });
         ankerl::nanobench::render(benchmark_json_template(), veb_intersection_bench, g_output);
 
         auto veb_xor_bench = run_macro_benchmark(
@@ -493,11 +493,11 @@ void bench_macro_set_operations() {
             "xor",
             density,
             1,
-            [&]() {
+            [&] {
                 veb_result_tree = veb_tree1 ^ veb_tree2;
                 ankerl::nanobench::doNotOptimizeAway(&veb_result_tree);
             },
-            [&]() { return veb_result_tree.get_allocated_bytes(); });
+            [&] { return veb_result_tree.get_allocated_bytes(); });
         ankerl::nanobench::render(benchmark_json_template(), veb_xor_bench, g_output);
 
         auto roaring_union_bench = run_macro_benchmark(
@@ -506,11 +506,11 @@ void bench_macro_set_operations() {
             "union",
             density,
             1,
-            [&]() {
+            [&] {
                 roaring_result_tree = roaring_tree1 | roaring_tree2;
                 ankerl::nanobench::doNotOptimizeAway(&roaring_result_tree);
             },
-            [&]() { return roaring_result_tree.getSizeInBytes(true); });
+            [&] { return roaring_result_tree.getSizeInBytes(true); });
         ankerl::nanobench::render(benchmark_json_template(), roaring_union_bench, g_output);
 
         auto roaring_intersection_bench = run_macro_benchmark(
@@ -519,11 +519,11 @@ void bench_macro_set_operations() {
             "intersection",
             density,
             1,
-            [&]() {
+            [&] {
                 roaring_result_tree = roaring_tree1 & roaring_tree2;
                 ankerl::nanobench::doNotOptimizeAway(&roaring_result_tree);
             },
-            [&]() { return roaring_result_tree.getSizeInBytes(true); });
+            [&] { return roaring_result_tree.getSizeInBytes(true); });
 
         ankerl::nanobench::render(benchmark_json_template(), roaring_intersection_bench, g_output);
 
@@ -533,11 +533,11 @@ void bench_macro_set_operations() {
             "xor",
             density,
             1,
-            [&]() {
+            [&] {
                 roaring_result_tree = roaring_tree1 ^ roaring_tree2;
                 ankerl::nanobench::doNotOptimizeAway(&roaring_result_tree);
             },
-            [&]() { return roaring_result_tree.getSizeInBytes(true); });
+            [&] { return roaring_result_tree.getSizeInBytes(true); });
         ankerl::nanobench::render(benchmark_json_template(), roaring_xor_bench, g_output);
     }
 }

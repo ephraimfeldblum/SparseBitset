@@ -102,21 +102,115 @@ cat results.json | jq '.'
 
 ### Code Style & Standards
 - **Language**: C++23 for core, C11 for API
-- **Naming**: snake_case for all functions, methods, and variables
-  - Example: `insert_value`, `successor_index`, `cluster_data_`
-- **No Unnecessary Comments**: Code must be self-documenting
-  - Comments only for complex algorithmic logic or non-obvious optimizations
+- **Naming**:
+    - PascalCase for types
+        ```cpp
+        // WRONG:
+        struct cluster_data_t {};
+        // RIGHT:
+        struct ClusterData {};
+        ```
+    - snake_case for all functions, and variables
+        ```cpp
+        // WRONG:
+        auto InsertValue() {}
+        auto successorIndex;
+        // RIGHT;
+        auto insert_value() {}
+        auto successor_index;
+        ```
+    - member variables shall have a trailing `_` if and only if it distinguishes them from a method of the same name
+        ```cpp
+        // WRONG:
+        ClusterData cluster_data_; // No method named `cluster_data()`
+        Index min;                 // conflicts with method `min()`
+        // RIGHT:
+        ClusterData cluster_data;
+        Index min_;
+        ```
+- **No Unnecessary Comments**:
+    -  Code must be self-documenting. Comments are for complex algorithmic logic or non-obvious optimizations that the code itself cannot express.
+        ```cpp
+        // WRONG:
+        // increment iterator
+        ++it;
+        // loop through the clusters
+        for (const auto& cluster : clusters) { ... }
+        // RIGHT:
+        // does not require checking validity because if we got here, we know clusters are non-empty
+        clusters.find(key)->min()
+        ```
+    - All public APIs must be documented with doc comments
+- **Initialization**:
+    - Always use `auto` unless you must name the type explicitly
+        ```cpp
+        // WRONG:
+        std::unique_ptr<Node> node = std::make_unique<Node>();
+        std::vector<int> values = get_values();
+        Node* raw_ptr = node.get();
+        auto alloc = allocator_t{a}; // uses auto - but names the type explicitly!
+        // RIGHT:
+        auto node{std::make_unique<Node>()};
+        auto values{get_values()};
+        auto* raw_ptr{node.get()};  // Intentional raw pointer exposure
+        allocator_t alloc{a};
+        ```
+    - Always use `const` for variables that are not modified within their scope
+        ```cpp
+        // WRONG:
+        auto value{get_value()};
+        use_value(value);
+        // RIGHT:
+        const auto value{get_value()};
+        use_value(value);
+        ```
+    - Always use brace-initialization
+        ```cpp
+        // WRONG:
+        int x = 5;
+        auto ptr = std::make_unique<Node>();
+        // RIGHT:
+        auto x{5};
+        auto ptr{std::make_unique<Node>()};
+        ```
+    - Exceptions to the above rule include: if it would conflict with an initializer-list constructor or the object is a lambda
+        ```cpp
+        // Exceptions:
+        std::vector<int> v(1, 2); // OK; would conflict with initializer-list ctor
+        const auto fn = [](int x) { return x * 2; }; // OK; lambdas may use =
+        ```
+- **Brace Style**:
+    - Never elide braces in compound expressions
+        ```cpp
+        // WRONG:
+        if (condition) statement;
+        // RIGHT:
+        if (condition) {
+            statement;
+        }
+        ```
 - **No Implicit Conversions**:
-  - Conversions must be non-narrowing (uint8_t → uint16_t is OK)
-  - No implicit conversions to bool in conditions: use `if (ptr == nullptr)` not `if (!ptr)`
-- **Brace Style**: Never elide braces in compound expressions
-  ```cpp
-  // WRONG: if (condition) statement;
-  // RIGHT:
-  if (condition) {
-      statement;
-  }
-  ```
+    - Conversions must be non-narrowing
+        ```cpp
+        // WRONG:
+        int x = ...;
+        std::uint8_t y = x & 0xFF;
+        // RIGHT:
+        int x{...};
+        auto y{static_cast<std::uint8_t>(x)};
+        std::uint16_t z{x}; // OK; uint8_t → uint16_t is non-narrowing
+        ```
+    - No implicit conversions to bool in conditions
+        ```cpp
+        // WRONG:
+        if (ptr) { ... }
+        if (opt) { ... }
+        if (iter) { ... }
+        // RIGHT:
+        if (ptr != nullptr) { ... }
+        if (opt.has_value()) { ... }
+        if (iter != end()) { ... }
+        ```
 
 ### Memory Management
 - **VEB Nodes Must Be Destroyed**: All `Node16`, `Node32`, `Node64` instances must call `.destroy(alloc)` before going out of scope
@@ -183,7 +277,6 @@ ctest --verbose --tests-regex test_node_transitions
 ### Code Documentation
 - [README.md](README.md): User-facing library documentation
 - [AGENTS.md](AGENTS.md): This file—developer/agent guidance
-- [tests/README.md](tests/README.md): Test framework details
 
 ### Updating Docs
 - After significant feature additions, update [README.md](README.md)

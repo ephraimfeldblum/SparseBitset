@@ -1,7 +1,7 @@
 #ifndef NODE16_HPP
 #define NODE16_HPP
 
-#include <algorithm>  // std::copy_n, std::move, std::move_backward, std::min, std::max
+#include <algorithm>  // std::uninitialized_move_n, std::move, std::move_backward, std::min, std::max
 #include <cassert>    // assert
 #include <cstddef>    // std::size_t
 #include <cstdint>    // std::uint16_t, std::uint64_t
@@ -49,6 +49,282 @@ public:
     using index_t = std::uint16_t;
     using allocator_t = tracking_allocator<subnode_t>;
 
+    struct Iterator {
+        using iterator_concept = std::bidirectional_iterator_tag;
+        using iterator_category = std::bidirectional_iterator_tag;
+        using value_type = index_t;
+        using difference_type = std::ptrdiff_t;
+        using pointer = void;
+        using reference = index_t;
+        using subiterator_t = subnode_t::Iterator;
+
+        static constexpr std::uintptr_t PTR_MASK{0x0000FFFFFFFFFFFF & ~0x7};
+        enum struct State : std::uint8_t {
+            Sentinel = 0,
+            MinMax,
+            Implicit,
+            Resident,
+        };
+
+        // We pack the state and node pointer into a single tagged pointer to reduce the size of the iterator and avoid unnecessary pointer dereferences
+        // bits  0.. 3: state tag (Sentinel, MinMax, Implicit, Resident)
+        // bits  3..48: pointer to Node16 (must be aligned to 8 bytes, so bottom 3 bits are always zero)
+        // bits 48..56: index of the current cluster (only used in Implicit and Resident states)
+        // bits 56..64: hi byte of the current element (only used in Resident state)
+        std::uintptr_t tagged_node;
+        union {
+            index_t current; // used in MinMax and Implicit states
+            subiterator_t n8_it; // used in Resident state
+        };
+
+        static constexpr const Node16* canonicalize(std::uintptr_t x) {
+            x &= PTR_MASK;
+            if (x & 0x0000'8000'0000'0000) {
+                x |= 0xFFFF'0000'0000'0000;
+            }
+            return reinterpret_cast<const Node16*>(x);
+        }
+
+        static constexpr std::pair<State, const Node16*> decompose_state(std::uintptr_t x) {
+            const auto state_tag{static_cast<State>(x & 0x7)};
+            return {state_tag, canonicalize(x)};
+        }
+
+        static constexpr std::uintptr_t compose(const Node16* node, State state, std::uint8_t idx, std::uint8_t hi_byte) {
+            return static_cast<std::uintptr_t>(state)
+                | (reinterpret_cast<std::uintptr_t>(node) & PTR_MASK)
+                | (static_cast<std::uintptr_t>(idx) << 48)
+                | (static_cast<std::uintptr_t>(hi_byte) << 56);
+        }
+
+        static constexpr Iterator create_sentinel(const Node16* node = nullptr) {
+            return Iterator{
+                .tagged_node = compose(node, State::Sentinel, 0, 0),
+                .current = 0
+            };
+        }
+
+        static constexpr Iterator create_min_max(const Node16* node, index_t current) {
+            return Iterator{
+                .tagged_node = compose(node, State::MinMax, 0, 0),
+                .current = current
+            };
+        }
+
+        static constexpr Iterator create_implicit(const Node16* node, index_t current, subindex_t idx) {
+            return Iterator{
+                .tagged_node = compose(node, State::Implicit, idx, 0),
+                .current = current
+            };
+        }
+
+        static constexpr Iterator create_resident(const Node16* node, subindex_t hi_byte, subindex_t idx, subiterator_t n8_it) {
+            return Iterator{
+                .tagged_node = compose(node, State::Resident, idx, hi_byte),
+                .n8_it = n8_it
+            };
+        }
+
+        constexpr bool is_sentinel() const {
+            return get_state() == State::Sentinel;
+        }
+
+        constexpr const Node16* get_node_ptr() const {
+            return canonicalize(tagged_node);
+        }
+
+        constexpr State get_state() const {
+            return static_cast<State>(tagged_node & 0x7);
+        }
+
+        constexpr subindex_t get_idx() const {
+            return static_cast<subindex_t>(tagged_node >> 48);
+        }
+
+        constexpr subindex_t get_hi_byte() const {
+            return static_cast<subindex_t>(tagged_node >> 56);
+        }
+
+        constexpr index_t get_current() const {
+            switch (get_state()) {
+            case State::Sentinel: {
+                #ifdef NDEBUG
+                std::unreachable();
+                #else
+                assert(false && "Dereferencing end sentinel");
+                #endif
+            }
+            case State::MinMax: // fallthrough
+            case State::Implicit: {
+                return current;
+            }
+            case State::Resident: {
+                return index(get_hi_byte(), *n8_it);
+            }
+            }
+            std::unreachable();
+        }
+
+        constexpr reference operator*() const {
+            return get_current();
+        }
+
+        constexpr Iterator& operator++() {
+            const auto node{get_node_ptr()};
+            if (node == nullptr) {
+                return *this;
+            }
+
+            switch (get_state()) {
+            case State::Sentinel: {
+                *this = node->min();
+                return *this;
+            }
+            case State::MinMax: {
+                if (current == *node->max()) {
+                    *this = create_sentinel(node);
+                } else if (node->cluster_data_ == nullptr) {
+                    *this = node->max();
+                } else if (const auto hi{*node->cluster_data_->summary_.min()}; node->cluster_data_->unfilled_.contains(hi)) {
+                    *this = create_resident(node, hi, 0, node->cluster_data_->clusters_[0].min());
+                } else {
+                    *this = create_implicit(node, index(hi, 0), 0);
+                }
+                return *this;
+            }
+            case State::Implicit: {
+                const auto curr{get_current()};
+                const auto [hi, lo] {decompose(curr)};
+
+                if (lo < subnode_t::universe_size() - 1) {
+                    *this = create_implicit(node, curr + 1, get_idx());
+                } else {
+                    move_to_successor_cluster(hi);
+                }
+                return *this;
+            }
+            case State::Resident: {
+                if (!(++n8_it).is_sentinel()) {
+                    *this = create_resident(node, get_hi_byte(), get_idx(), n8_it);
+                } else {
+                    move_to_successor_cluster(get_hi_byte());
+                }
+                return *this;
+            }
+            }
+            std::unreachable();
+        }
+
+        constexpr Iterator operator++(int) {
+            Iterator tmp{*this};
+            ++*this;
+            return tmp;
+        }
+
+        constexpr Iterator& operator--() {
+            const auto node{get_node_ptr()};
+            if (node == nullptr) {
+                return *this;
+            }
+
+            switch (get_state()) {
+            case State::Sentinel: {
+                *this = node->max();
+                return *this;
+            }
+            case State::MinMax: {
+                if (current == *node->min()) {
+                    *this = create_sentinel(node);
+                } else if (node->cluster_data_ == nullptr) {
+                    *this = node->min();
+                } else if (const auto hi{*node->cluster_data_->summary_.max()}; node->cluster_data_->unfilled_.contains(hi)) {
+                    const auto n8_it{node->cluster_data_->clusters_[node->get_len() - 1].max()};
+                    *this = create_resident(node, hi, static_cast<subindex_t>(node->get_len() - 1), n8_it);
+                } else {
+                    *this = create_implicit(node, index(hi, static_cast<subindex_t>(subnode_t::universe_size() - 1)), static_cast<subindex_t>(node->get_len()));
+                }
+                return *this;
+            }
+            case State::Implicit: {
+                const auto curr{get_current()};
+                const auto [hi, lo] {decompose(curr)};
+
+                if (lo > 0) {
+                    *this = create_implicit(node, curr - 1, get_idx());
+                } else {
+                    move_to_predecessor_cluster(hi);
+                }
+                return *this;
+            }
+            case State::Resident: {
+                if (!(--n8_it).is_sentinel()) {
+                    *this = create_resident(node, get_hi_byte(), get_idx(), n8_it);
+                } else {
+                    move_to_predecessor_cluster(get_hi_byte());
+                }
+                return *this;
+            }
+            }
+            std::unreachable();
+        }
+
+        constexpr Iterator operator--(int) {
+            Iterator tmp{*this};
+            --*this;
+            return tmp;
+        }
+
+        constexpr bool operator==(Iterator other) const {
+            if (is_sentinel() && other.is_sentinel()) {
+                return true;
+            }
+            if (is_sentinel() || other.is_sentinel()) {
+                return false;
+            }
+            return get_current() == other.get_current();
+        }
+
+        constexpr bool operator!=(Iterator other) const {
+            return !(*this == other);
+        }
+
+    private:
+        constexpr void move_to_successor_cluster(subindex_t cl) {
+            const auto node{get_node_ptr()};
+            auto idx{get_idx()};
+
+            if (const auto s_it{node->cluster_data_->summary_.successor(cl)}; s_it != node->cluster_data_->summary_.end()) {
+                if (node->cluster_data_->unfilled_.contains(cl)) {
+                    ++idx;
+                }
+                if (const auto s_hi{*s_it}; node->cluster_data_->unfilled_.contains(s_hi)) {
+                    const auto n8_it{node->cluster_data_->clusters_[idx].min()};
+                    *this = create_resident(node, s_hi, idx, n8_it);
+                } else {
+                    *this = create_implicit(node, index(s_hi, 0), idx);
+                }
+            } else {
+                *this = node->max();
+            }
+        }
+
+        constexpr void move_to_predecessor_cluster(subindex_t cl) {
+            const auto node{get_node_ptr()};
+            auto idx{get_idx()};
+
+            if (const auto p_it{node->cluster_data_->summary_.predecessor(cl)}; p_it != node->cluster_data_->summary_.end()) {
+                if (const auto p_hi{*p_it}; idx > 0 && node->cluster_data_->unfilled_.contains(p_hi)) {
+                    const auto n8_it{node->cluster_data_->clusters_[--idx].max()};
+                    *this = create_resident(node, p_hi, idx, n8_it);
+                } else {
+                    *this = create_implicit(node, index(p_hi, static_cast<subindex_t>(subnode_t::universe_size() - 1)), idx);
+                }
+            } else {
+                *this = node->min();
+            }
+        }
+    };
+
 private:
     struct cluster_data_t {
         alignas(2 * sizeof(subnode_t))
@@ -60,7 +336,7 @@ private:
 #pragma GCC diagnostic pop
 
         // resident mask = summary_ & unfilled_
-        constexpr inline subnode_t resident_mask() const {
+        constexpr subnode_t resident_mask() const {
             auto r{summary_};
             r.and_inplace(unfilled_);
             return r;
@@ -69,29 +345,29 @@ private:
         // Returns the index of where cluster `x` would be located in `clusters_`
         // If `x` is not present, this is the index where it would be inserted. Uses the
         // resident mask so indices refer to the packed resident clusters array.
-        constexpr inline subindex_t index_of(subindex_t x) const {
+        constexpr subindex_t index_of(subindex_t x) const {
             if (x == 0) {
                 return 0;
             }
             const auto resident{resident_mask()};
             return static_cast<subindex_t>(resident.count_range({ .hi = static_cast<subindex_t>(x - 1) }));
         }
-        constexpr inline subnode_t* find(subindex_t x) {
+        constexpr subnode_t* find(subindex_t x) {
             return resident_mask().contains(x) ? &clusters_[index_of(x)] : nullptr;
         }
-        constexpr inline const subnode_t* find(subindex_t x) const {
+        constexpr const subnode_t* find(subindex_t x) const {
             return resident_mask().contains(x) ? &clusters_[index_of(x)] : nullptr;
         }
-        constexpr inline std::size_t size() const {
+        constexpr std::size_t size() const {
             return summary_.size();
         }
-        constexpr inline std::size_t resident_count() const {
+        constexpr std::size_t resident_count() const {
             return resident_mask().size();
         }
 
         // range is inclusive: [lo, hi] to handle 256-element array counts correctly
         // This counts raw bits across the packed resident clusters starting at `lo`/`hi` indices.
-        constexpr inline std::size_t count_resident_bits(subindex_t lo, subindex_t hi) const {
+        constexpr std::size_t count_resident_bits(subindex_t lo, subindex_t hi) const {
             const auto* const data{reinterpret_cast<const std::uint64_t*>(clusters_ + lo)};
             const auto num_words{(hi + 1 - lo) * sizeof *clusters_ / sizeof *data};
 
@@ -120,23 +396,20 @@ private:
     subindex_t len_{};
     cluster_data_t* cluster_data_{};
 
-    static constexpr inline std::pair<subindex_t, subindex_t> decompose(index_t x) {
+    static constexpr std::pair<subindex_t, subindex_t> decompose(index_t x) {
         return {static_cast<subindex_t>(x >> 8), static_cast<subindex_t>(x)};
     }
-    static constexpr inline index_t index(subindex_t high, subindex_t low) {
+    static constexpr index_t index(subindex_t high, subindex_t low) {
         return static_cast<index_t>((high << 8) | low);
     }
 
-    // Allocate a new cluster_data_t with space for `cap` clusters.
-    // If `other` is provided, copy its summary and clusters up to `other_size` (if non-zero)
-    // otherwise fall back to `other->size()`.
-    static constexpr inline cluster_data_t* create(std::size_t& alloc, std::size_t cap, const cluster_data_t* other, std::size_t other_size) {
+    static constexpr cluster_data_t* create(std::size_t& alloc, std::size_t cap, const cluster_data_t* other, std::size_t other_size) {
         allocator_t a{alloc};
         auto* data = reinterpret_cast<cluster_data_t*>(a.allocate(cap + 2));
         data->summary_ = other->summary_;
         data->unfilled_ = other->unfilled_;
         const auto copy_count{std::min(cap, other_size)};
-        std::copy_n(
+        std::uninitialized_move_n(
 #ifdef __cpp_lib_execution
             std::execution::unseq,
 #endif
@@ -144,14 +417,14 @@ private:
         );
         return data;
     }
-    static constexpr inline cluster_data_t* create(std::size_t& alloc, std::size_t cap, subnode_t summary, subnode_t unfilled) {
+    static constexpr cluster_data_t* create(std::size_t& alloc, std::size_t cap, subnode_t summary, subnode_t unfilled) {
         const subnode_t dummy[] = {
             summary,
             unfilled,
         };
         return create(alloc, cap, reinterpret_cast<const cluster_data_t*>(&dummy), 0);
     }
-    static constexpr inline cluster_data_t* create(std::size_t& alloc, std::size_t cap, subindex_t hi, subnode_t lo) {
+    static constexpr cluster_data_t* create(std::size_t& alloc, std::size_t cap, subindex_t hi, subnode_t lo) {
         const subnode_t dummy[] = {
             subnode_t::new_with(hi),
             subnode_t::new_all(),
@@ -160,14 +433,14 @@ private:
         return create(alloc, cap, reinterpret_cast<const cluster_data_t*>(&dummy), 1);
     }
 
-    constexpr inline subnode_t* find(subindex_t x) {
+    constexpr subnode_t* find(subindex_t x) {
         return cluster_data_ != nullptr ? cluster_data_->find(x) : nullptr;
     }
-    constexpr inline const subnode_t* find(subindex_t x) const {
+    constexpr const subnode_t* find(subindex_t x) const {
         return cluster_data_ != nullptr ? cluster_data_->find(x) : nullptr;
     }
 
-    constexpr inline void grow(std::size_t& alloc) {
+    constexpr void grow(std::size_t& alloc) {
         const auto len{get_len()};
         const auto cur_cap{get_cap()};
         if (len < cur_cap) {
@@ -181,7 +454,7 @@ private:
         set_len(len);
     }
 
-    constexpr inline void emplace(subindex_t hi, subindex_t lo, std::size_t& alloc) {
+    constexpr void emplace(subindex_t hi, subindex_t lo, std::size_t& alloc) {
         if (cluster_data_ == nullptr) {
             cluster_data_ = create(alloc, 1, hi, subnode_t::new_with(lo));
             set_cap(1);
@@ -222,17 +495,17 @@ private:
         set_len(len + 1);
     }
 
-    constexpr inline std::size_t get_cap() const {
+    constexpr std::size_t get_cap() const {
         if (cluster_data_ == nullptr) {
             return 0;
         }
         return cap_ == 0 ? subnode_t::universe_size() : cap_;
     }
-    constexpr inline void set_cap(std::size_t c) {
+    constexpr void set_cap(std::size_t c) {
         cap_ = static_cast<subindex_t>(c);
     }
 
-    constexpr inline std::size_t get_len() const {
+    constexpr std::size_t get_len() const {
         if (cluster_data_ == nullptr) {
             return 0;
         }
@@ -243,14 +516,14 @@ private:
         }
         return len_;
     }
-    constexpr inline void set_len(std::size_t s) {
+    constexpr void set_len(std::size_t s) {
         len_ = static_cast<subindex_t>(s);
     }
 
-    constexpr inline explicit Node16() = default;
+    constexpr explicit Node16() = default;
 
 public:
-    static constexpr inline Node16 new_with(index_t hi, index_t lo) {
+    static constexpr Node16 new_with(index_t hi, index_t lo) {
         Node16 node{};
         node.key_ = hi;
         node.min_ = lo;
@@ -258,10 +531,10 @@ public:
         return node;
     }
 
-    static constexpr inline Node16 new_from_node8(subnode_t old_storage, std::size_t& alloc) {
+    static constexpr Node16 new_from_node8(subnode_t old_storage, std::size_t& alloc) {
         Node16 node{};
-        const auto old_min{old_storage.min()};
-        const auto old_max{old_storage.max()};
+        const auto old_min{*old_storage.min()};
+        const auto old_max{*old_storage.max()};
 
         node.min_ = old_min;
         node.max_ = old_max;
@@ -277,7 +550,7 @@ public:
     }
 
     // Create a Node16 with all bits set except `x`.
-    static constexpr inline Node16 new_all_but(index_t key, index_t x, std::size_t& alloc) {
+    static constexpr Node16 new_all_but(index_t key, index_t x, std::size_t& alloc) {
         static const auto umax{universe_size() - 1};
         Node16 node{};
         node.key_ = key;
@@ -311,7 +584,7 @@ public:
         return node;
     }
 
-    constexpr inline void destroy(std::size_t& alloc) {
+    constexpr void destroy(std::size_t& alloc) {
         if (cluster_data_ != nullptr) {
             allocator_t a{alloc};
             a.deallocate(reinterpret_cast<subnode_t*>(cluster_data_), get_cap() + 2);
@@ -321,20 +594,21 @@ public:
         }
     }
 
-    constexpr inline Node16 clone(std::size_t& alloc) const {
+    constexpr Node16 clone(std::size_t& alloc) const {
         auto result{new_with(key_, min_)};
         result.max_ = max_;
 
         if (cluster_data_ != nullptr) {
             const auto len{get_len()};
-            result.cluster_data_ = create(alloc, len, cluster_data_, len);
-            result.set_cap(len);
+            const auto cap{len == 0 ? 1 : len};
+            result.cluster_data_ = create(alloc, cap, cluster_data_, len);
+            result.set_cap(cap);
             result.set_len(len);
         }
         return result;
     }
 
-    constexpr inline Node16(Node16&& other) noexcept
+    constexpr Node16(Node16&& other) noexcept
         : key_{other.key_}
         , min_{other.min_}
         , max_{other.max_}
@@ -343,7 +617,7 @@ public:
         , cluster_data_{std::exchange(other.cluster_data_, nullptr)} {
     }
 
-    constexpr inline Node16& operator=(Node16&& other) noexcept {
+    constexpr Node16& operator=(Node16&& other) noexcept {
         if (this != &other) {
             if (cluster_data_ != nullptr) {
                 assert(false && "Node16 must be destructed via `.destroy()` before being assigned to.");
@@ -371,11 +645,11 @@ public:
     // ~Node16() noexcept = default;
 #endif
 
-    static constexpr inline std::size_t universe_size() {
+    static constexpr std::size_t universe_size() {
         return 1uz + std::numeric_limits<index_t>::max();
     }
 
-    constexpr inline bool full() const {
+    constexpr bool full() const {
         // if the min and max are not the universe bounds, we cannot be full
         if (min_ != 0 || max_ != universe_size() - 1 || cluster_data_ == nullptr) {
             return false;
@@ -387,14 +661,22 @@ public:
             && cluster_data_->clusters_[1].size() == subnode_t::universe_size() - 1;
     }
 
-    constexpr inline index_t min() const {
-        return min_;
+    constexpr Iterator min() const {
+        return Iterator::create_min_max(this, min_);
     }
-    constexpr inline index_t max() const {
-        return max_;
+    constexpr Iterator max() const {
+        return Iterator::create_min_max(this, max_);
     }
 
-    constexpr inline void insert(index_t x, std::size_t& alloc) {
+    constexpr Iterator begin() const {
+        return min();
+    }
+
+    constexpr Iterator end() const {
+        return Iterator::create_sentinel(this);
+    }
+
+    constexpr void insert(index_t x, std::size_t& alloc) {
         if (x < min_) {
             std::swap(x, min_);
         }
@@ -409,7 +691,7 @@ public:
         emplace(h, l, alloc);
     }
 
-    constexpr inline bool remove(index_t x, std::size_t& alloc) {
+    constexpr bool remove(index_t x, std::size_t& alloc) {
         if (x < min_ || x > max_) {
             return false;
         }
@@ -422,9 +704,9 @@ public:
                     return false;
                 }
             } else {
-                const auto min_cluster{cluster_data_->summary_.min()};
+                const auto min_cluster{*cluster_data_->summary_.min()};
                 const auto min_element{cluster_data_->unfilled_.contains(min_cluster) ?
-                    cluster_data_->clusters_[0].min() : static_cast<subindex_t>(0)};
+                    *cluster_data_->clusters_[0].min() : static_cast<subindex_t>(0)};
                 x = min_ = index(min_cluster, min_element);
             }
         }
@@ -434,9 +716,9 @@ public:
                 max_ = min_;
                 return false;
             } else {
-                const auto max_cluster{cluster_data_->summary_.max()};
+                const auto max_cluster{*cluster_data_->summary_.max()};
                 const auto max_element{cluster_data_->unfilled_.contains(max_cluster) ?
-                    cluster_data_->clusters_[get_len() - 1].max() : static_cast<subindex_t>(subnode_t::universe_size() - 1)};
+                    *cluster_data_->clusters_[get_len() - 1].max() : static_cast<subindex_t>(subnode_t::universe_size() - 1)};
                 x = max_ = index(max_cluster, max_element);
             }
         }
@@ -475,7 +757,7 @@ public:
         return false;
     }
 
-    constexpr inline bool contains(index_t x) const {
+    constexpr bool contains(index_t x) const {
         if (x < min_ || x > max_) {
             return false;
         }
@@ -499,94 +781,88 @@ public:
         return false;
     }
 
-    constexpr inline std::optional<index_t> successor(index_t x) const {
+    constexpr Iterator successor(index_t x) const {
         if (x < min_) {
-            return std::make_optional(min_);
+            return min();
         }
         if (x >= max_) {
-            return std::nullopt;
+            return end();
         }
 
         if (cluster_data_ == nullptr) {
-            return std::make_optional(max_);
+            return max();
         }
 
         const auto [h, l] {decompose(x)};
 
         if (cluster_data_->summary_.contains(h)) {
             if (!cluster_data_->unfilled_.contains(h)) {
-                // implicitly filled cluster: min=0, max=255
-                if (l < static_cast<subindex_t>(255)) {
-                    return std::make_optional(index(h, static_cast<subindex_t>(l + 1)));
+                if (l < static_cast<subindex_t>(subnode_t::universe_size() - 1)) {
+                    return Iterator::create_implicit(this, index(h, static_cast<subindex_t>(l + 1)), cluster_data_->index_of(h));
                 }
-            } else if (const auto* cluster{find(h)}; cluster != nullptr && l < cluster->max()) {
-                if (auto succ{cluster->successor(l)}; succ.has_value()) {
-                    return std::make_optional(index(h, *succ));
-                }
+            } else if (const auto* cluster{find(h)}; cluster != nullptr && l < *cluster->max()) {
+                return Iterator::create_resident(this, h, static_cast<subindex_t>(cluster - &cluster_data_->clusters_[0]), cluster->successor(l));
             }
         }
 
-        if (auto succ_cluster{cluster_data_->summary_.successor(h)}; succ_cluster.has_value()) {
-            if (!cluster_data_->unfilled_.contains(*succ_cluster)) {
-                return std::make_optional(index(*succ_cluster, static_cast<subindex_t>(0)));
+        if (const auto s_it{cluster_data_->summary_.successor(h)}; s_it != cluster_data_->summary_.end()) {
+            const auto succ{*s_it};
+            const auto idx{cluster_data_->index_of(succ)};
+            if (!cluster_data_->unfilled_.contains(succ)) {
+                return Iterator::create_implicit(this, index(succ, 0), idx);
             }
-            const auto idx{cluster_data_->index_of(*succ_cluster)};
-            const auto min_element{cluster_data_->clusters_[idx].min()};
-            return std::make_optional(index(*succ_cluster, min_element));
+            return Iterator::create_resident(this, succ, idx, cluster_data_->clusters_[idx].min());
         }
 
-        return std::make_optional(max_);
+        return max();
     }
 
-    constexpr inline std::optional<index_t> predecessor(index_t x) const {
+    constexpr Iterator predecessor(index_t x) const {
         if (x > max_) {
-            return std::make_optional(max_);
+            return max();
         }
         if (x <= min_) {
-            return std::nullopt;
+            return end();
         }
 
         if (cluster_data_ == nullptr) {
-            return std::make_optional(min_);
+            return min();
         }
 
         const auto [h, l] {decompose(x)};
 
         if (cluster_data_->summary_.contains(h)) {
             if (!cluster_data_->unfilled_.contains(h)) {
-                // implicitly filled cluster: min=0, max=255
-                if (l > static_cast<subindex_t>(0)) {
-                    return std::make_optional(index(h, static_cast<subindex_t>(l - 1)));
+                if (l > 0) {
+                    return Iterator::create_implicit(this, index(h, static_cast<subindex_t>(l - 1)), cluster_data_->index_of(h));
                 }
-            } else if (const auto* cluster{find(h)}; cluster != nullptr && l > cluster->min()) {
-                if (auto pred{cluster->predecessor(l)}; pred.has_value()) {
-                    return std::make_optional(index(h, *pred));
-                }
+            } else if (const auto* cluster{find(h)}; cluster != nullptr && l > *cluster->min()) {
+                return Iterator::create_resident(this, h, static_cast<subindex_t>(cluster - &cluster_data_->clusters_[0]), cluster->predecessor(l));
             }
         }
 
-        if (auto pred_cluster{cluster_data_->summary_.predecessor(h)}; pred_cluster.has_value()) {
-            if (!cluster_data_->unfilled_.contains(*pred_cluster)) {
-                return std::make_optional(index(*pred_cluster, static_cast<subindex_t>(255)));
+        if (const auto p_it{cluster_data_->summary_.predecessor(h)}; p_it != cluster_data_->summary_.end()) {
+            const auto pred{*p_it};
+            const auto idx{cluster_data_->index_of(pred)};
+            if (!cluster_data_->unfilled_.contains(pred)) {
+                return Iterator::create_implicit(this, index(pred, static_cast<subindex_t>(subnode_t::universe_size() - 1)), idx);
             }
-            const auto idx{cluster_data_->index_of(*pred_cluster)};
-            const auto max_element{cluster_data_->clusters_[idx].max()};
-            return std::make_optional(index(*pred_cluster, max_element));
+            return Iterator::create_resident(this, pred, idx, cluster_data_->clusters_[idx].max());
         }
 
-        return std::make_optional(min_);
+        return min();
     }
 
-    constexpr inline std::size_t size() const {
+    constexpr std::size_t size() const {
         return count_range({});
     }
 
     // helper struct for count_range. allows passing either arg optionally
     struct count_range_args {
-        index_t lo{static_cast<index_t>(0)};
+        index_t lo{0};
         index_t hi{static_cast<index_t>(universe_size() - 1)};
     };
-    constexpr inline std::size_t count_range(count_range_args args) const {
+    constexpr std::size_t count_range(count_range_args args) const {
         const auto [lo, hi] {args};
         auto acc{static_cast<std::size_t>(
             (lo <= min_ && min_ <= hi) + (max_ != min_ && lo <= max_ && max_ <= hi)
@@ -630,10 +906,10 @@ public:
         const auto resident_mask{cluster_data_->resident_mask()};
         const auto from{resident_mask.successor(lcl)};
         const auto to{resident_mask.predecessor(hcl)};
-        if (from.has_value() && to.has_value() && from.value() <= to.value()) {
+        if (from != resident_mask.end() && to != resident_mask.end() && *from <= *to) {
             acc += cluster_data_->count_resident_bits(
-                cluster_data_->index_of(from.value()),
-                cluster_data_->index_of(to.value())
+                cluster_data_->index_of(*from),
+                cluster_data_->index_of(*to)
             );
         }
 
@@ -649,11 +925,11 @@ public:
         return acc;
     }
 
-    constexpr inline std::uint16_t key() const {
+    constexpr std::uint16_t key() const {
         return key_;
     }
 
-    constexpr inline VebTreeMemoryStats get_memory_stats() const {
+    constexpr VebTreeMemoryStats get_memory_stats() const {
         if (cluster_data_ == nullptr) {
             return {0, 0, 1};
         }
@@ -724,7 +1000,7 @@ public:
         return node;
     }
 
-    constexpr inline bool not_inplace(std::size_t& alloc) {
+    constexpr bool not_inplace(std::size_t& alloc) {
         const auto s_min{min_};
         const auto s_max{max_};
 
@@ -761,13 +1037,10 @@ public:
         max_ = universe_size() - 1;
         remove(min_, alloc);
         remove(max_, alloc);
-        // auto all{new_all_but(0, 0, alloc)};
-        // all.insert(0, alloc);
-        // xor_inplace(all, alloc);
         return false;
     }
 
-    constexpr inline bool or_inplace(const Node16& other, std::size_t& alloc) {
+    constexpr bool or_inplace(const Node16& other, std::size_t& alloc) {
         insert(other.min_, alloc);
         insert(other.max_, alloc);
 
@@ -777,8 +1050,9 @@ public:
 
         if (cluster_data_ == nullptr) {
             const auto len{other.get_len()};
-            cluster_data_ = create(alloc, len, other.cluster_data_, len);
-            set_cap(len);
+            const auto cap{len == 0 ? 1 : len};
+            cluster_data_ = create(alloc, cap, other.cluster_data_, len);
+            set_cap(cap);
             set_len(len);
 
             return false;
@@ -815,8 +1089,7 @@ public:
         auto i{0uz};
         auto j{0uz};
         auto k{0uz};
-        for (auto idx{std::make_optional(merge_summary.min())}; idx.has_value(); idx = merge_summary.successor(*idx)) {
-            const auto h{*idx};
+        for (const auto h : merge_summary) {
             const auto re_s{s_resident.contains(h)};
             const auto re_o{o_resident.contains(h)};
 
@@ -851,27 +1124,27 @@ public:
         return false;
     }
 
-    constexpr inline bool and_inplace(const Node16& other, std::size_t& alloc) {
-        const auto s_min{min_};
+    constexpr bool and_inplace(const Node16& other, std::size_t& alloc) {
         const auto s_max{max_};
-        const auto i_min{std::max(s_min, other.min_)};
+        const auto s_min{min_};
         const auto i_max{std::min(s_max, other.max_)};
-        auto new_min{contains(i_min) && other.contains(i_min) ? std::make_optional(i_min) : std::nullopt};
-        auto new_max{contains(i_max) && other.contains(i_max) ? std::make_optional(i_max) : std::nullopt};
+        auto i_min{std::max(s_min, other.min_)};
+        auto new_max{contains(i_max) && other.contains(i_max)};
+        auto new_min{contains(i_min) && other.contains(i_min)};
 
         const auto update_minmax = [&] {
             destroy(alloc);
-            if (new_min.has_value() && new_max.has_value()) {
-                min_ = new_min.value();
-                max_ = new_max.value();
+            if (new_min && new_max) {
+                min_ = i_min;
+                max_ = i_max;
                 return false;
             }
-            if (new_min.has_value()) {
-                min_ = max_ = new_min.value();
+            if (new_min) {
+                min_ = max_ = i_min;
                 return false;
             }
-            if (new_max.has_value()) {
-                min_ = max_ = new_max.value();
+            if (new_max) {
+                min_ = max_ = i_max;
                 return false;
             }
             return true;
@@ -882,9 +1155,8 @@ public:
         }
 
         // if this is not the correct min, we will need to update it during iteration
-        bool min_out{!new_min.has_value()};
-        if (!min_out) {
-            min_ = new_min.value();
+        if (new_min) {
+            min_ = i_min;
         }
 
         // reduce future work by pre computing summary intersection. if empty, we are done
@@ -914,14 +1186,14 @@ public:
             // check if min/max require materialization and exit
             std::optional<subnode_t> min_c_o{std::nullopt};
             std::optional<subnode_t> max_c_o{std::nullopt};
-            const auto min_hi{int_summary.min()};
-            const auto max_hi{int_summary.max()};
-            if (min_out) {
-                min_ = index(min_hi, static_cast<subindex_t>(0));
+            const auto min_hi{*int_summary.min()};
+            const auto max_hi{*int_summary.max()};
+            if (!new_min) {
+                min_ = index(min_hi, 0);
                 min_c_o = std::make_optional(subnode_t::new_all_but(0));
                 int_unfilled.insert(min_hi);
             }
-            if (!new_max.has_value()) {
+            if (!new_max) {
                 max_ = index(max_hi, static_cast<subindex_t>(255));
                 if (min_hi == max_hi && min_c_o.has_value()) {
                     // handle min/max collision in same cluster
@@ -932,8 +1204,7 @@ public:
                 int_unfilled.insert(max_hi);
             }
             // either min or max required materialization, might need to create new cluster_data
-            const auto new_len{static_cast<std::size_t>(min_c_o.has_value() + max_c_o.has_value())};
-            if (new_len > 0) {
+            if (const auto new_len{static_cast<std::size_t>(min_c_o.has_value() + max_c_o.has_value())}; new_len > 0) {
                 auto* int_data{(new_len <= get_cap()) ? cluster_data_ : create(alloc, new_len, int_summary, int_unfilled)};
                 int_data->summary_ = int_summary;
                 int_data->unfilled_ = int_unfilled;
@@ -954,7 +1225,7 @@ public:
             } else {
                 // min/max didn't require materializing new clusters, intersection contains only implicit clusters
                 // min must have already been set correctly above in order to reach here
-                max_ = new_max.value();
+                max_ = i_max;
                 cluster_data_->summary_ = int_summary;
                 cluster_data_->unfilled_ = int_unfilled;
                 set_len(0);
@@ -962,8 +1233,8 @@ public:
             }
         }
         // predict if min/max will be removed from non-resident clusters, will we materialize new clusters for them?
-        const auto materialize_min{!new_min.has_value() && resident.min() != int_summary.min()};
-        const auto materialize_max{!new_max.has_value() && int_summary.min() != int_summary.max() && resident.max() != int_summary.max()};
+        const auto materialize_min{!new_min && resident.min() != int_summary.min()};
+        const auto materialize_max{!new_max && int_summary.min() != int_summary.max() && resident.max() != int_summary.max()};
         const auto resident_count{resident.size() + materialize_min + materialize_max};
 
         // If predicted resident clusters exceed capacity, allocate a new cluster_data_t and write into it
@@ -976,8 +1247,7 @@ public:
         auto merge_summary{s_summary};
         merge_summary.or_inplace(o_summary);
 
-        for (auto idx{std::make_optional(merge_summary.min())}; idx.has_value(); idx = merge_summary.successor(*idx)) {
-            const auto h{*idx};
+        for (const auto h : merge_summary) {
             const bool in_s{s_resident.contains(h)};
             const bool in_o{o_resident.contains(h)};
 
@@ -992,7 +1262,7 @@ public:
                 continue;
             }
 
-            // both implicit-filled -> result is implicitly-filled (full).
+            // both implicit -> result is implicitly
             if (!resident.contains(h)) {
                 if (in_s) {
                     i++;
@@ -1000,10 +1270,10 @@ public:
                 if (in_o) {
                     j++;
                 }
-                if (min_out) {
-                    min_out = false;
-                    min_ = index(h, static_cast<subindex_t>(0));
-                    new_min = std::make_optional(min_);
+                if (!new_min) {
+                    new_min = true;
+                    min_ = index(h, 0);
+                    i_min = min_;
                     int_clusters[k++] = subnode_t::new_all_but(0);
                     int_unfilled.insert(h);
                 }
@@ -1027,10 +1297,10 @@ public:
 
             // cluster is non-empty. check if we need to update min_. only happens once, at the 0'th cluster.
             // which might not end up being the true 0'th cluster if it gets removed here.
-            if (min_out) {
-                min_out = false;
-                min_ = index(h, int_clusters[0].min());
-                new_min = std::make_optional(min_);
+            if (!new_min) {
+                new_min = true;
+                min_ = index(h, *int_clusters[0].min());
+                i_min = min_;
                 if (int_clusters[0].remove(static_cast<subindex_t>(min_))) {
                     // cluster became empty after removing min
                     --k;
@@ -1041,7 +1311,7 @@ public:
                             allocator_t{alloc}.deallocate(reinterpret_cast<subnode_t*>(int_data), resident_count + 2);
                         }
                         destroy(alloc);
-                        max_ = new_max.has_value() ? new_max.value() : min_;
+                        max_ = new_max ? i_max : min_;
                         return false;
                     }
                 }
@@ -1056,12 +1326,12 @@ public:
             set_cap(resident_count);
         }
 
-        if (!new_max.has_value()) {
-            if (const auto max_hi{cluster_data_->summary_.max()}; !resident.contains(max_hi)) {
+        if (!new_max) {
+            if (const auto max_hi{*cluster_data_->summary_.max()}; !resident.contains(max_hi)) {
                 max_ = index(max_hi, static_cast<subindex_t>(255));
                 cluster_data_->unfilled_.insert(max_hi);
                 cluster_data_->clusters_[k++] = subnode_t::new_all_but(255);
-            } else if (max_ = index(max_hi, cluster_data_->clusters_[k - 1].max());
+            } else if (max_ = index(max_hi, *cluster_data_->clusters_[k - 1].max());
                        max_ != s_max && cluster_data_->clusters_[k - 1].remove(static_cast<subindex_t>(max_))) {
                 --k;
                 if (cluster_data_->summary_.remove(max_hi)) {
@@ -1075,7 +1345,7 @@ public:
         return false;
     }
 
-    constexpr inline bool xor_inplace(const Node16& other, std::size_t& alloc) {
+    constexpr bool xor_inplace(const Node16& other, std::size_t& alloc) {
         const auto s_min{min_};
         const auto s_max{max_};
         const auto o_min{other.min_};
@@ -1123,8 +1393,9 @@ public:
             // Only need to adjust min and max
         } else if (cluster_data_ == nullptr) {
             const auto len{other.get_len()};
-            cluster_data_ = create(alloc, len, other.cluster_data_, len);
-            set_cap(len);
+            const auto cap{len == 0 ? 1 : len};
+            cluster_data_ = create(alloc, cap, other.cluster_data_, len);
+            set_cap(cap);
             set_len(len);
         } else {
             const auto& s_summary{cluster_data_->summary_};
@@ -1152,8 +1423,7 @@ public:
             auto i{0uz};
             auto j{0uz};
             auto k{0uz};
-            for (auto idx{std::make_optional(diff_summary.min())}; idx.has_value(); idx = diff_summary.successor(*idx)) {
-                const auto h{*idx};
+            for (const auto h : diff_summary) {
                 const bool in_s{s_summary.contains(h)};
                 const bool in_o{o_summary.contains(h)};
                 const bool re_s{s_resident.contains(h)};
@@ -1163,6 +1433,9 @@ public:
                     diff_clusters[k] = s_clusters[i++];
                     if (diff_clusters[k].xor_inplace(o_clusters[j++])) {
                         if (diff_summary.remove(h)) {
+                            if (diff_data != cluster_data_) {
+                                allocator_t{alloc}.deallocate(reinterpret_cast<subnode_t*>(diff_data), resident_count + 2);
+                            }
                             destroy(alloc);
                             return update_minmax();
                         }
@@ -1185,6 +1458,9 @@ public:
                     ++k;
                 } else if (in_s && in_o) { // implicit in s and o. result is empty
                     if (diff_summary.remove(h)) {
+                        if (diff_data != cluster_data_) {
+                            allocator_t{alloc}.deallocate(reinterpret_cast<subnode_t*>(diff_data), resident_count + 2);
+                        }
                         destroy(alloc);
                         return update_minmax();
                     }
@@ -1208,19 +1484,19 @@ public:
 
     struct Eq {
         using is_transparent = void;
-        constexpr inline bool operator()(const Node16& lhs, const Node16& rhs) const {
+        constexpr bool operator()(const Node16& lhs, const Node16& rhs) const {
             return lhs.key_ == rhs.key_;
         }
-        constexpr inline bool operator()(const index_t lhs, const Node16& rhs) const {
+        constexpr bool operator()(const index_t lhs, const Node16& rhs) const {
             return lhs == rhs.key_;
         }
     };
     struct Hash {
         using is_transparent = void;
-        constexpr inline std::size_t operator()(const Node16& node) const {
+        constexpr std::size_t operator()(const Node16& node) const {
             return std::hash<index_t>{}(node.key_);
         }
-        constexpr inline std::size_t operator()(const index_t key) const {
+        constexpr std::size_t operator()(const index_t key) const {
             return std::hash<index_t>{}(key);
         }
     };

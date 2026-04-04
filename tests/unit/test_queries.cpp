@@ -99,7 +99,7 @@ TEST_SUITE("VebTree Query Operations") {
         REQUIRE(tree.count_range(30, 40) == 0);
     }
 
-    TEST_CASE("interator") {
+    TEST_CASE("to_vector ordering") {
         VebTree tree;
         tree.insert(3);
         tree.insert(1);
@@ -107,7 +107,7 @@ TEST_SUITE("VebTree Query Operations") {
         tree.insert(1);
         tree.insert(5);
 
-        auto arr = std::vector<size_t>(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         REQUIRE(arr.size() == 4);
         REQUIRE(arr[0] == 1);
         REQUIRE(arr[1] == 3);
@@ -115,9 +115,9 @@ TEST_SUITE("VebTree Query Operations") {
         REQUIRE(arr[3] == 5);
     }
 
-    TEST_CASE("interator empty tree") {
+    TEST_CASE("to_vector empty tree") {
         VebTree tree;
-        auto arr = std::vector<size_t>(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         REQUIRE(arr.empty());
     }
 

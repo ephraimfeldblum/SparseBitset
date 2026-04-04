@@ -232,7 +232,6 @@ The structure automatically selects the appropriate node type based on the data 
 ## Documentation
 
 - [AGENTS.md](AGENTS.md) - Developer guide for contributors and agents
-- [tests/README.md](tests/README.md) - Test framework documentation
 
 ## License
 

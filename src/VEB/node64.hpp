@@ -49,27 +49,27 @@ private:
     index_t min_{};
     index_t max_{};
 
-    static constexpr inline std::pair<subindex_t, subindex_t> decompose(index_t x) {
+    static constexpr std::pair<subindex_t, subindex_t> decompose(index_t x) {
         return {static_cast<subindex_t>(x >> 32), static_cast<subindex_t>(x)};
     }
-    static constexpr inline index_t index(subindex_t high, subindex_t low) {
+    static constexpr index_t index(subindex_t high, subindex_t low) {
         return static_cast<index_t>(high) << 32 | low;
     }
 
-    constexpr inline explicit Node64() = default;
+    constexpr explicit Node64() = default;
 
 public:
-    static constexpr inline Node64 new_with(index_t x) {
+    static constexpr Node64 new_with(index_t x) {
         Node64 node{};
         node.min_ = x;
         node.max_ = x;
         return node;
     }
 
-    static constexpr inline Node64 new_from_node32(Node32&& old_storage, std::size_t& alloc) {
+    static constexpr Node64 new_from_node32(Node32&& old_storage, std::size_t& alloc) {
         Node64 node{};
-        const auto old_min{old_storage.min()};
-        const auto old_max{old_storage.max()};
+        const auto old_min{*old_storage.min()};
+        const auto old_max{*old_storage.max()};
         node.min_ = old_min;
         node.max_ = old_max;
 
@@ -84,11 +84,11 @@ public:
         return node;
     }
 
-    static constexpr inline Node64 new_from_node16(subnode_t::subnode_t&& old_storage, std::size_t& alloc) {
+    static constexpr Node64 new_from_node16(subnode_t::subnode_t&& old_storage, std::size_t& alloc) {
         auto intermediate{Node32::new_from_node16(std::move(old_storage), alloc)};
         return new_from_node32(std::move(intermediate), alloc);
     }
-    static constexpr inline Node64 new_from_node8(subnode_t::subnode_t::subnode_t old_storage, std::size_t& alloc) {
+    static constexpr Node64 new_from_node8(subnode_t::subnode_t::subnode_t old_storage, std::size_t& alloc) {
         auto intermediate{Node32::new_from_node8(old_storage, alloc)};
         return new_from_node32(std::move(intermediate), alloc);
     }
@@ -98,7 +98,7 @@ public:
     Node64(const Node64& other) = delete;
     Node64& operator=(const Node64&) = delete;
 
-    constexpr inline Node64 clone(std::size_t& alloc) const {
+    constexpr Node64 clone(std::size_t& alloc) const {
         auto result{new_with(min_)};
         result.min_ = min_;
         result.max_ = max_;
@@ -115,12 +115,12 @@ public:
         return result;
     }
 
-    constexpr inline Node64(Node64&& other) noexcept
+    constexpr Node64(Node64&& other) noexcept
         : cluster_data_(std::exchange(other.cluster_data_, nullptr))
         , min_(other.min_)
         , max_(other.max_) {
     }
-    constexpr inline Node64& operator=(Node64&& other) noexcept {
+    constexpr Node64& operator=(Node64&& other) noexcept {
         if (this != &other) {
             if (cluster_data_ != nullptr) {
                 assert(false && "Node64 must be destructed via `.destroy(alloc)` before being assigned to.");
@@ -141,7 +141,7 @@ public:
     // ~Node64() noexcept = default;
 #endif
 
-    constexpr inline void destroy(std::size_t& alloc) {
+    constexpr void destroy(std::size_t& alloc) {
         if (cluster_data_) {
             cluster_data_->summary.destroy(alloc);
             for (auto& [key, cluster] : cluster_data_->clusters) {
@@ -154,18 +154,18 @@ public:
         }
     }
 
-    static constexpr inline std::size_t universe_size() {
+    static constexpr std::size_t universe_size() {
         // Restrict Node64 to 2^63 for now to avoid relying on wider integer types
         return 1uz << 63;
     }
-    constexpr inline index_t min() const {
+    constexpr index_t min() const {
         return min_;
     }
-    constexpr inline index_t max() const {
+    constexpr index_t max() const {
         return max_;
     }
 
-    constexpr inline void insert(index_t x, std::size_t& alloc) {
+    constexpr void insert(index_t x, std::size_t& alloc) {
         if (x < min_) {
             std::swap(x, min_);
         }
@@ -191,7 +191,7 @@ public:
         }
     }
 
-    constexpr inline bool remove(index_t x, std::size_t& alloc) {
+    constexpr bool remove(index_t x, std::size_t& alloc) {
         if (x < min_ || x > max_) {
             return false;
         }
@@ -204,10 +204,10 @@ public:
                     return false;
                 }
             } else {
-                const auto min_cluster{cluster_data_->summary.min()};
+                const auto min_cluster{*cluster_data_->summary.min()};
                 [[assume(cluster_data_->summary.contains(min_cluster))]];
                 const auto& cluster = cluster_data_->clusters.at(min_cluster);
-                const auto min_element{cluster.min()};
+                const auto min_element{*cluster.min()};
                 x = min_ = index(min_cluster, min_element);
             }
         }
@@ -217,10 +217,10 @@ public:
                 max_ = min_;
                 return false;
             } else {
-                const auto max_cluster{cluster_data_->summary.max()};
+                const auto max_cluster{*cluster_data_->summary.max()};
                 [[assume(cluster_data_->summary.contains(max_cluster))]];
                 const auto& cluster = cluster_data_->clusters.at(max_cluster);
-                const auto max_element{cluster.max()};
+                const auto max_element{*cluster.max()};
                 x = max_ = index(max_cluster, max_element);
             }
         }
@@ -242,7 +242,7 @@ public:
         return false;
     }
 
-    constexpr inline bool contains(index_t x) const {
+    constexpr bool contains(index_t x) const {
         if (x < min_ || x > max_) {
             return false;
         }
@@ -261,7 +261,7 @@ public:
         return false;
     }
 
-    constexpr inline std::optional<index_t> successor(index_t x) const {
+    constexpr std::optional<index_t> successor(index_t x) const {
         if (x < min_) {
             return std::make_optional(min_);
         }
@@ -275,21 +275,21 @@ public:
 
         const auto [h, l] {decompose(x)};
 
-        if (const auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end() && l < it->second.max()) {
-            if (const auto succ{it->second.successor(l)}; succ.has_value()) {
+        if (const auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end() && l < *it->second.max()) {
+            if (const auto succ{it->second.successor(l)}; succ != it->second.end()) {
                 return std::make_optional(index(h, *succ));
             }
         }
 
-        if (const auto succ{cluster_data_->summary.successor(h)}; succ.has_value()) {
-            const auto l{cluster_data_->clusters.at(*succ).min()};
+        if (const auto succ{cluster_data_->summary.successor(h)}; succ != cluster_data_->summary.end()) {
+            const auto l{*cluster_data_->clusters.at(*succ).min()};
             return std::make_optional(index(*succ, l));
         }
 
         return std::make_optional(max_);
     }
 
-    constexpr inline std::optional<index_t> predecessor(index_t x) const {
+    constexpr std::optional<index_t> predecessor(index_t x) const {
         if (x > max_) {
             return std::make_optional(max_);
         }
@@ -303,21 +303,21 @@ public:
 
         const auto [h, l] {decompose(x)};
 
-        if (const auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end() && l > it->second.min()) {
-            if (const auto pred{it->second.predecessor(l)}; pred.has_value()) {
+        if (const auto it{cluster_data_->clusters.find(h)}; it != cluster_data_->clusters.end() && l > *it->second.min()) {
+            if (const auto pred{it->second.predecessor(l)}; pred != it->second.end()) {
                 return index(h, *pred);
             }
         }
 
-        if (const auto pred{cluster_data_->summary.predecessor(h)}; pred.has_value()) {
-            const auto l{cluster_data_->clusters.at(*pred).max()};
+        if (const auto pred{cluster_data_->summary.predecessor(h)}; pred != cluster_data_->summary.end()) {
+            const auto l{*cluster_data_->clusters.at(*pred).max()};
             return index(*pred, l);
         }
 
         return std::make_optional(min_);
     }
 
-    constexpr inline std::size_t size() const {
+    constexpr std::size_t size() const {
         const auto base_count{(min_ == max_) ? 1uz : 2uz};
 
         if (cluster_data_ == nullptr) {
@@ -335,10 +335,10 @@ public:
 
     // helper struct for count_range. allows passing either arg optionally
     struct count_range_args {
-        index_t lo{static_cast<index_t>(0)};
+        index_t lo{0};
         index_t hi{static_cast<index_t>(universe_size() - 1)};
     };
-    constexpr inline std::size_t count_range(count_range_args args) const {
+    constexpr std::size_t count_range(count_range_args args) const {
         const auto [lo, hi] {args};
         auto total{static_cast<std::size_t>(
             (lo <= min_ && min_ <= hi) + (max_ != min_ && lo <= max_ && max_ <= hi)
@@ -367,14 +367,14 @@ public:
             total += it->second.count_range({ .hi = hidx });
         }
 
-        for (auto i{summary.successor(lcl)}; i.has_value() && i.value() < hcl; i = summary.successor(i.value())) {
-            total += clusters.find(i.value())->second.size();
+        for (auto i{summary.successor(lcl)}; i != summary.end() && *i < hcl; ++i) {
+            total += clusters.find(*i)->second.size();
         }
 
         return total;
     }
 
-    constexpr inline VebTreeMemoryStats get_memory_stats() const {
+    constexpr VebTreeMemoryStats get_memory_stats() const {
         if (cluster_data_ == nullptr) {
             return VebTreeMemoryStats{0, 0, 1};
         }
@@ -409,8 +409,8 @@ public:
 
         cluster_data_->summary.serialize(out);
 
-        for (auto idx{std::make_optional(cluster_data_->summary.min())}; idx.has_value(); idx = cluster_data_->summary.successor(idx.value())) {
-            cluster_data_->clusters.find(idx.value())->second.serialize(out);
+        for (const auto idx : cluster_data_->summary) {
+            cluster_data_->clusters.find(idx)->second.serialize(out);
         }
     }
 
@@ -427,20 +427,17 @@ public:
         allocator_t a{alloc};
         node.cluster_data_ = a.allocate(1);
         a.construct(node.cluster_data_, 0, alloc);
-        node.cluster_data_->summary = std::move(subnode_t::deserialize(buf, pos, alloc));
+        node.cluster_data_->summary = subnode_t::deserialize(buf, pos, alloc);
 
         node.cluster_data_->clusters.reserve(len);
-        auto key{std::make_optional(node.cluster_data_->summary.min())};
-        for (std::size_t i = 0; i < len; ++i) {
-            auto cluster{subnode_t::deserialize(buf, pos, alloc)};
-            node.cluster_data_->clusters.emplace(key.value(), std::move(cluster));
-            key = node.cluster_data_->summary.successor(key.value());
+        for (const auto key : node.cluster_data_->summary) {
+            node.cluster_data_->clusters.emplace(key, subnode_t::deserialize(buf, pos, alloc));
         }
 
         return node;
     }
 
-    constexpr inline bool or_inplace(const Node64& other, std::size_t& alloc) {
+    constexpr bool or_inplace(const Node64& other, std::size_t& alloc) {
         insert(other.min_, alloc);
         insert(other.max_, alloc);
 
@@ -476,7 +473,7 @@ public:
         return false;
     }
 
-    constexpr inline bool and_inplace(const Node64& other, std::size_t& alloc) {
+    constexpr bool and_inplace(const Node64& other, std::size_t& alloc) {
         const auto s_min{min_};
         const auto s_max{max_};
         const auto i_min{std::max(s_min, other.min_)};
@@ -549,7 +546,7 @@ public:
         }
     }
 
-    constexpr inline bool xor_inplace(const Node64& other, std::size_t& alloc) {
+    constexpr bool xor_inplace(const Node64& other, std::size_t& alloc) {
         const auto s_min{min_};
         const auto s_max{max_};
         const auto o_min{other.min_};

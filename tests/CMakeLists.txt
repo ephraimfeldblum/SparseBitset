@@ -13,15 +13,18 @@ FetchContent_MakeAvailable(doctest)
 # Add unit tests
 set(UNIT_TESTS
     unit/test_basics.cpp
-    unit/test_queries.cpp
-    unit/test_set_operations.cpp
-    unit/test_edge_cases.cpp
-    unit/test_serialization.cpp
-    unit/test_node_transitions.cpp
-    unit/test_memory.cpp
+    unit/test_compacted_nodes.cpp
     unit/test_complex_scenarios.cpp
+    unit/test_count_range.cpp
+    unit/test_edge_cases.cpp
     unit/test_fuzz.cpp
+    unit/test_memory.cpp
+    unit/test_node_transitions.cpp
     unit/test_node16_32_setops.cpp
+    unit/test_ordering.cpp
+    unit/test_queries.cpp
+    unit/test_serialization.cpp
+    unit/test_set_operations.cpp
 )
 
 # Create test executable
@@ -31,6 +34,13 @@ target_include_directories(vebitset_tests
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include
     PRIVATE ${doctest_SOURCE_DIR}/doctest
 )
+
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "Valgrind")
+    target_compile_options(vebitset_tests PRIVATE
+        -g3;-Og;-fno-omit-frame-pointer;-fno-inline;-fno-optimize-sibling-calls
+    )
+endif()
+
 target_link_libraries(vebitset_tests PRIVATE vebtree)
 
 # Register tests with ctest

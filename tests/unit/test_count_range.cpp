@@ -83,13 +83,13 @@ TEST_SUITE("VebTree Count Range") {
         }
         
         REQUIRE(tree.count_range(15, 16) == 2);
-        REQUIRE(tree.count_range(16, 256) == 6);
+        REQUIRE(tree.count_range(16, 256) == 4);
         REQUIRE(tree.count_range(0, 1025) == 10);
         
         tree.remove(16);
         tree.remove(256);
-        REQUIRE(tree.count_range(15, 256) == 7);
-        REQUIRE(tree.count_range(256, 1025) == 3);
+        REQUIRE(tree.count_range(15, 256) == 3);
+        REQUIRE(tree.count_range(256, 1025) == 4);
     }
 
     TEST_CASE("count_range randomized small") {
@@ -156,27 +156,37 @@ TEST_SUITE("VebTree Count Range") {
 
     TEST_CASE("count_range dense ranges") {
         VebTree tree;
+        std::set<size_t> reference;
+        const auto reference_count = [&](size_t min, size_t max) {
+            return std::distance(reference.lower_bound(min), reference.upper_bound(max));
+        };
         for (size_t i = 0; i < 1000; ++i) {
             tree.insert(i);
+            reference.insert(i);
         }
         
-        REQUIRE(tree.count_range(0, 999) == 1000);
-        REQUIRE(tree.count_range(100, 199) == 100);
-        REQUIRE(tree.count_range(500, 600) == 101);
-        REQUIRE(tree.count_range(250, 250) == 1);
-        REQUIRE(tree.count_range(750, 749) == 0);
+        REQUIRE(tree.count_range(0, 999) == reference_count(0, 999));
+        REQUIRE(tree.count_range(100, 199) == reference_count(100, 199));
+        REQUIRE(tree.count_range(500, 600) == reference_count(500, 600));
+        REQUIRE(tree.count_range(250, 250) == reference_count(250, 250));
+        REQUIRE(tree.count_range(750, 749) == reference_count(750, 749));
     }
 
     TEST_CASE("count_range sparse ranges") {
         VebTree tree;
+        std::set<size_t> reference;
         for (size_t i = 0; i < 100; ++i) {
             tree.insert(i * 100);
+            reference.insert(i * 100);
         }
+        const auto reference_count = [&](size_t min, size_t max) {
+            return std::distance(reference.lower_bound(min), reference.upper_bound(max));
+        };
         
-        REQUIRE(tree.count_range(0, 9999) == 100);
-        REQUIRE(tree.count_range(1000, 2000) == 11);
-        REQUIRE(tree.count_range(5000, 5000) == 1);
-        REQUIRE(tree.count_range(5001, 5099) == 0);
+        REQUIRE(tree.count_range(0, 9999) == reference_count(0, 9999));
+        REQUIRE(tree.count_range(1000, 2000) == reference_count(1000, 2000));
+        REQUIRE(tree.count_range(5000, 5000) == reference_count(5000, 5000));
+        REQUIRE(tree.count_range(5001, 5099) == reference_count(5001, 5099));
     }
 
     TEST_CASE("count_range boundary conditions") {
@@ -193,82 +203,98 @@ TEST_SUITE("VebTree Count Range") {
     TEST_CASE("count_range all nodes in range") {
         VebTree tree;
         std::vector<size_t> elements{100, 500, 1000, 50000, 100000};
+        std::set<size_t> reference(elements.begin(), elements.end());
+        const auto reference_count = [&](size_t min, size_t max) {
+            return std::distance(reference.lower_bound(min), reference.upper_bound(max));
+        };
         for (auto e : elements) {
             tree.insert(e);
         }
         
-        REQUIRE(tree.count_range(0, 200000) == 5);
-        REQUIRE(tree.count_range(100, 100000) == 5);
-        REQUIRE(tree.count_range(101, 100000) == 4);
+        REQUIRE(tree.count_range(0, 200000) == reference_count(0, 200000));
+        REQUIRE(tree.count_range(100, 100000) == reference_count(100, 100000));
+        REQUIRE(tree.count_range(101, 100000) == reference_count(101, 100000));
     }
 
     TEST_CASE("count_range interleaved ops and queries") {
         VebTree tree;
         std::set<size_t> reference;
+        const auto reference_count = [&](size_t min, size_t max) {
+            return std::distance(reference.lower_bound(min), reference.upper_bound(max));
+        };
         
         tree.insert(10);
         reference.insert(10);
-        REQUIRE(tree.count_range(5, 15) == 1);
+        REQUIRE(tree.count_range(5, 15) == reference_count(5, 15));
         
         tree.insert(20);
         reference.insert(20);
-        REQUIRE(tree.count_range(5, 25) == 2);
+        REQUIRE(tree.count_range(5, 25) == reference_count(5, 25));
         
         tree.remove(10);
         reference.erase(10);
-        REQUIRE(tree.count_range(5, 25) == 1);
-        REQUIRE(tree.count_range(5, 15) == 0);
+        REQUIRE(tree.count_range(5, 25) == reference_count(5, 25));
+        REQUIRE(tree.count_range(5, 15) == reference_count(5, 15));
         
         for (size_t i = 30; i < 50; ++i) {
             tree.insert(i);
             reference.insert(i);
         }
         
-        REQUIRE(tree.count_range(5, 50) == 21);
-        REQUIRE(tree.count_range(25, 45) == 20);
+        REQUIRE(tree.count_range(5, 50) == reference_count(5, 50));
+        REQUIRE(tree.count_range(25, 45) == reference_count(25, 45));
     }
 
     TEST_CASE("count_range after clear and re-insert") {
         VebTree tree;
-        
+        std::set<size_t> reference;
+        const auto reference_count = [&](size_t min, size_t max) {
+            return std::distance(reference.lower_bound(min), reference.upper_bound(max));
+        };
         for (size_t i = 0; i < 100; ++i) {
             tree.insert(i);
+            reference.insert(i);
         }
-        REQUIRE(tree.count_range(0, 99) == 100);
+        REQUIRE(tree.count_range(0, 99) == reference_count(0, 99));
         
         tree.clear();
-        REQUIRE(tree.count_range(0, 99) == 0);
+        reference.clear();
+        REQUIRE(tree.count_range(0, 99) == reference_count(0, 99));
         
         for (size_t i = 0; i < 100; ++i) {
             tree.insert(i * 2);
+            reference.insert(i * 2);
         }
-        REQUIRE(tree.count_range(0, 200) == 100);
-        REQUIRE(tree.count_range(50, 150) == 51);
+        REQUIRE(tree.count_range(0, 200) == reference_count(0, 200));
+        REQUIRE(tree.count_range(50, 150) == reference_count(50, 150));
     }
 
     TEST_CASE("count_range with node32 values") {
         VebTree tree;
         std::vector<size_t> vals{100, 70000, 100000, 1000000, 2000000};
         std::set<size_t> reference(vals.begin(), vals.end());
+        const auto reference_count = [&](size_t min, size_t max) {
+            return std::distance(reference.lower_bound(min), reference.upper_bound(max));
+        };
         
         for (auto v : vals) {
             tree.insert(v);
         }
         
-        REQUIRE(tree.count_range(0, 3000000) == 5);
-        REQUIRE(tree.count_range(50000, 2000000) == 5);
-        REQUIRE(tree.count_range(70001, 999999) == 2);
-        REQUIRE(tree.count_range(2000001, 3000000) == 0);
+        REQUIRE(tree.count_range(0, 3000000) == reference_count(0, 3000000));
+        REQUIRE(tree.count_range(50000, 2000000) == reference_count(50000, 2000000));
+        REQUIRE(tree.count_range(70001, 999999) == reference_count(70001, 999999));
+        REQUIRE(tree.count_range(2000001, 3000000) == reference_count(2000001, 3000000));
     }
 
-    TEST_CASE("count_range stress test 500 elements") {
+    TEST_CASE("count_range stress test 5000 elements") {
         std::mt19937 rng(999);
         std::uniform_int_distribution<size_t> val_dist(0, 100000);
         
         VebTree tree;
         std::set<size_t> reference;
         
-        for (int i = 0; i < 500; ++i) {
+        for (int i = 0; i < 5000; ++i) {
             size_t v = val_dist(rng);
             tree.insert(v);
             reference.insert(v);

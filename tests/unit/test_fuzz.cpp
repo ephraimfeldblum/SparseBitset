@@ -231,7 +231,7 @@ TEST_SUITE("VebTree Fuzz Tests") {
         }
     }
 
-    TEST_CASE("fuzz to_array ordering") {
+    TEST_CASE("fuzz to_vector ordering") {
         std::mt19937 rng(90123);
         std::uniform_int_distribution<size_t> dist(0, 10000);
         
@@ -244,7 +244,7 @@ TEST_SUITE("VebTree Fuzz Tests") {
             reference.insert(val);
         }
         
-        auto arr = std::vector<size_t>(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         REQUIRE(arr.size() == reference.size());
         
         size_t i = 0;
@@ -253,7 +253,7 @@ TEST_SUITE("VebTree Fuzz Tests") {
         }
     }
 
-    TEST_CASE("fuzz iteration order matches to_array") {
+    TEST_CASE("fuzz iteration order matches to_vector") {
         std::mt19937 rng(101234);
         std::uniform_int_distribution<size_t> dist(0, 10000);
         
@@ -262,7 +262,7 @@ TEST_SUITE("VebTree Fuzz Tests") {
             tree.insert(dist(rng));
         }
         
-        auto arr = std::vector<size_t>(tree.begin(), tree.end());
+        auto arr = tree.to_vector();
         std::vector<size_t> via_iteration;
         for (auto val : tree) {
             via_iteration.push_back(val);
